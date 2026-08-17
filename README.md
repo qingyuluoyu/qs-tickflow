@@ -33,7 +33,7 @@
 
 
 
-**本项目个人开源，基于 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 数据源，非 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 官方项目。仅供学习研究使用，严禁商业用途。** 
+**本项目个人开源，仅供学习研究使用，严禁商业用途。** 
 
 
 
@@ -240,21 +240,14 @@ PORT=3018                      # 服务端口
 | [docs/strategy.md](./docs/strategy.md)                                                             | 策略体系(18 内置策略 + 三种扩展方式 + 文件结构)                      |
 | [backend/app/strategy/prompts/strategy-guide.md](./backend/app/strategy/prompts/strategy-guide.md) | 策略开发完整规范(AI 生成与手写)                                      |
 
-fork同时请点个star哦,欢迎 Issue 和 PR。
 
----
 
-## 💬 交流群
-
-欢迎加入交流群,讨论交流。
-
-<img src="./community-qr-code.jpg" alt="交流群二维码" width="240" />
 
 ---
 
 ## ⚠️ 免责声明
 
-本项目仅供**学习与量化研究**,**不构成任何投资建议**。回测结果不代表未来收益。A 股有风险,入市需谨慎。数据准确性以数据源 TickFlow 官方为准。
+本项目仅供**学习与量化研究**,**不构成任何投资建议**。回测结果不代表未来收益。A 股有风险,入市需谨慎。
 
 ## 📄 License
 
