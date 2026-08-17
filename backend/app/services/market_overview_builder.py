@@ -245,7 +245,7 @@ def _derive_dashboard_turnover_rate(snapshot: pl.DataFrame) -> pl.DataFrame:
     """Fill the canonical percent turnover from same-date volume and float.
 
     TeaJoin's daily endpoint does not include ``turnover_rate``.  The
-    deterministic application formula is volume (lots) × 10,000 ÷ float
+    deterministic application formula is volume (lots) x 10,000 / float
     shares, expressed as a percentage.  Do not overwrite a provider value;
     realtime snapshots are normalized at their provider boundary and remain
     the source of truth when present.
@@ -284,7 +284,7 @@ def _extend_dashboard_limit_ladder(
         return snapshot
     try:
         previous = screener.load_prior_consecutive(as_of, "consecutive_limit_ups")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         import logging
 
         logging.getLogger(__name__).warning(

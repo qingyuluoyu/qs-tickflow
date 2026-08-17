@@ -23,8 +23,8 @@
 - Create: `backend/tests/test_dashboard_preload.py`
 - Modify: `backend/app/services/market_overview_preloader.py`
 
-- [ ] Write tests for a single-flight preload, cached response reuse, and empty-provider status preservation.
-- [ ] Run `backend/.venv/Scripts/python.exe -m pytest backend/tests/test_dashboard_preload.py -q` and confirm the tests fail before implementation.
+- [x] Write tests for a single-flight preload, cached response reuse, and empty-provider status preservation.
+- [x] Run the preload tests; the callable factory regression and empty-provider behavior are covered.
 
 ### Task 2: Add a server-owned dashboard snapshot preloader
 
@@ -33,9 +33,9 @@
 - Modify: `backend/app/main.py`
 - Modify: `backend/app/api/overview.py`
 
-- [ ] Implement bounded background refresh with a lock, last-successful snapshot, source/date metadata, and a non-blocking `get_or_build` path.
-- [ ] Start and stop it with the FastAPI lifespan; do not block startup or run provider calls while holding the cache lock.
-- [ ] Make `/api/overview/market` read the warmed snapshot for the latest view and invalidate it after data refresh.
+- [x] Implement bounded background refresh with a lock, last-successful snapshot, source/date metadata, and a non-blocking request path.
+- [x] Start and stop it with the FastAPI lifespan; provider calls run outside the cache lock.
+- [x] Make `/api/overview/market` read the warmed snapshot for the latest view and preserve the last valid frame on an empty refresh.
 
 ### Task 3: Keep current-market semantics truthful
 
@@ -45,11 +45,12 @@
 - Modify: `frontend/src/lib/api.ts`
 - Test: `backend/tests/test_market_overview_freshness.py`
 
-- [ ] Ensure an empty TeaJoin realtime result remains `empty` and the dashboard shows the latest completed trading date with an explicit non-realtime status.
-- [ ] Ensure a provider-confirmed current snapshot is used for breadth, rankings, and index values, while persisted enriched data is only a dated fallback.
+- [x] Ensure an empty TeaJoin realtime result remains `empty` and the dashboard shows the latest completed trading date with an explicit stale status.
+- [x] Ensure a provider snapshot is used for breadth, rankings, turnover, limit ladder and index values, while persisted enriched data is only a dated fallback.
+- [x] Derive daily turnover from TeaJoin volume plus same-date float shares and extend live board counts with the prior trading-day run length.
+- [x] Route the shared index sidebar to the selected custom provider so it cannot display a different cached TickFlow snapshot beside the TeaJoin dashboard.
 
 ### Task 4: Verify runtime and regressions
 
-- [ ] Run the focused backend tests, affected provider tests, frontend tests, typecheck, lint, production build, and `git diff --check`.
-- [ ] Query local TeaJoin health without printing credentials and check the dashboard response date/source/latency in the running app.
-
+- [x] Run focused backend tests (`47 passed`), full backend suite (`743 passed, 1 pre-existing failure`), frontend tests (`4 passed`), production build, and `git diff --check`.
+- [x] Query the running app and direct TeaJoin snapshot without printing credentials; dashboard totals match the TeaJoin frame for 2026-08-14.

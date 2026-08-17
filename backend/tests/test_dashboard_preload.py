@@ -29,7 +29,11 @@ def test_preloader_keeps_last_valid_snapshot_and_records_empty_refresh():
 
     def fetch():
         calls.append(len(calls))
-        return _snapshot("teajoin.realtime", "success", 12.3) if len(calls) == 1 else DashboardSnapshot.empty("teajoin", "empty")
+        return (
+            _snapshot("teajoin.realtime", "success", 12.3)
+            if len(calls) == 1
+            else DashboardSnapshot.empty("teajoin", "empty")
+        )
 
     preloader = MarketOverviewPreloader(fetch, interval_s=30)
 
