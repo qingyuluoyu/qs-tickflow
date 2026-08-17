@@ -9,6 +9,8 @@ import { AiAnalysisHost } from '@/components/financials/AiAnalysisHost'
 import { AiReportBubble } from '@/components/financials/AiReportBubble'
 import { StockAnalysisHost } from '@/components/stock-analysis/StockAnalysisHost'
 import { StockAnalysisBubble } from '@/components/stock-analysis/StockAnalysisBubble'
+import { AskAiHost } from '@/components/ask-ai/AskAiHost'
+import { AskAiBubble } from '@/components/ask-ai/AskAiBubble'
 import {
   useCapabilities,
   useSettings,
@@ -48,6 +50,7 @@ import {
   WifiOff,
   LogOut,
   UserRound,
+  Swords,
 } from 'lucide-react'
 import { api, type IndexQuote } from '@/lib/api'
 import { cn } from '@/lib/cn'
@@ -73,6 +76,7 @@ const nav = [
   { to: '/screener',   label: '策略',   icon: ScanSearch },
   { to: '/backtest',   label: '回测',   icon: History },
   { to: '/stock-analysis',    label: '个股分析', icon: TrendingUp },
+  { to: '/debate', label: '多空辩论', icon: Swords },
   { to: '/limit-ladder', label: '连板梯队', icon: Flame },
   { to: '/concept-analysis', label: '概念分析', icon: Layers3 },
   { to: '/industry-analysis', label: '行业分析', icon: Landmark },
@@ -680,6 +684,8 @@ export function Layout() {
       <AiReportBubble />
       <StockAnalysisHost />
       <StockAnalysisBubble />
+      <AskAiHost />
+      <AskAiBubble />
     </div>
   )
 }

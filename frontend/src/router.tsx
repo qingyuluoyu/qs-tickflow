@@ -61,6 +61,7 @@ const AnalysisDetail = lazyRoute(() => import('./pages/AnalysisDetail').then(m =
 const ConceptAnalysis = lazyRoute(() => import('./pages/ConceptAnalysis').then(m => ({ default: m.ConceptAnalysis })))
 const IndustryAnalysis = lazyRoute(() => import('./pages/IndustryAnalysis').then(m => ({ default: m.IndustryAnalysis })))
 const StockAnalysis = lazyRoute(() => import('./pages/StockAnalysis').then(m => ({ default: m.StockAnalysis })))
+const Debate = lazyRoute(() => import('./pages/Debate').then(m => ({ default: m.Debate })))
 const Review = lazyRoute(() => import('./pages/Review').then(m => ({ default: m.Review })))
 const LimitUpLadder = lazyRoute(() => import('./pages/LimitUpLadder').then(m => ({ default: m.LimitUpLadder })))
 const Branding = lazyRoute(() => import('./pages/Branding').then(m => ({ default: m.Branding })))
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
           { path: 'concept-analysis', element: <ConceptAnalysis /> },
           { path: 'industry-analysis', element: <IndustryAnalysis /> },
           { path: 'stock-analysis', element: <StockAnalysis /> },
+          { path: 'debate', element: <Debate /> },
           { path: 'review', element: <Review /> },
           { path: 'watchlist', element: <Watchlist /> },
           { path: 'screener', element: <Screener /> },

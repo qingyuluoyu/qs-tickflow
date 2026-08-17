@@ -2138,6 +2138,111 @@ export const api = {
     }
   },
 
+  /** 多空辩论 — NDJSON 流式事件。 */
+  async *debateStream(code: string, rounds = 1): AsyncGenerator<{
+    type: 'status' | 'dossier_progress' | 'dossier' | 'stage' | 'delta' | 'stage_done' | 'done' | 'error'
+    message?: string
+    code?: string
+    symbol?: string
+    title?: string
+    ok?: boolean
+    loaded?: number
+    total?: number
+    sections?: Array<{ title: string; tool: string }>
+    missing?: string[]
+    stage?: string
+    label?: string
+    text?: string
+    content?: string
+    failed?: boolean
+    stages?: Array<{ stage: string; content: string }>
+  }> {
+    const res = await fetch('/api/debate/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, rounds }),
+    })
+    if (!res.ok) {
+      let detail = ''
+      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
+      const msg = detail || `${res.status} ${res.statusText}`
+      toast(msg, 'error')
+      throw new Error(msg)
+    }
+    if (!res.body) throw new Error('响应无 body')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        const s = line.trim()
+        if (!s) continue
+        try { yield JSON.parse(s) } catch { /* ignore malformed event */ }
+      }
+    }
+    if (buf.trim()) {
+      try { yield JSON.parse(buf.trim()) } catch { /* ignore malformed event */ }
+    }
+  },
+
+  /** 问 AI — 数据注入 / 函数调用共用 NDJSON 流。 */
+  async *chatStream(body: {
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>
+    context?: string
+    stock_code?: string
+    stock_name?: string
+    conversation_id?: string
+  }): AsyncGenerator<{
+    type: 'delta' | 'tool_started' | 'tool_completed' | 'tool_failed' | 'done' | 'error'
+    text?: string
+    message?: string
+    content?: string
+    call_id?: string
+    tool_name?: string
+    label?: string
+    args?: Record<string, unknown>
+    error_code?: string
+    trace?: Array<{ call_id: string; tool_name: string; label: string }>
+    rounds?: number
+  }> {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      let detail = ''
+      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
+      const msg = detail || `${res.status} ${res.statusText}`
+      toast(msg, 'error')
+      throw new Error(msg)
+    }
+    if (!res.body) throw new Error('响应无 body')
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() ?? ''
+      for (const line of lines) {
+        const s = line.trim()
+        if (!s) continue
+        try { yield JSON.parse(s) } catch { /* ignore malformed event */ }
+      }
+    }
+    if (buf.trim()) {
+      try { yield JSON.parse(buf.trim()) } catch { /* ignore malformed event */ }
+    }
+  },
+
   // ===== 大盘复盘 =====
   reviewReportsList: () =>
     request<{ reports: AiReviewReport[] }>('/api/market-recap/reports'),

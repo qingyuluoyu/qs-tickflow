@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { Settings2, RadioTower, Star } from 'lucide-react'
+import { Settings2, RadioTower, Star, MessageCircle } from 'lucide-react'
 import type { KlineRow, FinancialMetricRecord } from '@/lib/api'
 import { fmtPrice, fmtBigNum, fmtVolume } from '@/lib/format'
 import { ListColumnCustomizer } from '@/components/ListColumnCustomizer'
 import { INFO_GROUPS, type ColumnConfig } from '@/lib/stock-info-fields'
+import { startAskAi } from '@/lib/askAiStore'
 
 const BULL = '#C74040'
 const BEAR = '#2D9B65'
@@ -234,6 +235,13 @@ export function StockInfoBar({ symbol, name, stockInfo, rows, fields, onFieldsCh
               <RadioTower className="h-3.5 w-3.5" />
             </button>
           )}
+          <button
+            onClick={() => startAskAi(symbol, displayName, `当前页面选中股票：${displayName}（${symbol}）。请结合后端自动注入的数据回答。`)}
+            className="p-1 rounded-btn text-accent hover:bg-accent/10 transition-colors cursor-pointer"
+            title="问 AI"
+          >
+            <MessageCircle className="h-3.5 w-3.5" />
+          </button>
           <button
             onClick={() => setCustomizerOpen(true)}
             className="p-1 rounded-btn text-muted hover:text-foreground hover:bg-elevated transition-colors"

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CalendarDays, TrendingUp, FileText, Wallet, Activity, Sparkles, AlertTriangle, Loader2, ChartPie } from 'lucide-react'
+import { CalendarDays, TrendingUp, FileText, Wallet, Activity, Sparkles, AlertTriangle, Loader2, ChartPie, MessageCircle } from 'lucide-react'
 import {
   useFinancialMetrics,
   useFinancialIncome,
@@ -12,6 +12,7 @@ import { fmtPrice, fmtBigNum, fmtDate } from '@/lib/format'
 import { Skeleton } from '@/components/data/Skeleton'
 import { startAnalysis, findLatestHistoryReport, openHistoryReport } from '@/lib/aiReportStore'
 import { toast } from '@/components/Toast'
+import { startAskAi } from '@/lib/askAiStore'
 
 interface Props {
   symbol: string
@@ -190,6 +191,14 @@ export function StockFinancialDetail({ symbol, name }: Props) {
           >
             {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
             AI 财务分析
+          </button>
+          <button
+            onClick={() => startAskAi(symbol, name, `当前页面正在查看 ${name}（${symbol}）的财务数据，请结合已注入的行情、财务与概念数据回答。`)}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-btn text-[11px] font-medium border border-accent/30 bg-accent/10 text-accent hover:bg-accent/20 transition-all shrink-0"
+            title="问 AI"
+          >
+            <MessageCircle className="h-3 w-3" />
+            问 AI
           </button>
           {latestPeriod && (
             <div className="flex items-center gap-1.5 text-xs text-secondary">

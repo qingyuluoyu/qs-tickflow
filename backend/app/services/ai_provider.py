@@ -13,6 +13,7 @@ import time
 import tomllib
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
+from typing import Any
 from types import TracebackType
 from urllib.parse import urlsplit, urlunsplit
 
@@ -63,7 +64,7 @@ _CODEX_ENV_ALLOWLIST = (
     "NODE_EXTRA_CA_CERTS",
 )
 
-Message = dict[str, str]
+Message = dict[str, Any]
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
@@ -223,6 +224,84 @@ async def stream_ai_text(
         timeout=timeout,
     ):
         yield chunk
+
+
+async def stream_ai_text_with_tools(
+    messages: Sequence[Message],
+    tools: Sequence[dict[str, Any]],
+    *,
+    temperature: float | None = 0.5,
+    max_tokens: int = 4000,
+    timeout: float = 180.0,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream one OpenAI-compatible round, including accumulated tool calls.
+
+    Protocol parsing belongs here; tool execution and the multi-round loop live
+    in the chat service so provider/profile/account behavior stays centralized.
+    Codex CLI has no function-calling protocol and intentionally falls back to
+    the regular text stream.
+    """
+    if is_codex_cli_provider():
+        async for chunk in stream_ai_text(
+            messages, temperature=temperature, max_tokens=max_tokens, timeout=timeout,
+        ):
+            if chunk:
+                yield {"type": "delta", "text": chunk}
+        yield {"type": "round_done", "tool_calls": []}
+        return
+
+    profile = resolve_current_profile()
+    if not profile.api_key:
+        raise RuntimeError("AI API Key 未配置, 请在设置页配置")
+    client = _openai_client(profile, timeout)
+    request_kwargs: dict[str, Any] = {
+        "model": profile.model,
+        "messages": list(messages),
+        "tools": list(tools),
+        "tool_choice": "auto",
+        **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
+        "stream": True,
+    }
+    try:
+        stream = await client.chat.completions.create(**request_kwargs)
+    except Exception as exc:
+        if temperature is not None and _is_temperature_rejected(exc):
+            request_kwargs.pop("temperature", None)
+            stream = await client.chat.completions.create(**request_kwargs)
+        else:
+            if _is_openai_transport_error(exc):
+                raise RuntimeError(_format_openai_error(exc)) from exc
+            raise
+
+    calls: dict[int, dict[str, str]] = {}
+    try:
+        async for chunk in stream:
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if not delta:
+                continue
+            text = getattr(delta, "content", None) or getattr(delta, "reasoning", None) or ""
+            if text:
+                yield {"type": "delta", "text": text}
+            for tool_call in (getattr(delta, "tool_calls", None) or []):
+                index = int(getattr(tool_call, "index", 0) or 0)
+                entry = calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                call_id = getattr(tool_call, "id", None)
+                if call_id:
+                    entry["id"] += str(call_id)
+                function = getattr(tool_call, "function", None)
+                if function is not None:
+                    name = getattr(function, "name", None)
+                    arguments = getattr(function, "arguments", None)
+                    if name:
+                        entry["name"] += str(name)
+                    if arguments:
+                        entry["arguments"] += str(arguments)
+    except Exception as exc:
+        if _is_openai_transport_error(exc):
+            raise RuntimeError(_format_openai_error(exc)) from exc
+        raise
+
+    yield {"type": "round_done", "tool_calls": [calls[index] for index in sorted(calls)]}
 
 
 async def _run_openai_once(
