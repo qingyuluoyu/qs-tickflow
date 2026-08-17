@@ -9,6 +9,7 @@ import { AccountEntry } from './AccountEntry'
 export function AuthGate({ children }: { children?: ReactNode }) {
   const queryClient = useQueryClient()
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [hasExistingAccounts, setHasExistingAccounts] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
 
@@ -17,6 +18,7 @@ export function AuthGate({ children }: { children?: ReactNode }) {
     setLoadError('')
     try {
       const status = await api.authStatus()
+      setHasExistingAccounts(status.configured)
       setUser(status.authenticated ? status.user : null)
     } catch (cause: any) {
       setLoadError(cause?.message || '无法连接服务')
@@ -28,7 +30,13 @@ export function AuthGate({ children }: { children?: ReactNode }) {
   useEffect(() => { void loadStatus() }, [loadStatus])
 
   const logout = useCallback(async () => {
-    try { await api.authLogout() } finally {
+    try {
+      // Stop old-account requests before switching identity. Otherwise a
+      // response that completes after logout could repopulate shared query
+      // keys with the previous account's private data.
+      await queryClient.cancelQueries()
+      await api.authLogout()
+    } finally {
       // Do not retain one account's private query cache when another account
       // enters in the same browser tab.
       queryClient.clear()
@@ -52,7 +60,7 @@ export function AuthGate({ children }: { children?: ReactNode }) {
       </div>
     )
   }
-  if (!user) return <AccountEntry onAuthenticated={setUser} />
+  if (!user) return <AccountEntry onAuthenticated={setUser} hasExistingAccounts={hasExistingAccounts} />
 
   return (
     <AuthContext.Provider value={{ user, logout }}>

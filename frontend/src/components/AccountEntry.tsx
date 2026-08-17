@@ -6,10 +6,12 @@ import { cn } from '@/lib/cn'
 
 interface AccountEntryProps {
   onAuthenticated: (user: AuthUser) => void
+  hasExistingAccounts: boolean
 }
 
 /** Site entry card: creates a new local account or enters an existing one. */
-export function AccountEntry({ onAuthenticated }: AccountEntryProps) {
+export function AccountEntry({ onAuthenticated, hasExistingAccounts }: AccountEntryProps) {
+  const [mode, setMode] = useState<'login' | 'register'>(hasExistingAccounts ? 'login' : 'register')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
@@ -19,14 +21,15 @@ export function AccountEntry({ onAuthenticated }: AccountEntryProps) {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (!name || !phone || !password) {
-      setError('请填写姓名、电话和密码')
+    if ((mode === 'register' && !name) || !phone || !password) {
+      setError(mode === 'register' ? '请填写姓名、电话和密码' : '请填写电话和密码')
       return
     }
     setError('')
     setPending(true)
     try {
-      const result = await api.authEntry(name, phone, password)
+      // 登录模式不要求姓名；服务端只用电话和密码定位已有账户。
+      const result = await api.authEntry(mode === 'register' ? name : '', phone, password)
       onAuthenticated(result.user)
     } catch (cause: any) {
       setError(cause?.message || '进入失败，请稍后重试')
@@ -53,19 +56,37 @@ export function AccountEntry({ onAuthenticated }: AccountEntryProps) {
               <UserRound className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-sm font-medium text-foreground">进入投研工作台</div>
-              <div className="text-[11px] text-muted">首次填写会创建个人空间，之后使用电话和密码进入</div>
+              <div className="text-sm font-medium text-foreground">{mode === 'login' ? '登录投研工作台' : '注册投研账户'}</div>
+              <div className="text-[11px] text-muted">{mode === 'login' ? '使用已有账户登录，个人数据将保持隔离' : '注册后会创建独立的个人数据空间'}</div>
             </div>
           </div>
+          <div className="mb-4 grid grid-cols-2 rounded-btn bg-base p-1 text-xs">
+            <button
+              type="button"
+              onClick={() => { setMode('login'); setError('') }}
+              className={cn('rounded-[7px] px-3 py-2 transition-colors', mode === 'login' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-foreground')}
+            >
+              登录已有账户
+            </button>
+            <button
+              type="button"
+              onClick={() => { setMode('register'); setError('') }}
+              className={cn('rounded-[7px] px-3 py-2 transition-colors', mode === 'register' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-foreground')}
+            >
+              注册新账户
+            </button>
+          </div>
           <form onSubmit={submit} autoComplete="off" className="space-y-3">
-            <input
-              value={name}
-              onChange={event => setName(event.target.value)}
-              placeholder="姓名"
-              autoComplete="off"
-              autoFocus
-              className="h-10 w-full rounded-btn border border-border bg-base px-3 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
-            />
+            {mode === 'register' && (
+              <input
+                value={name}
+                onChange={event => setName(event.target.value)}
+                placeholder="姓名"
+                autoComplete="off"
+                autoFocus
+                className="h-10 w-full rounded-btn border border-border bg-base px-3 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
+              />
+            )}
             <input
               value={phone}
               onChange={event => setPhone(event.target.value)}
@@ -79,7 +100,7 @@ export function AccountEntry({ onAuthenticated }: AccountEntryProps) {
                 value={password}
                 onChange={event => setPassword(event.target.value)}
                 placeholder="密码"
-                autoComplete="new-password"
+                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
                 className="h-10 w-full rounded-btn border border-border bg-base px-3 pr-9 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
               />
               <button
@@ -100,16 +121,17 @@ export function AccountEntry({ onAuthenticated }: AccountEntryProps) {
             )}
             <button
               type="submit"
-              disabled={pending || !name || !phone || !password}
+              disabled={pending || !phone || !password || (mode === 'register' && !name)}
               className={cn(
                 'inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-btn bg-accent text-sm font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50',
               )}
             >
-              {pending ? <><Loader2 className="h-4 w-4 animate-spin" />正在进入…</> : '进入工作台'}
+              {pending ? <><Loader2 className="h-4 w-4 animate-spin" />处理中…</> : mode === 'login' ? '登录并进入' : '注册并进入'}
             </button>
           </form>
           <p className="mt-3 text-[10px] leading-relaxed text-muted/70">
-            姓名、电话和密码按原样保存（密码仅保存不可逆哈希），每个账户的个人数据相互隔离。
+            {mode === 'register' ? '姓名、电话和密码按原样保存（密码仅保存不可逆哈希）。' : '登录只需要电话和密码；已保存的自选、策略和偏好仅属于当前账户。'}
+            {' '}每个账户的个人数据相互隔离。
           </p>
         </div>
       </motion.div>

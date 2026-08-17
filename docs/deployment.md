@@ -54,6 +54,10 @@ Docker 采用两阶段构建,前端 dist 拷进后端镜像,**单容器**运行,
 Windows Docker Desktop 若提示 `HOME` 未设置,请在 `.env` 中把 `CODEX_HOME_HOST` 设置为主机
 `.codex` 目录的绝对路径。未使用 Codex CLI 时也可以在部署版 Compose 中移除该只读挂载。
 
+### 多账户个人 AI Key 主密钥
+
+如果允许用户填写自己的 AI API Key，生产部署必须在服务器密钥管理器或运行环境中设置 `USER_SECRETS_MASTER_KEY`。它用于加密数据库内的用户私有 Key，必须在滚动更新、扩容和恢复时保持一致；不要写入镜像、Git 或前端配置。具体生成和恢复规则见 [configuration.md 的多账户 AI 密钥](./configuration.md#多账户-ai-密钥)。
+
 > ⚠️ **stock-sdk 插件默认不打包(合规考虑)**
 >
 > stock-sdk 数据源本质是抓取第三方财经网站(如东方财富)的行情接口,未经对方授权,可能违反其服务条款并涉及交易所行情版权问题。**出于合规考虑,Docker 默认构建不再内置 stock-sdk 插件依赖**。

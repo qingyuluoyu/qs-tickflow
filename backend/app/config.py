@@ -89,6 +89,10 @@ class Settings(BaseSettings):
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/131.0.0.0 Safari/537.36"
     )
+    # Encrypts C-end users' optional AI API-key overrides at rest. Production
+    # should inject this independently from DATA_DIR; a local-only key file is
+    # generated as a development fallback when the value is empty.
+    user_secrets_master_key: str = ""
 
     # Server
     host: str = "0.0.0.0"

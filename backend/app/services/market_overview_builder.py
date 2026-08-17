@@ -203,7 +203,7 @@ def _merge_live_snapshot_indicators(
             return snapshot
 
     indicator_cols = [
-        "turnover_rate", "vol_ratio_5d", "consecutive_limit_ups",
+        "turnover_rate", "float_shares", "vol_ratio_5d", "consecutive_limit_ups",
         "signal_limit_up", "signal_broken_limit_up", "signal_limit_down",
         "ma5", "ma20", "ma60", "high_60d", "low_60d",
         "signal_n_day_high", "signal_n_day_low",
@@ -239,6 +239,76 @@ def _merge_live_snapshot_indicators(
         else:
             merged = merged.rename({"_enriched_name": "name"})
     return merged
+
+
+def _derive_dashboard_turnover_rate(snapshot: pl.DataFrame) -> pl.DataFrame:
+    """Fill the canonical percent turnover from same-date volume and float.
+
+    TeaJoin's daily endpoint does not include ``turnover_rate``.  The
+    deterministic application formula is volume (lots) × 10,000 ÷ float
+    shares, expressed as a percentage.  Do not overwrite a provider value;
+    realtime snapshots are normalized at their provider boundary and remain
+    the source of truth when present.
+    """
+    if snapshot.is_empty() or "turnover_rate" in snapshot.columns:
+        return snapshot
+    if not {"volume", "float_shares"}.issubset(snapshot.columns):
+        return snapshot
+    return snapshot.with_columns(
+        pl.when(
+            pl.col("float_shares").cast(pl.Float64, strict=False) > 0
+        )
+        .then(
+            pl.col("volume").cast(pl.Float64, strict=False)
+            * 10000.0
+            / pl.col("float_shares").cast(pl.Float64, strict=False)
+        )
+        .otherwise(None)
+        .alias("turnover_rate")
+    )
+
+
+def _extend_dashboard_limit_ladder(
+    snapshot: pl.DataFrame,
+    screener: ScreenerService,
+    as_of: date,
+) -> pl.DataFrame:
+    """Extend today's live limit-up signal with the prior run length.
+
+    A provider snapshot has only today's signal, while the persisted
+    enriched partition contains the previous trading day's run length.  The
+    dashboard must use the same board-count rule as ``/screener/limit-ladder``
+    without carrying a stale price or breadth field into the live snapshot.
+    """
+    if snapshot.is_empty() or "consecutive_limit_ups" not in snapshot.columns:
+        return snapshot
+    try:
+        previous = screener.load_prior_consecutive(as_of, "consecutive_limit_ups")
+    except Exception as exc:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "dashboard prior limit ladder unavailable: %s", type(exc).__name__,
+        )
+        return snapshot
+    if previous is None or previous.is_empty() or "symbol" not in previous.columns:
+        return snapshot
+
+    result = snapshot.join(previous, on="symbol", how="left")
+    current = pl.col("consecutive_limit_ups").cast(pl.UInt32, strict=False).fill_null(0)
+    prior = pl.col("prev_consec").cast(pl.UInt32, strict=False).fill_null(0)
+    is_limit_up = (
+        pl.col("signal_limit_up").fill_null(False)
+        if "signal_limit_up" in result.columns
+        else pl.lit(False)
+    )
+    return result.with_columns(
+        pl.when(is_limit_up)
+        .then(pl.max_horizontal(current, prior + 1))
+        .otherwise(current)
+        .cast(pl.UInt32)
+        .alias("consecutive_limit_ups")
+    ).drop("prev_consec")
 
 
 def _derive_dashboard_limit_indicators(
@@ -323,6 +393,7 @@ def _data_freshness(
     snapshot_date = as_of.isoformat() if as_of else None
     realtime_provider = quote_status.get("realtime_provider")
     realtime_status = quote_status.get("last_fetch_status")
+    snapshot_kind = quote_status.get("snapshot_kind")
     realtime_is_current = (
         realtime_status == "success"
         and realtime_provider == source
@@ -335,7 +406,13 @@ def _data_freshness(
     is_stale = bool(
         not explicit_as_of
         and not provider_confirmed
-        and is_market_snapshot_stale(as_of, current_date)
+        and (
+            is_market_snapshot_stale(as_of, current_date)
+            or (
+                snapshot_kind == "teajoin.realtime"
+                and realtime_status != "success"
+            )
+        )
         and not realtime_is_current
     )
     return {
@@ -345,8 +422,9 @@ def _data_freshness(
         "is_stale": is_stale,
         "calendar_basis": "provider_snapshot" if provider_confirmed else "weekday_fallback",
         "realtime_provider": realtime_provider,
-        "realtime_status": realtime_status,
-        "realtime_rows": quote_status.get("last_fetch_rows", 0),
+            "realtime_status": realtime_status,
+            "realtime_rows": quote_status.get("last_fetch_rows", 0),
+            "snapshot_kind": snapshot_kind,
     }
 
 
@@ -417,9 +495,49 @@ def _index_quotes(
     as_of: date | None = None,
     dashboard_provider: str | None = None,
     dashboard_date: date | None = None,
+    dashboard_snapshot: pl.DataFrame | None = None,
 ) -> list[dict]:
     rows: list[dict] = []
-    if dashboard_provider and dashboard_date:
+    if dashboard_snapshot is not None and not dashboard_snapshot.is_empty():
+        required = {"symbol", "close"}
+        if required.issubset(dashboard_snapshot.columns):
+            for symbol in CORE_INDEX_SYMBOLS:
+                matched = dashboard_snapshot.filter(pl.col("symbol") == symbol)
+                if matched.is_empty():
+                    continue
+                record = (
+                    matched.sort("date", descending=True).to_dicts()[0]
+                    if "date" in matched.columns
+                    else matched.to_dicts()[0]
+                )
+                last_price = _finite(record.get("close"))
+                prev_close = _finite(record.get("prev_close"))
+                change_amount = _finite(record.get("change_amount"))
+                change_pct = _finite(record.get("change_pct"))
+                if change_amount is None and last_price is not None and prev_close not in (None, 0):
+                    change_amount = last_price - prev_close
+                # Dashboard snapshots use the provider contract (decimal
+                # change_pct: 0.01 = 1%), while index cards expose percent
+                # values.  Convert explicitly at this boundary; do not infer
+                # units from the magnitude of a real market move.
+                if change_pct is not None:
+                    change_pct *= 100
+                elif (
+                    change_pct is None
+                    and change_amount is not None
+                    and prev_close not in (None, 0)
+                ):
+                    change_pct = change_amount / prev_close * 100
+                rows.append({
+                    "symbol": symbol,
+                    "name": CORE_INDEX_NAMES[symbol],
+                    "last_price": last_price,
+                    "close": last_price,
+                    "prev_close": prev_close,
+                    "change_amount": change_amount,
+                    "change_pct": change_pct,
+                })
+    if dashboard_provider and dashboard_date and not rows:
         rows = _dashboard_index_quotes(dashboard_provider, dashboard_date)
     if quote_service and as_of is None and not rows:
         df = quote_service.get_index_quotes(list(CORE_INDEX_SYMBOLS))
@@ -696,6 +814,7 @@ def build_market_overview(
     depth_service=None,
     as_of: date | None = None,
     dashboard_live: bool = False,
+    dashboard_snapshot=None,
 ) -> dict:
     """装配市场总览(与原 overview._build_overview 行为一致)。
 
@@ -711,18 +830,48 @@ def build_market_overview(
     explicit_as_of = as_of is not None
     live_date: date | None = None
     live_snapshot: pl.DataFrame | None = None
+    live_kind: str | None = None
     if dashboard_live and not explicit_as_of:
-        live_date, live_snapshot = _dashboard_daily_snapshot(repo)
+        if dashboard_snapshot is not None:
+            if dashboard_snapshot.frame is not None and not dashboard_snapshot.frame.is_empty():
+                live_date = dashboard_snapshot.snapshot_date
+                live_snapshot = dashboard_snapshot.frame.clone()
+                live_kind = dashboard_snapshot.kind
+        else:
+            live_date, live_snapshot = _dashboard_daily_snapshot(repo)
+            if live_snapshot is not None:
+                live_kind = "teajoin.daily"
     as_of = as_of or live_date or svc.latest_date()
     status = _quote_status(quote_service)
+    if dashboard_snapshot is not None:
+        status = {
+            **status,
+            "realtime_provider": dashboard_snapshot.provider,
+            "snapshot_kind": dashboard_snapshot.kind,
+            "last_fetch_status": dashboard_snapshot.status,
+            "last_fetch_rows": (
+                dashboard_snapshot.frame.height
+                if dashboard_snapshot.frame is not None
+                else 0
+            ),
+            "last_fetch_error": dashboard_snapshot.error,
+        }
     freshness = _data_freshness(
         as_of,
         explicit_as_of=explicit_as_of,
         quote_status=status,
-        provider_confirmed=live_snapshot is not None and live_date == as_of,
+        # A daily provider response confirms a closed exchange calendar only
+        # on weekends (or when it actually contains today's date).  Treating
+        # every prior weekday snapshot as confirmed would hide the exact stale
+        # data problem the dashboard is meant to surface.
+        provider_confirmed=(
+            live_snapshot is not None
+            and live_date is not None
+            and (live_date == cn_today() or cn_today().weekday() >= 5)
+        ),
     )
     freshness["snapshot_kind"] = (
-        "teajoin.daily" if live_snapshot is not None else "persisted.enriched"
+        live_kind or ("teajoin.daily" if live_snapshot is not None else "persisted.enriched")
     )
     freshness["snapshot_rows"] = live_snapshot.height if live_snapshot is not None else None
     from app.services import preferences
@@ -737,6 +886,7 @@ def build_market_overview(
             else None
         ),
         dashboard_date=live_date,
+        dashboard_snapshot=live_snapshot,
     )
 
     if not as_of:
@@ -769,6 +919,8 @@ def build_market_overview(
         local_enriched = svc._load_enriched_for_date(as_of)
         df = _derive_dashboard_limit_indicators(live_snapshot, repo)
         df = _merge_live_snapshot_indicators(df, local_enriched, as_of)
+        df = _derive_dashboard_turnover_rate(df)
+        df = _extend_dashboard_limit_ladder(df, svc, as_of)
     else:
         df = svc._load_enriched_for_date(as_of)
     if df.is_empty():

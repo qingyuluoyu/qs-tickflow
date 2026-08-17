@@ -78,7 +78,7 @@ const nav = [
   { to: '/industry-analysis', label: '行业分析', icon: Landmark },
   { to: '/financials', label: '财务分析', icon: FileText },
   { to: '/monitor', label: '监控中心', icon: RadioTower },
-  { to: '/regime', label: '市场环境', icon: Gauge, badge: 'beta' },
+  { to: '/regime', label: '市场环境', icon: Gauge },
   { to: '/review',      label: '复盘',   icon: BookOpenCheck },
   { to: '/indices', label: '指数', icon: BarChart3 },
   { to: '/data',       label: '数据',   icon: Database },
@@ -646,11 +646,11 @@ export function Layout() {
             <span className="max-w-32 truncate text-foreground" title={user.name}>{user.name}</span>
             <button
               onClick={() => { void logout() }}
-              className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-muted transition-colors hover:bg-elevated hover:text-foreground"
-              title="退出登录"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-muted transition-colors hover:bg-elevated hover:text-foreground"
+              title="切换账户"
             >
               <LogOut className="h-3.5 w-3.5" />
-              <span className="sr-only">退出</span>
+              <span>切换账户</span>
             </button>
           </div>
         </div>

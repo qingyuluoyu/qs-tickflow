@@ -422,14 +422,15 @@ class QuoteService:
         for sub in self._snapshot_subscribers():
             sub.clear_alerts()
 
-    def push_review_event(self, event_json: str) -> None:
-        """广播一条复盘进度事件(JSON 字符串), 唤醒所有 SSE generator。
+    def push_review_event(self, event_json: str, owner_id: str | None = None) -> None:
+        """Push review progress only to its owner when one is supplied.
 
         事件格式与 recap_market_stream 的产出一致(meta/delta/error/done),
         前端 reviewStore 直接消费。背压在订阅者队列内做 (丢弃最旧)。
         """
         for sub in self._snapshot_subscribers():
-            sub.push_review(event_json)
+            if owner_id is None or sub.owner_id == owner_id:
+                sub.push_review(event_json)
 
     # ================================================================
     # 档位感知间隔限制

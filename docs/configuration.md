@@ -41,6 +41,7 @@ AI_BASE_URL=https://api.deepseek.com/v1
 AI_API_KEY=                            # 留空 = 关闭 AI
 AI_MODEL=deepseek-chat
 AI_DAILY_TOKEN_BUDGET=500000           # 每日 token 预算上限
+USER_SECRETS_MASTER_KEY=               # 生产环境：加密用户个人 AI Key 的服务端主密钥
 ```
 
 | 配置项 | 说明 |
@@ -50,6 +51,20 @@ AI_DAILY_TOKEN_BUDGET=500000           # 每日 token 预算上限
 | `AI_API_KEY` | 留空则关闭 AI 功能 |
 | `AI_MODEL` | 模型名,如 `deepseek-chat` |
 | `AI_DAILY_TOKEN_BUDGET` | 每日 token 预算,超限后当日不再调用 |
+| `USER_SECRETS_MASTER_KEY` | 生产环境必须设置的稳定 Fernet 主密钥；仅用于加密用户自行填写的 API Key，不会返回前端 |
+
+### 多账户 AI 密钥
+
+`AI_*` 是平台默认模型配置，普通用户只能读取其“是否可用”和模型名，不能修改服务器默认值。用户在设置页填写自己的 OpenAI 兼容 API 后，密钥会按账户隔离，并使用 `USER_SECRETS_MASTER_KEY` 加密后保存。
+
+生产环境必须从密钥管理器或部署环境变量注入一个**稳定且备份妥当**的 Fernet 密钥；不要把它写入仓库、镜像或前端。可在可信的部署终端生成一次：
+
+```bash
+cd backend
+uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+```
+
+本地开发未设置该变量时，应用会在 `DATA_DIR/.user-secrets.master` 创建权限受限的开发密钥，便于兼容旧数据；该兜底文件不能作为生产环境的密钥管理方案。主密钥丢失会导致已有用户的个人 API Key 无法解密，恢复时应先恢复同一把密钥，再启动新版本。
 
 接入示例见 [strategy.md](./strategy.md) 的「AI 生成策略」章节。
 

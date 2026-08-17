@@ -1160,10 +1160,26 @@ def _run_tracked(fn, job_label: str) -> None:
 # 定时复盘 (AI 大盘复盘报告)
 # ================================================================
 
-REVIEW_JOB_ID = "scheduled_review"
+REVIEW_JOB_ID_PREFIX = "scheduled_review"
 
 
-async def _run_scheduled_review(repo) -> None:
+def review_job_id(user_id: str) -> str:
+    """Return the durable scheduler key for one account's private review."""
+    return f"{REVIEW_JOB_ID_PREFIX}:{user_id}"
+
+
+async def _run_scheduled_review(repo, user, user_root: Path) -> None:
+    """Run a review with the owning account bound for its whole lifetime."""
+    from app.services.user_context import reset_current_user, set_current_user
+
+    tokens = set_current_user(user, user_root)
+    try:
+        await _run_scheduled_review_in_context(repo, user.id)
+    finally:
+        reset_current_user(tokens)
+
+
+async def _run_scheduled_review_in_context(repo, owner_id: str) -> None:
     """定时复盘 job: 流式生成复盘 → 实时推 SSE(开着页面可见) → 落盘归档 → 推飞书。
 
     与手动「生成复盘」体验一致: 流式事件经 quote_service.push_review_event →
@@ -1176,10 +1192,10 @@ async def _run_scheduled_review(repo) -> None:
 
     try:
         from app.services import market_recap_reports
-        from app import secrets_store as ss
+        from app.services.ai_provider import ai_configured
 
         # AI Key 未配置时跳过(避免每日报错刷日志)
-        if not ss.get_ai_key():
+        if not ai_configured():
             logger.info("scheduled review skipped: AI key not configured")
             return
 
@@ -1187,14 +1203,15 @@ async def _run_scheduled_review(repo) -> None:
         quote_service = getattr(app_state, "quote_service", None) if app_state else None
         depth_service = getattr(app_state, "depth_service", None) if app_state else None
 
-        content, meta = await _stream_review_with_retry(repo, quote_service, depth_service)
+        content, meta = await _stream_review_with_retry(repo, quote_service, depth_service, owner_id)
         if not content:
             logger.warning("scheduled review produced no content (meta=%s)", meta)
             # 通知前端进入 error 态(若有页面在听)
             if quote_service:
-                quote_service.push_review_event(json.dumps(
-                    {"type": "error", "message": "复盘生成失败,请稍后手动重试"},
-                    ensure_ascii=False))
+                quote_service.push_review_event(
+                    json.dumps({"type": "error", "message": "复盘生成失败,请稍后手动重试"}, ensure_ascii=False),
+                    owner_id=owner_id,
+                )
             return
 
         # 落盘: 与手动生成完全相同的归档格式
@@ -1210,8 +1227,10 @@ async def _run_scheduled_review(repo) -> None:
 
         # 通知前端: 生成完成且已归档(archived=true 让前端只刷新列表, 不重复归档)
         if quote_service:
-            quote_service.push_review_event(json.dumps(
-                {"type": "done", "archived": True}, ensure_ascii=False))
+            quote_service.push_review_event(
+                json.dumps({"type": "done", "archived": True}, ensure_ascii=False),
+                owner_id=owner_id,
+            )
 
         # 推送到飞书(可选): 运行时读取配置, 用户改设置下次触发即生效。
         # 失败静默降级, 不影响已归档的报告。
@@ -1224,14 +1243,15 @@ async def _run_scheduled_review(repo) -> None:
             qs = getattr(app_state, "quote_service", None) if app_state else None
             if qs:
                 import json as _json
-                qs.push_review_event(_json.dumps(
-                    {"type": "error", "message": "复盘生成异常,请稍后手动重试"},
-                    ensure_ascii=False))
+                qs.push_review_event(
+                    _json.dumps({"type": "error", "message": "复盘生成异常,请稍后手动重试"}, ensure_ascii=False),
+                    owner_id=owner_id,
+                )
         except Exception:  # noqa: BLE001
             pass
 
 
-async def _stream_review_with_retry(repo, quote_service, depth_service) -> tuple[str, dict]:
+async def _stream_review_with_retry(repo, quote_service, depth_service, owner_id: str) -> tuple[str, dict]:
     """流式生成复盘, 每个事件推 SSE + 累积内容。LLM 断流时最多重试 2 次。
 
     返回 (content, meta)。重试时推一个 retry 事件让前端清空已累积内容重新开始。
@@ -1255,7 +1275,7 @@ async def _stream_review_with_retry(repo, quote_service, depth_service) -> tuple
 
                 # 推给前端(让开着页面的用户实时看到, 与手动一致)
                 if quote_service:
-                    quote_service.push_review_event(evt_json)
+                    quote_service.push_review_event(evt_json, owner_id=owner_id)
 
                 if t == "meta":
                     last_meta = evt
@@ -1283,8 +1303,10 @@ async def _stream_review_with_retry(repo, quote_service, depth_service) -> tuple
             logger.info("scheduled review retrying in 3s (attempt %d → %d)", attempt, attempt + 1)
             # 通知前端: 即将重试, 清空已累积内容重新开始
             if quote_service:
-                quote_service.push_review_event(json.dumps(
-                    {"type": "retry", "attempt": attempt + 1}, ensure_ascii=False))
+                quote_service.push_review_event(
+                    json.dumps({"type": "retry", "attempt": attempt + 1}, ensure_ascii=False),
+                    owner_id=owner_id,
+                )
             await asyncio.sleep(3)
 
     # 耗尽重试, 返回已累积内容(可能为空)和最后 meta
@@ -1336,7 +1358,7 @@ def _maybe_push_review(content: str, meta: dict) -> None:
         logger.warning("review push error: %s", e)
 
 
-def _register_review_job(scheduler, repo, hour: int, minute: int) -> None:
+def _register_review_job(scheduler, repo, user, user_root: Path, hour: int, minute: int) -> None:
     """注册/更新定时复盘 job(工作日 mon-fri, Asia/Shanghai)。
 
     供 start_scheduler(启动时) 和 settings API(改时间时) 共用。
@@ -1348,14 +1370,36 @@ def _register_review_job(scheduler, repo, hour: int, minute: int) -> None:
     """
     scheduler.add_job(
         _run_scheduled_review,
-        args=[repo],
+        args=[repo, user, user_root],
         trigger=CronTrigger(day_of_week="mon-fri",
                             hour=hour, minute=minute,
                             timezone="Asia/Shanghai"),
-        id=REVIEW_JOB_ID,
+        id=review_job_id(user.id),
         misfire_grace_time=7200,  # 复盘非关键, 允许 2 小时内补跑
         replace_existing=True,
     )
+
+
+def _register_persisted_review_jobs(scheduler, repo) -> int:
+    """Restore enabled private review jobs after a server restart."""
+    from app.services import preferences
+    from app.services.account_store import get_account_store
+    from app.services.user_context import reset_current_user, set_current_user
+
+    store = get_account_store(settings.data_dir)
+    registered = 0
+    for user in store.list_active_identities():
+        user_root = store.ensure_workspace(user.id)
+        tokens = set_current_user(user, user_root)
+        try:
+            schedule = preferences.get_review_schedule()
+        finally:
+            reset_current_user(tokens)
+        if not schedule["enabled"]:
+            continue
+        _register_review_job(scheduler, repo, user, user_root, schedule["hour"], schedule["minute"])
+        registered += 1
+    return registered
 
 
 def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
@@ -1524,11 +1568,9 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     # 默认关闭 —— 仅当用户在复盘页开启时才注册 job。
     # 复用 recap_market_once(非流式) + market_recap_reports.save_report(落盘)。
     # quote_service / depth_service 通过 _get_app_state() 延迟取用。
-    review_sched = preferences.get_review_schedule()
-    if review_sched["enabled"]:
-        _register_review_job(scheduler, repo, review_sched["hour"], review_sched["minute"])
-        logger.info("scheduled_review enabled @%02d:%02d mon-fri",
-                    review_sched["hour"], review_sched["minute"])
+    review_job_count = _register_persisted_review_jobs(scheduler, repo)
+    if review_job_count:
+        logger.info("restored %d owner-scoped scheduled review jobs", review_job_count)
 
     scheduler.start()
     logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri",

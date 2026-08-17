@@ -73,6 +73,8 @@ export function SettingsAIPanel() {
 
   const isCodexProvider = provider === CODEX_PROVIDER
   const savedCodexProvider = s?.ai_provider === CODEX_PROVIDER
+  const usingServerDefault = s?.ai_source === 'server_default'
+  const usingOwnOverride = s?.ai_source === 'user_override'
   const configured = s?.ai_configured ?? (savedCodexProvider ? !!(s?.ai_codex_command ?? CODEX_COMMAND) : s?.has_ai_key)
   // 选中的预设: 精确匹配 provider+url/codexCommand; 匹配不上时默认"自定义"
   const matchedPreset = PRESETS.find(p => (p.provider ?? OPENAI_PROVIDER) === provider && (isCodexProvider ? p.codexCommand === codexCommand : p.url === baseUrl))
@@ -99,22 +101,33 @@ export function SettingsAIPanel() {
     option.model === model && option.effort === codexReasoningEffort,
   ) ?? CODEX_MODEL_OPTIONS[0]
   const codexModelSelectValue = selectedCodexModelOption.value
-  const canSave = isCodexProvider ? true : !!baseUrl.trim() && !!model.trim()
+  const canSave = !isCodexProvider && !!baseUrl.trim() && !!model.trim() && (usingOwnOverride || !!apiKey.trim())
 
   useEffect(() => {
     if (!s) return
-    // 未配置过 AI (无 api_key): 字段留空, 默认选中"自定义"预设, 不预填充后端默认值
-    const unconfigured = !s.has_ai_key && !s.ai_configured
-    const savedProvider = s.ai_provider ?? OPENAI_PROVIDER
-    setProvider(savedProvider)
-    setBaseUrl(unconfigured ? '' : (s.ai_base_url ?? ''))
-    setModel(unconfigured ? '' : (s.ai_model ?? ''))
-    setCodexReasoningEffort(unconfigured ? '' : (s.ai_codex_reasoning_effort ?? ''))
-    setCodexCommand(s.ai_codex_command ?? CODEX_COMMAND)
-    const ua = s.ai_user_agent ?? ''
+    // 平台默认模型不能被复写到个人表单；只有已保存的个人覆盖才回填。
+    const ownOverride = s.ai_source === 'user_override'
+    setProvider(ownOverride ? (s.ai_provider ?? OPENAI_PROVIDER) : OPENAI_PROVIDER)
+    setBaseUrl(ownOverride ? (s.ai_base_url ?? '') : '')
+    setModel(ownOverride ? (s.ai_model ?? '') : '')
+    setCodexReasoningEffort(ownOverride ? (s.ai_codex_reasoning_effort ?? '') : '')
+    setCodexCommand(ownOverride ? (s.ai_codex_command ?? CODEX_COMMAND) : CODEX_COMMAND)
+    const ua = ownOverride ? (s.ai_user_agent ?? '') : ''
     setCustomUa(!!ua)
     setUserAgent(ua)
   }, [s])
+
+  const startPersonalOverride = () => {
+    setProvider(OPENAI_PROVIDER)
+    setBaseUrl('')
+    setApiKey('')
+    setModel('')
+    setCodexReasoningEffort('')
+    setCodexCommand(CODEX_COMMAND)
+    setCustomUa(false)
+    setUserAgent('')
+    setTestResult(null)
+  }
 
   const payload = () => ({
     provider,
@@ -139,6 +152,8 @@ export function SettingsAIPanel() {
         ai_codex_command: result.ai_codex_command ?? (isCodexProvider ? CODEX_COMMAND : codexCommand),
         ai_codex_reasoning_effort: result.ai_codex_reasoning_effort ?? (isCodexProvider ? codexReasoningEffort : ''),
         ai_configured: result.ai_configured ?? (isCodexProvider ? true : (apiKey ? true : prev.ai_configured)),
+        ai_source: result.ai_source ?? 'user_override',
+        has_ai_override: result.has_ai_override ?? true,
         ...(apiKey ? {
           has_ai_key: true,
           ai_api_key_masked: `${apiKey.slice(0, 4)}......${apiKey.slice(-4)}`,
@@ -151,7 +166,7 @@ export function SettingsAIPanel() {
 
   const clear = useMutation({
     mutationFn: () => api.clearAiSettings(),
-    onSuccess: () => {
+    onSuccess: (result) => {
       setConfirmClear(false)
       setProvider(OPENAI_PROVIDER)
       setBaseUrl('')
@@ -162,14 +177,16 @@ export function SettingsAIPanel() {
       setTestResult(null)
       qc.setQueryData<SettingsState>(QK.settings, prev => prev ? {
         ...prev,
-        ai_provider: OPENAI_PROVIDER,
+        ai_provider: result.ai_provider ?? prev.ai_provider,
         ai_base_url: '',
-        ai_model: '',
+        ai_model: result.ai_model ?? prev.ai_model,
         ai_codex_command: CODEX_COMMAND,
         ai_codex_reasoning_effort: '',
         has_ai_key: false,
-        ai_configured: false,
+        ai_configured: result.ai_configured ?? prev.ai_configured,
         ai_api_key_masked: '',
+        ai_source: result.ai_source ?? 'server_default',
+        has_ai_override: result.has_ai_override ?? false,
       } : prev)
       qc.invalidateQueries({ queryKey: QK.settings })
     },
@@ -235,7 +252,9 @@ export function SettingsAIPanel() {
             <div className="text-sm font-medium text-foreground">{configured ? 'AI 已连接' : 'AI 未配置'}</div>
             <div className="text-xs text-muted mt-0.5 truncate">
               {configured
-                ? (savedCodexProvider
+                ? (usingServerDefault
+                  ? `正在使用平台默认模型 · ${s?.ai_model ?? '默认模型'}`
+                  : savedCodexProvider
                   ? `${s?.ai_codex_command ?? CODEX_COMMAND} · ${codexModelLabel(s?.ai_model, s?.ai_codex_reasoning_effort)}`
                   : `${s?.ai_model} · ${s?.ai_api_key_masked}`)
                 : (isCodexProvider ? '使用本机 codex exec, 此处无需填写 API Key。' : '配置 API Key 后即可使用 AI 功能。')}
@@ -250,9 +269,20 @@ export function SettingsAIPanel() {
         )}
       </Card>
 
+      {usingServerDefault && (
+        <div className="rounded-card border border-accent/20 bg-accent/[0.04] px-4 py-3 flex items-center justify-between gap-3">
+          <div className="text-xs text-secondary leading-relaxed">
+            当前账户使用平台提供的默认模型。配置个人 API 后，仅你的分析请求会使用该配置。
+          </div>
+          <button onClick={startPersonalOverride} className="shrink-0 rounded-btn border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition-colors">
+            配置个人 API
+          </button>
+        </div>
+      )}
+
       <Card icon={Zap} title="快速预设">
         <div className="flex flex-wrap items-start gap-2">
-          {PRESETS.map(p => (
+          {PRESETS.filter(p => p.provider !== CODEX_PROVIDER).map(p => (
             <button key={p.label} onClick={() => handlePreset(p)}
               className={`rounded-lg border px-3 py-2 text-left transition-all ${selectedPreset?.label === p.label ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-base text-secondary hover:border-accent/30'}`}>
               <div className="flex items-center gap-1.5 text-xs font-medium">
@@ -330,7 +360,7 @@ export function SettingsAIPanel() {
               <Field label="API Key">
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
-                    <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={configured ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
+                    <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={usingOwnOverride ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
                     <button onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted/40 hover:text-muted" tabIndex={-1} aria-label={showKey ? '隐藏' : '显示'}>
                       {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
                     </button>
@@ -369,7 +399,7 @@ export function SettingsAIPanel() {
         <div className="text-[11px] text-amber-400/70 leading-relaxed">
           {isCodexProvider
             ? 'Codex CLI 模式会复用本机已登录的 Codex 账户, 个股、财务、复盘等分析上下文会发送给 OpenAI/Codex。保存即表示确认仅在本机或可信内网使用。'
-            : 'API Key 仅保存在本机项目文件中, 不会上传到任何服务器。请妥善保管。'}
+            : '个人 API Key 会加密保存在你的独立账户数据中，仅用于你的分析请求；未配置时继续使用平台默认模型。'}
         </div>
       </div>
 
@@ -378,10 +408,10 @@ export function SettingsAIPanel() {
           {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
           {save.isPending ? '保存中...' : saved ? '已保存' : '保存配置'}
         </button>
-        {configured && (
+        {usingOwnOverride && (
           <button onClick={() => setConfirmClear(true)} disabled={clear.isPending} className="h-10 px-4 rounded-xl bg-elevated text-secondary hover:text-danger text-sm flex items-center justify-center gap-1.5 hover:bg-elevated/80 disabled:opacity-50 transition-all shrink-0" title="Clear AI provider configuration">
             <Trash2 className="h-4 w-4" />
-            清空
+            恢复平台默认
           </button>
         )}
       </div>
@@ -390,16 +420,16 @@ export function SettingsAIPanel() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmClear(false)} />
           <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-2">清空 AI 配置</h3>
+            <h3 className="text-sm font-medium text-foreground mb-2">恢复平台默认模型</h3>
             <p className="text-xs text-secondary mb-5 leading-relaxed">
-              这会清空已保存的 provider、API Key、API 地址、模型和 Codex CLI 命令。之后可以重新配置。
+              仅删除当前账户保存的个人 API 配置，之后将使用平台默认模型；不会影响其他用户。
             </p>
             <div className="flex items-center justify-end gap-2">
               <button onClick={() => setConfirmClear(false)} className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors">
                 取消
               </button>
               <button onClick={() => clear.mutate()} disabled={clear.isPending} className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50">
-                {clear.isPending ? '清空中...' : '确认'}
+                {clear.isPending ? '恢复中...' : '确认恢复'}
               </button>
             </div>
           </div>

@@ -134,7 +134,7 @@ class AccountEntryIn(BaseModel):
     exhaustion guard; submitted values are never truncated or normalized.
     """
 
-    name: str
+    name: str = ""
     phone: str
     password: str
 

@@ -19,22 +19,66 @@ def _path() -> Path:
     return p
 
 
-def load() -> dict:
+def _load_legacy() -> dict:
     p = _path()
     if p.exists():
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            value = json.loads(p.read_text(encoding="utf-8"))
+            return value if isinstance(value, dict) else {}
         except Exception as e:  # noqa: BLE001
             logger.warning("preferences.json malformed: %s", e)
     return {}
 
 
+def _current_user_id() -> str | None:
+    from app.services.user_context import current_user
+
+    user = current_user()
+    return user.id if user is not None else None
+
+
+def load() -> dict:
+    """Read request-scoped preferences, with a safe legacy fallback outside requests."""
+    user_id = _current_user_id()
+    if user_id is None:
+        return _load_legacy()
+
+    from app.config import settings
+    from app.services.account_store import get_account_store
+
+    store = get_account_store(settings.data_dir)
+    stored = store.get_user_preferences_json(user_id)
+    if stored is not None:
+        try:
+            value = json.loads(stored)
+            return value if isinstance(value, dict) else {}
+        except json.JSONDecodeError:
+            logger.warning("user preference document malformed for user=%s", user_id)
+            return {}
+
+    # One-time, copy-only compatibility migration. The source JSON remains in
+    # place until a later contract release has completed backup verification.
+    legacy = _load_legacy()
+    if legacy:
+        store.save_user_preferences_json(user_id, json.dumps(legacy, ensure_ascii=False, sort_keys=True))
+    return legacy
+
+
 def save(updates: dict) -> dict:
-    """合并写入。返回新内容。"""
+    """Merge private preferences and persist them under the authenticated owner."""
     current = load()
     current.update(updates)
-    _path().write_text(
-        json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8",
+    user_id = _current_user_id()
+    if user_id is None:
+        _path().write_text(json.dumps(current, indent=2, ensure_ascii=False), encoding="utf-8")
+        return current
+
+    from app.config import settings
+    from app.services.account_store import get_account_store
+
+    get_account_store(settings.data_dir).save_user_preferences_json(
+        user_id,
+        json.dumps(current, ensure_ascii=False, sort_keys=True),
     )
     return current
 

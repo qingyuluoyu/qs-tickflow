@@ -16,8 +16,7 @@ from pathlib import Path
 from types import TracebackType
 from urllib.parse import urlsplit, urlunsplit
 
-from app import secrets_store
-from app.config import settings
+from app.services.ai_profiles import ResolvedAiProfile, resolve_current_profile
 
 OPENAI_COMPAT_PROVIDER = "openai_compat"
 CODEX_CLI_PROVIDER = "codex_cli"
@@ -101,29 +100,22 @@ def sanitize_focus(focus: str) -> str:
 
 
 def current_ai_provider() -> str:
-    return secrets_store.get_ai_config("ai_provider", settings.ai_provider) or OPENAI_COMPAT_PROVIDER
+    return resolve_current_profile().provider or OPENAI_COMPAT_PROVIDER
 
 
 def current_ai_model() -> str:
-    if current_ai_provider() == CODEX_CLI_PROVIDER:
-        return normalize_codex_model(str(secrets_store.load().get("ai_model") or ""))
-    return secrets_store.get_ai_config("ai_model", settings.ai_model)
+    profile = resolve_current_profile()
+    if profile.provider == CODEX_CLI_PROVIDER:
+        return normalize_codex_model(profile.model)
+    return profile.model
 
 
 def current_codex_command() -> str:
-    return normalize_codex_command(
-        secrets_store.get_ai_config("ai_codex_command", settings.ai_codex_command),
-        strict=False,
-    )
+    return normalize_codex_command(resolve_current_profile().codex_command, strict=False)
 
 
 def current_codex_reasoning_effort() -> str:
-    return normalize_codex_reasoning_effort(
-        secrets_store.get_ai_config(
-            "ai_codex_reasoning_effort",
-            settings.ai_codex_reasoning_effort,
-        )
-    )
+    return normalize_codex_reasoning_effort(resolve_current_profile().codex_reasoning_effort)
 
 
 def is_codex_cli_provider(provider: str | None = None) -> bool:
@@ -183,10 +175,11 @@ def codex_cli_available() -> bool:
 
 
 def ai_configured(provider: str | None = None) -> bool:
-    provider = provider or current_ai_provider()
+    profile = resolve_current_profile()
+    provider = provider or profile.provider
     if is_codex_cli_provider(provider):
         return codex_cli_available()
-    return bool(secrets_store.get_ai_key())
+    return bool(profile.api_key)
 
 
 async def generate_ai_text(
@@ -239,12 +232,12 @@ async def _run_openai_once(
     max_tokens: int,
     timeout: float,
 ) -> str:
-    ai_key = secrets_store.get_ai_key()
-    if not ai_key:
+    profile = resolve_current_profile()
+    if not profile.api_key:
         raise RuntimeError("AI API Key 未配置, 请在设置页配置")
 
-    client = _openai_client(ai_key, timeout)
-    model = current_ai_model()
+    client = _openai_client(profile, timeout)
+    model = profile.model
     req_messages = list(messages)
     try:
         resp = await client.chat.completions.create(
@@ -280,12 +273,12 @@ async def _stream_openai(
     max_tokens: int,
     timeout: float,
 ) -> AsyncIterator[str]:
-    ai_key = secrets_store.get_ai_key()
-    if not ai_key:
+    profile = resolve_current_profile()
+    if not profile.api_key:
         raise RuntimeError("AI API Key 未配置, 请在设置页配置")
 
-    client = _openai_client(ai_key, timeout)
-    model = current_ai_model()
+    client = _openai_client(profile, timeout)
+    model = profile.model
     req_messages = list(messages)
 
     async def _iter(stream):
@@ -329,16 +322,15 @@ async def _stream_openai(
         raise
 
 
-def _openai_client(api_key: str, timeout: float):
+def _openai_client(profile: ResolvedAiProfile, timeout: float):
     from openai import AsyncOpenAI
 
-    user_agent = secrets_store.get_ai_config("ai_user_agent", "") or settings.ai_user_agent
     return AsyncOpenAI(
-        api_key=api_key,
-        base_url=normalize_openai_base_url(secrets_store.get_ai_config("ai_base_url", settings.ai_base_url)),
+        api_key=profile.api_key,
+        base_url=normalize_openai_base_url(profile.base_url),
         timeout=timeout,
         max_retries=0,
-        default_headers={"User-Agent": user_agent},
+        default_headers={"User-Agent": profile.user_agent},
     )
 
 

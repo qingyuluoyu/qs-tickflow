@@ -701,15 +701,15 @@ def _save_strategy_code(req: StrategyCodeSaveRequest, request: Request, *, legac
 @router.get("/ai/status")
 def ai_status(request: Request):
     """Check whether the selected AI provider is configured."""
-    from app import secrets_store
     from app.services.ai_provider import ai_configured, current_ai_model, current_ai_provider
+    from app.services.ai_profiles import resolve_current_profile
 
-    has_key = bool(secrets_store.get_ai_key())
+    profile = resolve_current_profile()
     model = current_ai_model()
     provider = current_ai_provider()
     return {
         "configured": ai_configured(provider) and bool(model or provider == "codex_cli"),
-        "has_key": has_key,
+        "has_key": profile.source == "user_override" and bool(profile.api_key),
         "has_model": bool(model),
         "provider": provider,
     }

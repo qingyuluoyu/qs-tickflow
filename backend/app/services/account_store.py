@@ -56,6 +56,25 @@ class AccountRecord:
     updated_at: float
 
 
+@dataclass(frozen=True)
+class UserAiProfileRecord:
+    """Encrypted, account-owned AI override metadata.
+
+    ``encrypted_api_key`` is opaque ciphertext. Decryption belongs to the
+    request-scoped AI profile service and never to API response handlers.
+    """
+
+    user_id: str
+    provider: str
+    base_url: str
+    model: str
+    encrypted_api_key: bytes | None
+    user_agent: str
+    codex_command: str
+    codex_reasoning_effort: str
+    updated_at: float
+
+
 class AccountStore:
     """Thread-safe account database with idempotent versioned migrations."""
 
@@ -89,6 +108,8 @@ class AccountStore:
             (1, migration_root / "001_accounts.sql"),
             (2, migration_root / "002_account_security.sql"),
             (3, migration_root / "003_registration_rate_limit.sql"),
+            (4, migration_root / "004_user_ai_profiles.sql"),
+            (5, migration_root / "005_user_preferences.sql"),
         )
         with self._lock, self._connection() as conn:
             # Lock before reading user_version. Multiple server workers may
@@ -198,8 +219,8 @@ class AccountStore:
         arbitrary Unicode and punctuation. Empty strings are rejected by the
         API because they cannot identify or authenticate an account.
         """
-        if not name or not phone or not password:
-            raise ValueError("姓名、电话和密码不能为空")
+        if not phone or not password:
+            raise ValueError("电话和密码不能为空")
         now = time.time()
         migrate_legacy = False
         with self._lock, self._connection() as conn:
@@ -213,6 +234,8 @@ class AccountStore:
                         return None
                     user = self._identity(row)
                 else:
+                    if not name:
+                        raise ValueError("注册账户时姓名不能为空")
                     if registration_key:
                         self._consume_registration_slot(conn, registration_key, now)
                     user_id = str(uuid.uuid4())
@@ -279,6 +302,14 @@ class AccountStore:
             )
             for row in rows
         ]
+
+    def list_active_identities(self) -> list[UserIdentity]:
+        """Return only active accounts for owner-scoped background work."""
+        with self._lock, self._connection() as conn:
+            rows = conn.execute(
+                "SELECT id, name, phone FROM users WHERE status = 'active' ORDER BY created_at, id"
+            ).fetchall()
+        return [self._identity(row) for row in rows]
 
     def revoke(self, token: str | None) -> None:
         if not token:
@@ -391,6 +422,101 @@ class AccountStore:
             except OSError:
                 continue
         return target
+
+    def get_user_ai_profile(self, user_id: str) -> UserAiProfileRecord | None:
+        """Return one user's encrypted override without exposing it to others."""
+        self.workspace(user_id)
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                "SELECT user_id, provider, base_url, model, encrypted_api_key, user_agent, "
+                "codex_command, codex_reasoning_effort, updated_at "
+                "FROM user_ai_profiles WHERE user_id = ?",
+                (user_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        raw_key = row["encrypted_api_key"]
+        return UserAiProfileRecord(
+            user_id=str(row["user_id"]),
+            provider=str(row["provider"]),
+            base_url=str(row["base_url"]),
+            model=str(row["model"]),
+            encrypted_api_key=bytes(raw_key) if raw_key is not None else None,
+            user_agent=str(row["user_agent"]),
+            codex_command=str(row["codex_command"]),
+            codex_reasoning_effort=str(row["codex_reasoning_effort"]),
+            updated_at=float(row["updated_at"]),
+        )
+
+    def save_user_ai_profile(
+        self,
+        user_id: str,
+        *,
+        provider: str,
+        base_url: str,
+        model: str,
+        encrypted_api_key: bytes | None,
+        user_agent: str,
+        codex_command: str = "",
+        codex_reasoning_effort: str = "",
+    ) -> UserAiProfileRecord:
+        """Atomically upsert an encrypted profile for the owning account only."""
+        self.workspace(user_id)
+        now = time.time()
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "INSERT INTO user_ai_profiles("
+                "user_id, provider, base_url, model, encrypted_api_key, user_agent, "
+                "codex_command, codex_reasoning_effort, updated_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET "
+                "provider=excluded.provider, base_url=excluded.base_url, model=excluded.model, "
+                "encrypted_api_key=excluded.encrypted_api_key, user_agent=excluded.user_agent, "
+                "codex_command=excluded.codex_command, "
+                "codex_reasoning_effort=excluded.codex_reasoning_effort, "
+                "updated_at=excluded.updated_at",
+                (
+                    user_id,
+                    provider,
+                    base_url,
+                    model,
+                    encrypted_api_key,
+                    user_agent,
+                    codex_command,
+                    codex_reasoning_effort,
+                    now,
+                ),
+            )
+        record = self.get_user_ai_profile(user_id)
+        assert record is not None
+        return record
+
+    def clear_user_ai_profile(self, user_id: str) -> bool:
+        """Delete only the authenticated owner's optional override."""
+        self.workspace(user_id)
+        with self._lock, self._connection() as conn:
+            cursor = conn.execute("DELETE FROM user_ai_profiles WHERE user_id = ?", (user_id,))
+        return cursor.rowcount > 0
+
+    def get_user_preferences_json(self, user_id: str) -> str | None:
+        """Load one account's private preference document."""
+        self.workspace(user_id)
+        with self._lock, self._connection() as conn:
+            row = conn.execute(
+                "SELECT value_json FROM user_preferences WHERE user_id = ?", (user_id,)
+            ).fetchone()
+        return str(row["value_json"]) if row is not None else None
+
+    def save_user_preferences_json(self, user_id: str, value_json: str) -> None:
+        """Atomically upsert one complete, validated preference document."""
+        self.workspace(user_id)
+        with self._lock, self._connection() as conn:
+            conn.execute(
+                "INSERT INTO user_preferences(user_id, value_json, updated_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(user_id) DO UPDATE SET value_json=excluded.value_json, "
+                "updated_at=excluded.updated_at",
+                (user_id, value_json, time.time()),
+            )
 
 
 _stores: dict[Path, AccountStore] = {}

@@ -404,7 +404,7 @@ export interface OverviewMarket {
     realtime_provider?: string | null
     realtime_status?: string | null
     realtime_rows?: number
-    snapshot_kind?: 'teajoin.daily' | 'persisted.enriched' | string | null
+    snapshot_kind?: 'teajoin.realtime' | 'teajoin.daily' | 'persisted.enriched' | string | null
     snapshot_rows?: number | null
   }
   quote_status: {
@@ -949,6 +949,8 @@ export interface SettingsState {
   ai_api_key_masked: string
   has_ai_key: boolean
   ai_configured?: boolean
+  ai_source?: 'server_default' | 'user_override'
+  has_ai_override?: boolean
   ai_model: string
   ai_codex_command?: string
   ai_codex_reasoning_effort?: string
@@ -1196,14 +1198,14 @@ export const api = {
 
   /** 保存 AI 配置 */
   saveAiSettings: (ai: { provider?: string; base_url?: string; api_key?: string; model?: string; codex_command?: string; codex_reasoning_effort?: string; user_agent?: string }) =>
-    request<{ ok: boolean; ai_provider?: string; ai_model?: string; ai_codex_command?: string; ai_codex_reasoning_effort?: string; ai_configured?: boolean }>('/api/settings/ai', {
+    request<{ ok: boolean; ai_provider?: string; ai_model?: string; ai_codex_command?: string; ai_codex_reasoning_effort?: string; ai_configured?: boolean; ai_source?: 'server_default' | 'user_override'; has_ai_override?: boolean }>('/api/settings/ai', {
       method: 'POST',
       body: JSON.stringify(ai),
     }),
 
-  /** 一键清空 AI 配置(保留自定义 UA) */
+  /** 删除当前用户的 AI 覆盖并恢复平台默认 */
   clearAiSettings: () =>
-    request<{ ok: boolean }>('/api/settings/ai', { method: 'DELETE' }),
+    request<{ ok: boolean; ai_provider?: string; ai_model?: string; ai_configured?: boolean; ai_source?: 'server_default' | 'user_override'; has_ai_override?: boolean }>('/api/settings/ai', { method: 'DELETE' }),
 
   preferences: () => request<Preferences>('/api/settings/preferences'),
   dataSources: () => request<DataSourcesResponse>('/api/settings/data-sources'),

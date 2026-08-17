@@ -360,12 +360,26 @@ def _build_overview(request: Request, as_of: date | None = None) -> dict:
     使大盘复盘等无 Request 的调用方可复用同一装配逻辑。
     """
     from app.services.market_overview_builder import build_market_overview
+    dashboard_snapshot = None
+    preloader = getattr(request.app.state, "market_overview_preloader", None)
+    if preloader is not None and as_of is None:
+        from app.services import preferences
+        from app.services.market_overview_preloader import DashboardSnapshot
+
+        # A cold preloader is represented explicitly so the request path never
+        # falls back to a synchronous TeaJoin round trip.  The builder will use
+        # the persisted local snapshot until the first background refresh is
+        # available and expose the warming status to the UI.
+        dashboard_snapshot = preloader.snapshot() or DashboardSnapshot.empty(
+            preferences.get_daily_data_provider(), "warming"
+        )
     return build_market_overview(
         repo=request.app.state.repo,
         quote_service=getattr(request.app.state, "quote_service", None),
         depth_service=getattr(request.app.state, "depth_service", None),
         as_of=as_of,
         dashboard_live=True,
+        dashboard_snapshot=dashboard_snapshot,
     )
 
 

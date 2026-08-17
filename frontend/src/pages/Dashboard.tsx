@@ -579,12 +579,12 @@ export function Dashboard() {
     staleTime: 5_000,
     placeholderData: (prev) => prev,
   })
-  // 看板默认展示最新快照：每 30 秒主动触发一次 TeaJoin 实时拉取，
-  // 拉取完成后再使概览查询失效，避免只刷新前端缓存而没有重新取数。
-  // 选择历史日期时停用，避免历史回看触发无关的实时请求。
+  // 看板默认展示最新快照：服务端预加载器每 30 秒拉取 TeaJoin，
+  // 前端只轮询轻量状态并使概览缓存失效，不在每个浏览器标签页重复触发上游请求。
+  // 选择历史日期时停用，避免历史回看触发无关的刷新。
   const realtimeRefresh = useQuery({
     queryKey: ['dashboard-realtime-refresh'],
-    queryFn: api.intradayRefresh,
+    queryFn: api.quoteStatus,
     enabled: selectedDate == null,
     staleTime: 0,
     refetchInterval: 30_000,
@@ -699,12 +699,17 @@ export function Dashboard() {
   const latestDate = dataStatus.data?.enriched?.latest_date ?? null
   const currentDate = selectedDate ?? data.as_of ?? ''
   const freshness = data.data_freshness
-  const effectiveLatestDate = freshness?.snapshot_kind === 'teajoin.daily'
+  const providerSnapshot = freshness?.snapshot_kind === 'teajoin.daily'
+    || freshness?.snapshot_kind === 'teajoin.realtime'
+  const effectiveLatestDate = providerSnapshot
     ? (freshness.snapshot_date ?? data.as_of ?? latestDate)
     : (latestDate ?? data.as_of ?? freshness?.snapshot_date ?? null)
   const realtimeStatus = freshness?.realtime_status ?? data.quote_status?.last_fetch_status
   const realtimeIsCurrent = realtimeStatus === undefined || realtimeStatus === 'success'
-  const quoteRunning = (!selectedDate || selectedDate === effectiveLatestDate) && !!data.quote_status?.running && realtimeIsCurrent
+  const realtimeSnapshot = freshness?.snapshot_kind === 'teajoin.realtime' && realtimeStatus === 'success'
+  const quoteRunning = (!selectedDate || selectedDate === effectiveLatestDate)
+    && (Boolean(data.quote_status?.running) || realtimeSnapshot)
+    && realtimeIsCurrent
   const isLatestSnapshot = !selectedDate || selectedDate === effectiveLatestDate
   const snapshotDate = freshness?.snapshot_date ?? latestDate ?? data.as_of ?? null
   const snapshotStale = isLatestSnapshot && (freshness?.is_stale ?? (!!snapshotDate && snapshotDate < beijingDate()))

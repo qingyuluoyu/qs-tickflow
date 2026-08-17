@@ -94,6 +94,24 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("server preferences migration failed: %s", e)
 
+    # 看板行情预加载: provider 请求在后台每 30 秒执行, 访问 /api/overview/market
+    # 不再同步等待 TeaJoin。预加载器只缓存全市场快照, 不缓存用户维度排名, 保持账户隔离。
+    try:
+        from app.services.market_overview_preloader import (
+            MarketOverviewPreloader,
+            make_dashboard_snapshot_fetcher,
+        )
+
+        dashboard_preloader = MarketOverviewPreloader(
+            make_dashboard_snapshot_fetcher(),
+            interval_s=30.0,
+        )
+        app.state.market_overview_preloader = dashboard_preloader
+        dashboard_preloader.start()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("dashboard market preloader not started: %s", e)
+        app.state.market_overview_preloader = None
+
     # 全局行情服务
     qs = QuoteService()
     app.state.quote_service = qs
@@ -304,6 +322,9 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    dashboard_preloader = getattr(app.state, "market_overview_preloader", None)
+    if dashboard_preloader:
+        dashboard_preloader.stop()
     qs = getattr(app.state, "quote_service", None)
     if qs:
         qs.stop()

@@ -84,6 +84,44 @@ def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | Non
     return out
 
 
+def _fallback_index_quotes_from_dashboard_source(
+    request: Request,
+    symbols: list[str] | None = None,
+) -> list[dict]:
+    """Use the selected custom provider before falling back to old local K-lines.
+
+    The dashboard overview already routes its market snapshot through the
+    configured TeaJoin provider.  The sidebar used to read QuoteService's
+    process cache first, which can contain an older TickFlow snapshot and show
+    different index values on the same screen.  Reuse the dashboard's
+    provider/date boundary here so both surfaces share one source of truth.
+    """
+    try:
+        from app.data_providers import custom as custom_sources
+        from app.services import preferences
+        from app.services.market_overview_builder import _dashboard_index_quotes
+
+        provider_name = preferences.get_daily_data_provider()
+        if provider_name == "tickflow" or not custom_sources.provider_has_dataset(
+            provider_name, "daily",
+        ):
+            return []
+        preloader = getattr(request.app.state, "dashboard_preloader", None)
+        snapshot = preloader.snapshot() if preloader is not None else None
+        target_date = getattr(snapshot, "snapshot_date", None)
+        if target_date is None:
+            from app.market_time import cn_today
+
+            target_date = cn_today()
+        rows = _dashboard_index_quotes(provider_name, target_date)
+        if symbols:
+            allowed = set(symbols)
+            rows = [row for row in rows if row.get("symbol") in allowed]
+        return rows
+    except Exception:  # noqa: BLE001
+        return []
+
+
 @router.get("/status")
 def status(request: Request):
     """行情状态 (来自全局 QuoteService)。"""
@@ -101,6 +139,15 @@ def index_quotes(
 ):
     """返回实时指数行情缓存，不触发 TickFlow 请求。"""
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+    custom_rows = _fallback_index_quotes_from_dashboard_source(request, symbol_list)
+    if custom_rows:
+        from app.services import preferences
+
+        return {
+            "rows": custom_rows,
+            "count": len(custom_rows),
+            "source": f"{preferences.get_daily_data_provider()}.daily",
+        }
     qs = _get_quote_service(request)
     if not qs:
         rows = _fallback_index_quotes_from_daily(request, symbol_list)

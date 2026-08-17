@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 
 import polars as pl
+import pytest
 import yaml
 
 from app.data_providers.custom.config import CustomSourceConfig, DatasetConfig
@@ -136,12 +137,10 @@ def test_teajoin_realtime_table_payload_maps_to_quote_records():
     rows = provider.get_realtime()
     provider.close()
 
-    assert rows == [{
-        "symbol": "000001.SZ",
-        "last_price": "11.25",
-        "prev_close": "11.1",
-        "change_pct": "1.35",
-    }]
+    assert rows[0]["symbol"] == "000001.SZ"
+    assert rows[0]["last_price"] == "11.25"
+    assert rows[0]["prev_close"] == "11.1"
+    assert rows[0]["change_pct"] == pytest.approx(0.0135)
 
 
 def test_financial_dataset_test_uses_a_real_configured_table():
@@ -191,6 +190,16 @@ def test_teajoin_daily_config_normalizes_amount_to_yuan():
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert config["datasets"]["daily"]["transforms"]["amount"] == "value * 1000"
+
+
+def test_teajoin_realtime_config_normalizes_percent_fields_to_decimal():
+    config_path = Path(__file__).resolve().parents[2] / "data" / "data_sources" / "teajoin.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    transforms = config["datasets"]["realtime"]["transforms"]
+    assert transforms["change_pct"] == "value / 100"
+    assert transforms["amplitude"] == "value / 100"
+    assert transforms["turnover_rate"] == "value / 100"
 
 
 def test_latest_daily_snapshot_requests_unfiltered_rows_and_keeps_latest_date():

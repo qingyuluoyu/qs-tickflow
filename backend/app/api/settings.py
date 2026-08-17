@@ -53,17 +53,18 @@ class TickflowKeyIn(BaseModel):
 @router.get("")
 def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
-    from app.config import settings
     from app.services import preferences
+    from app.services.ai_profiles import (
+        has_current_override,
+        masked_current_override_key,
+        resolve_current_profile,
+    )
     from app.services.ai_provider import (
         ai_configured,
-        current_ai_model,
-        current_codex_command,
-        current_codex_reasoning_effort,
     )
 
     key = secrets_store.get_tickflow_key()
-    ai_provider = secrets_store.get_ai_config("ai_provider", settings.ai_provider)
+    ai_profile = resolve_current_profile()
     return {
         "mode": tf_client.current_mode(),
         "tickflow_api_key_masked": secrets_store.mask(key),
@@ -76,15 +77,17 @@ def get_settings() -> dict:
         # 首次使用引导
         "onboarding_completed": preferences.get_onboarding_completed(),
         # AI 配置
-        "ai_provider": ai_provider,
-        "ai_base_url": secrets_store.get_ai_config("ai_base_url", settings.ai_base_url),
-        "ai_api_key_masked": secrets_store.mask(secrets_store.get_ai_key()),
-        "has_ai_key": bool(secrets_store.get_ai_key()),
-        "ai_configured": ai_configured(ai_provider),
-        "ai_model": current_ai_model(),
-        "ai_codex_command": current_codex_command(),
-        "ai_codex_reasoning_effort": current_codex_reasoning_effort(),
-        "ai_user_agent": secrets_store.get_ai_config("ai_user_agent", settings.ai_user_agent),
+        "ai_provider": ai_profile.provider,
+        "ai_base_url": ai_profile.base_url if ai_profile.source == "user_override" else "",
+        "ai_api_key_masked": masked_current_override_key(),
+        "has_ai_key": ai_profile.source == "user_override" and bool(ai_profile.api_key),
+        "ai_configured": ai_configured(ai_profile.provider),
+        "ai_model": ai_profile.model,
+        "ai_codex_command": ai_profile.codex_command,
+        "ai_codex_reasoning_effort": ai_profile.codex_reasoning_effort,
+        "ai_user_agent": ai_profile.user_agent if ai_profile.source == "user_override" else "",
+        "ai_source": ai_profile.source,
+        "has_ai_override": has_current_override(),
     }
 
 
@@ -248,84 +251,50 @@ class AiSettingsIn(BaseModel):
 
 @router.post("/ai")
 def save_ai_settings(req: AiSettingsIn) -> dict:
-    """保存 AI 配置（全部持久化到 secrets.json）"""
-    from app.config import settings
+    """保存当前账户的加密 AI 覆盖配置，不改服务器默认配置。"""
+    from app.services import ai_profiles
     from app.services.ai_provider import (
         ai_configured,
-        current_ai_model,
-        current_ai_provider,
-        current_codex_command,
-        current_codex_reasoning_effort,
-        normalize_codex_command,
-        normalize_codex_reasoning_effort,
     )
 
-    updates: dict = {}
-    if req.provider:
-        updates["ai_provider"] = req.provider
-        settings.ai_provider = req.provider
-    if req.base_url:
-        updates["ai_base_url"] = req.base_url
-        settings.ai_base_url = req.base_url
-    if req.api_key is not None:
-        if req.api_key:
-            updates["ai_api_key"] = req.api_key
-            settings.ai_api_key = req.api_key
-        else:
-            secrets_store.clear("ai_api_key")
-            settings.ai_api_key = ""
-    if req.provider == "codex_cli" and not req.model:
-        secrets_store.clear("ai_model")
-        settings.ai_model = ""
-    elif req.model:
-        updates["ai_model"] = req.model
-        settings.ai_model = req.model
-    if req.provider == "codex_cli":
-        try:
-            codex_command = normalize_codex_command(req.codex_command)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        codex_reasoning_effort = normalize_codex_reasoning_effort(req.codex_reasoning_effort)
-        updates["ai_codex_command"] = codex_command
-        updates["ai_codex_reasoning_effort"] = codex_reasoning_effort
-        settings.ai_codex_command = codex_command
-        settings.ai_codex_reasoning_effort = codex_reasoning_effort
-    # user_agent 允许清空(回到默认浏览器 UA),故无条件持久化
-    updates["ai_user_agent"] = req.user_agent
-    settings.ai_user_agent = req.user_agent
-
-    if updates:
-        secrets_store.save(updates)
-
-    provider = current_ai_provider()
+    try:
+        profile = ai_profiles.save_current_override(
+            provider=req.provider,
+            base_url=req.base_url,
+            api_key=req.api_key or "",
+            model=req.model,
+            user_agent=req.user_agent,
+            codex_command=req.codex_command,
+            codex_reasoning_effort=req.codex_reasoning_effort,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "ok": True,
-        "ai_provider": provider,
-        "ai_model": current_ai_model(),
-        "ai_codex_command": current_codex_command(),
-        "ai_codex_reasoning_effort": current_codex_reasoning_effort(),
-        "ai_configured": ai_configured(provider),
+        "ai_provider": profile.provider,
+        "ai_model": profile.model,
+        "ai_codex_command": profile.codex_command,
+        "ai_codex_reasoning_effort": profile.codex_reasoning_effort,
+        "ai_configured": ai_configured(profile.provider),
+        "ai_source": profile.source,
+        "has_ai_override": profile.source == "user_override",
     }
 
 
 @router.delete("/ai")
 def clear_ai_settings() -> dict:
-    """一键清空 AI 配置(provider / base_url / api_key / model)。
+    """删除当前账户的个人覆盖，恢复服务器默认模型。"""
+    from app.services import ai_profiles
 
-    保留 ai_user_agent —— 自定义请求头与凭证解耦,清空凭证不影响绕过 CDN 拦截的设置。
-    """
-    from app.config import settings
-
-    secrets_store.clear("ai_provider", "ai_base_url", "ai_api_key", "ai_model", "ai_codex_command", "ai_codex_reasoning_effort")
-    # 同步重置运行时内存(provider 回默认值,其余置空)
-    settings.ai_provider = "openai_compat"
-    settings.ai_base_url = ""
-    settings.ai_api_key = ""
-    settings.ai_model = ""
-    settings.ai_codex_command = "codex"
-    settings.ai_codex_reasoning_effort = ""
-
-    return {"ok": True}
+    ai_profiles.clear_current_override()
+    profile = ai_profiles.resolve_current_profile()
+    return {
+        "ok": True,
+        "ai_provider": profile.provider,
+        "ai_model": profile.model,
+        "ai_source": profile.source,
+        "has_ai_override": False,
+    }
 
 
 # ===== 偏好设置 =====
@@ -1473,33 +1442,36 @@ def update_review_schedule(req: ReviewScheduleIn, request: Request) -> dict:
 
     - enabled=True: 注册/更新 job(工作日定时生成复盘报告)
     - enabled=False: 移除 job(停止定时复盘)
-    - 校验: 开启时若 AI Key 未配置则拒绝(复盘依赖 AI), 提示用户先配置。
+    - 校验: 开启时若当前账户可用的 AI 配置不存在则拒绝。
     - 时间下限 15:00(A股收盘), 由 preferences 层强制。
     """
     from app.services import preferences
 
     if req.enabled:
-        # 复盘必须有 AI Key, 否则每日报错刷日志
-        from app import secrets_store
-        if not secrets_store.get_ai_key():
+        from app.services.ai_provider import ai_configured
+        if not ai_configured():
             raise HTTPException(
                 status_code=400,
-                detail="复盘依赖 AI,请先在「设置 → AI」配置 API Key 后再开启定时复盘",
+                detail="复盘依赖 AI,请先配置个人 API 或确认平台默认模型可用后再开启",
             )
 
     sched = preferences.set_review_schedule(req.enabled, req.hour, req.minute)
 
     # 动态操作 APScheduler job
-    from app.jobs.daily_pipeline import _register_review_job, REVIEW_JOB_ID
+    from app.jobs.daily_pipeline import _register_review_job, review_job_id
     scheduler = getattr(request.app.state, "scheduler", None)
+    user = request.state.user
+    user_root = request.state.user_data_root
     if scheduler:
         if sched["enabled"]:
-            _register_review_job(scheduler, request.app.state.repo, sched["hour"], sched["minute"])
-            logger.info("scheduled_review enabled @%02d:%02d mon-fri", sched["hour"], sched["minute"])
+            _register_review_job(
+                scheduler, request.app.state.repo, user, user_root, sched["hour"], sched["minute"],
+            )
+            logger.info("scheduled_review enabled user=%s @%02d:%02d mon-fri", user.id, sched["hour"], sched["minute"])
         else:
             try:
-                scheduler.remove_job(REVIEW_JOB_ID)
-                logger.info("scheduled_review disabled (job removed)")
+                scheduler.remove_job(review_job_id(user.id))
+                logger.info("scheduled_review disabled user=%s", user.id)
             except Exception:
                 pass  # job 本就不存在(从未开过), 无需处理
 

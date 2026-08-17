@@ -2,6 +2,7 @@ import { lazy, type ComponentType } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { AuthGate } from './components/AuthGate'
+import { RouteErrorFallback } from './components/RouteErrorFallback'
 import { Qingshu101Admin } from './pages/Qingshu101Admin'
 
 type RouteModule = { default: ComponentType<Record<string, never>> }
@@ -81,6 +82,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: siteRoot,
+    errorElement: <RouteErrorFallback />,
     children: [
       {
         element: <Layout />,

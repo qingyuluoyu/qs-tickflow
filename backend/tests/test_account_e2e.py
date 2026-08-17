@@ -87,3 +87,12 @@ def test_two_accounts_register_login_logout_and_keep_watchlists_isolated(monkeyp
         assert login_again.json()["created"] is False
         assert login_again.json()["user"]["id"] == alice_id
         assert [row["symbol"] for row in alice.get("/api/watchlist").json()["symbols"]] == ["600000.SH"]
+
+        assert alice.post("/api/auth/logout").status_code == 200
+        login_without_name = alice.post(
+            "/api/auth/entry",
+            json={"name": "", "phone": "alice-phone", "password": "alice-password"},
+        )
+        assert login_without_name.status_code == 200
+        assert login_without_name.json()["created"] is False
+        assert login_without_name.json()["user"]["id"] == alice_id
