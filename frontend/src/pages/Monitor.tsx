@@ -1,15 +1,17 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { AlertTriangle, RadioTower, Plus, Trash2, Settings2, Zap, Bell, ListChecks, BellRing, TrendingUp, TrendingDown, Flame, Tags } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { EmptyState } from '@/components/EmptyState'
 import { Skeleton } from '@/components/data/Skeleton'
 import { api, type MonitorRule, type AlertEvent, type MonitorCondition, type MonitorExtFieldItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtPrice, fmtPct } from '@/lib/format'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { Modal as MantineModal, ActionIcon, Badge, Button, NumberInput, SegmentedControl, Select, Tooltip } from '@mantine/core'
+import { Modal } from '@/components/Modal'
 import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { LEGACY_STRATEGY_NOTIFY_EVENTS, STRATEGY_NOTIFY_EVENT_OPTIONS, strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
@@ -169,47 +171,48 @@ export function Monitor() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader title="监控中心" subtitle="实时信号与规则管理" />
-      <div className="flex-1 min-h-0 px-5 py-4">
+      <PageContainer className="flex-1 min-h-0">
         <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 lg:flex-row">
           {/* 左栏: 触发记录 */}
-          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5">
+          <section className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-card border border-border bg-surface/40 shadow-lg shadow-black/5">
             <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
               <SectionHeader icon={BellRing} title="触发记录" />
               {/* 过滤标签 */}
-              <div className="flex flex-wrap items-center gap-0.5">
-                {(['all', 'strategy', 'signal', 'price', 'market', 'sector'] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setFilter(f)}
-                    className={cn(
-                      'rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-all cursor-pointer',
-                      filter === f ? 'bg-accent/15 text-accent' : 'text-muted hover:bg-elevated/60 hover:text-secondary',
-                    )}
-                  >
-                    {f === 'all' ? '全部' : TYPE_LABEL[f]}
-                  </button>
-                ))}
+              <div className="min-w-0 overflow-x-auto">
+                <SegmentedControl
+                  size="xs"
+                  value={filter}
+                  onChange={v => setFilter(v as typeof filter)}
+                  data={(['all', 'strategy', 'signal', 'price', 'market', 'sector'] as const).map(f => ({
+                    value: f,
+                    label: f === 'all' ? '全部' : TYPE_LABEL[f],
+                  }))}
+                />
               </div>
               {/* 数量 + 清空 + 字段配置 */}
               <div className="ml-auto flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => setExtConfigOpen(true)}
-                  title="配置行业/概念标签"
-                  className={cn(
-                    'inline-flex h-6 w-6 items-center justify-center rounded-lg border transition-all cursor-pointer',
-                    extConfigOpen ? 'border-accent/40 text-accent' : 'border-border/60 bg-surface text-muted hover:border-accent/40 hover:text-accent',
-                  )}
-                >
-                  <Tags className="h-3.5 w-3.5" />
-                </button>
-                <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{total}</span>
-                {total > 0 && (
-                  <button
-                    onClick={() => setConfirmClear(true)}
-                    className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] text-muted transition-colors hover:bg-danger/10 hover:text-danger cursor-pointer"
+                <Tooltip label="配置行业/概念标签">
+                  <ActionIcon
+                    variant={extConfigOpen ? 'light' : 'subtle'}
+                    color={extConfigOpen ? 'accent' : 'gray'}
+                    size="sm"
+                    onClick={() => setExtConfigOpen(true)}
+                    aria-label="配置行业/概念标签"
                   >
-                    <Trash2 className="h-2.5 w-2.5" />清空
-                  </button>
+                    <Tags className="h-3.5 w-3.5" />
+                  </ActionIcon>
+                </Tooltip>
+                <Badge variant="light" color="gray" size="sm">{total}</Badge>
+                {total > 0 && (
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    size="compact-xs"
+                    leftSection={<Trash2 className="h-2.5 w-2.5" />}
+                    onClick={() => setConfirmClear(true)}
+                  >
+                    清空
+                  </Button>
                 )}
               </div>
             </div>
@@ -219,26 +222,33 @@ export function Monitor() {
           </section>
 
           {/* 右栏: 监控规则 */}
-          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-border bg-surface/40 shadow-lg shadow-black/5 lg:w-[400px] lg:shrink-0">
+          <section className="flex min-h-0 w-full flex-col overflow-hidden rounded-card border border-border bg-surface/40 shadow-lg shadow-black/5 lg:w-2/5 lg:shrink-0">
             <div className="flex items-center gap-3 border-b border-border/60 bg-surface/60 px-4 py-2.5">
               <SectionHeader icon={ListChecks} title="监控规则" />
-              <span className="rounded-md bg-elevated/50 px-1.5 py-0.5 text-[10px] font-medium text-muted">{rulesCount}</span>
+              <Badge variant="light" color="gray" size="sm">{rulesCount}</Badge>
               <div className="ml-auto flex items-center gap-1">
-                <button
-                  onClick={() => { setEditingRule(null); setEditorOpen(true) }}
-                  title="新建规则"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-accent/40 hover:text-accent hover:shadow-sm cursor-pointer"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  onClick={() => setConfirmClearRules(true)}
-                  disabled={rulesCount === 0}
-                  title="清除全部规则"
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-lg border border-border/60 bg-surface text-muted transition-all hover:border-danger/40 hover:text-danger disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                <Tooltip label="新建规则">
+                  <ActionIcon
+                    variant="default"
+                    size="sm"
+                    onClick={() => { setEditingRule(null); setEditorOpen(true) }}
+                    aria-label="新建规则"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </ActionIcon>
+                </Tooltip>
+                <Tooltip label="清除全部规则">
+                  <ActionIcon
+                    variant="default"
+                    size="sm"
+                    color="red"
+                    disabled={rulesCount === 0}
+                    onClick={() => setConfirmClearRules(true)}
+                    aria-label="清除全部规则"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </ActionIcon>
+                </Tooltip>
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3.5">
@@ -249,7 +259,7 @@ export function Monitor() {
             </div>
           </section>
         </div>
-      </div>
+      </PageContainer>
 
       <RuleEditorDialog
         open={editorOpen}
@@ -544,22 +554,30 @@ function AlertsList({ alertsQuery, confirmClear, setConfirmClear, total, enterTs
                   </span>
                   {confirmTs === ev.ts ? (
                     // 确认态: 红色实心按钮 (原删除图标位置), 再点确认删除
-                    <button
+                    <Button
+                      size="compact-xs"
+                      color="red"
+                      variant="light"
+                      leftSection={<Trash2 className="h-2.5 w-2.5" />}
+                      className="animate-pulse"
                       onClick={() => handleClickDelete(ev.ts)}
-                      title="再次点击确认删除"
-                      className="inline-flex items-center gap-1 rounded-md bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger border border-danger/30 animate-pulse cursor-pointer"
                     >
-                      <Trash2 className="h-2.5 w-2.5" />确认
-                    </button>
+                      确认
+                    </Button>
                   ) : (
-                    <button
-                      onClick={() => handleClickDelete(ev.ts)}
-                      disabled={delMut.isPending}
-                      title="删除"
-                      className="rounded p-1 text-muted/0 transition-colors group-hover:text-muted/40 hover:!text-danger hover:bg-danger/10 cursor-pointer"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+                    <Tooltip label="删除">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="sm"
+                        aria-label="删除"
+                        disabled={delMut.isPending}
+                        onClick={() => handleClickDelete(ev.ts)}
+                        className="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </ActionIcon>
+                    </Tooltip>
                   )}
                 </div>
               </motion.div>
@@ -716,40 +734,52 @@ function RulesList({ rulesQuery, onEdit }: {
                   {!r.enabled && <span className="shrink-0 text-[9px] text-secondary">· 停用</span>}
                 </div>
                 <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    onClick={() => toggleEnabled(r)}
-                    title={r.enabled ? '停用' : '启用'}
-                    className={cn(
-                      'p-1 rounded-md transition-all cursor-pointer',
-                      r.enabled ? 'text-accent hover:bg-accent/10' : 'text-muted hover:bg-elevated hover:text-accent',
-                    )}
-                  >
-                    <Zap className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => onEdit(r)}
-                    className="p-1 rounded-md text-secondary transition-all hover:bg-accent/10 hover:text-accent cursor-pointer"
-                    title="编辑"
-                  >
-                    <Settings2 className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip label={r.enabled ? '停用' : '启用'}>
+                    <ActionIcon
+                      variant="subtle"
+                      color={r.enabled ? 'accent' : 'gray'}
+                      size="sm"
+                      aria-label={r.enabled ? '停用' : '启用'}
+                      onClick={() => toggleEnabled(r)}
+                    >
+                      <Zap className="h-3.5 w-3.5" />
+                    </ActionIcon>
+                  </Tooltip>
+                  <Tooltip label="编辑">
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      aria-label="编辑"
+                      onClick={() => onEdit(r)}
+                    >
+                      <Settings2 className="h-3.5 w-3.5" />
+                    </ActionIcon>
+                  </Tooltip>
                   {confirmId === r.id ? (
-                    <button
+                    <Button
+                      size="compact-xs"
+                      color="red"
+                      variant="light"
+                      leftSection={<Trash2 className="h-2.5 w-2.5" />}
+                      className="animate-pulse"
                       onClick={() => handleClickDelete(r.id)}
-                      title="再次点击确认删除"
-                      className="inline-flex items-center gap-1 rounded-md bg-danger/15 px-1.5 py-0.5 text-[9px] font-medium text-danger border border-danger/30 animate-pulse cursor-pointer"
                     >
-                      <Trash2 className="h-2.5 w-2.5" />确认
-                    </button>
+                      确认
+                    </Button>
                   ) : (
-                    <button
-                      onClick={() => handleClickDelete(r.id)}
-                      disabled={del.isPending}
-                      className="p-1 rounded-md text-secondary transition-all hover:bg-danger/10 hover:text-danger cursor-pointer"
-                      title="删除"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                    <Tooltip label="删除">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="sm"
+                        aria-label="删除"
+                        disabled={del.isPending}
+                        onClick={() => handleClickDelete(r.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </ActionIcon>
+                    </Tooltip>
                   )}
                 </div>
               </div>
@@ -821,40 +851,30 @@ function RulesList({ rulesQuery, onEdit }: {
   )
 }
 
-// ── 规则编辑对话框 ────────────────────────────────────
+// ── 规则编辑对话框 (Mantine Modal: 顶部对齐 yOffset=16, 对应原 items-start mt-4) ──
 function RuleEditorDialog({ open, rule, onClose }: { open: boolean; rule: MonitorRule | null; onClose: () => void }) {
-  const backdrop = useDialogBackdrop(onClose)
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/40 backdrop-blur-sm p-4"
-          {...backdrop}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 8 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{ duration: 0.15 }}
-            className="mt-4 w-full max-w-3xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <RuleEditor
-              rule={rule}
-              onClose={onClose}
-              onSaved={onClose}
-            />
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <MantineModal
+      opened={open}
+      onClose={onClose}
+      withCloseButton={false}
+      padding={0}
+      yOffset={16}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+      classNames={{ content: 'w-full max-w-3xl' }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
+      <RuleEditor
+        rule={rule}
+        onClose={onClose}
+        onSaved={onClose}
+      />
+    </MantineModal>
   )
 }
 
-// ── 确认对话框 ────────────────────────────────────────
+// ── 确认对话框 (Mantine Modal) ────────────────────────
 function ConfirmDialog({ open, title, message, confirmText, danger, pending, onCancel, onConfirm }: {
   open: boolean
   title: string
@@ -865,43 +885,28 @@ function ConfirmDialog({ open, title, message, confirmText, danger, pending, onC
   onCancel: () => void
   onConfirm: () => void
 }) {
+  if (!open) return null
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={onCancel}
+    <Modal
+      onClose={onCancel}
+      ariaLabel={title}
+      panelClassName="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl"
+      overlayClassName="bg-black/40 backdrop-blur-sm"
+    >
+      <h3 className="text-sm font-medium text-foreground">{title}</h3>
+      <p className="mt-1.5 text-xs text-muted">{message}</p>
+      <div className="mt-4 flex justify-end gap-2">
+        <Button variant="default" size="xs" onClick={onCancel}>取消</Button>
+        <Button
+          color={danger ? 'red' : 'accent'}
+          size="xs"
+          loading={pending}
+          onClick={onConfirm}
         >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.15 }}
-            className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            <h3 className="text-sm font-medium text-foreground">{title}</h3>
-            <p className="mt-1.5 text-xs text-muted">{message}</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button onClick={onCancel} className="px-3 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
-              <button
-                onClick={onConfirm}
-                disabled={pending}
-                className={cn(
-                  'px-3 py-1.5 rounded-btn text-xs font-medium disabled:opacity-50 cursor-pointer',
-                  danger ? 'bg-danger text-base' : 'bg-accent text-base',
-                )}
-              >
-                {confirmText ?? '确定'}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          {confirmText ?? '确定'}
+        </Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -939,37 +944,28 @@ function MonitorExtConfigDialog({ open, fields, onClose }: {
     onClose()
   }
 
+  if (!open) return null
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.15 }}
-            className="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-2xl max-h-[85vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Tags className="h-4 w-4 text-accent" />
-              <h3 className="text-sm font-medium text-foreground">个股通知标签配置</h3>
-            </div>
-            <p className="text-[11px] text-muted mb-4">选择在触发记录和推送通知中显示的行业/概念字段,留空则不显示。</p>
-            <div className="space-y-4">
-              <ExtFieldSection label="行业字段" value={industry} onChange={setIndustry} groups={groups} loading={schema.isLoading} />
-              <ExtFieldSection label="概念字段" value={concept} onChange={setConcept} groups={groups} loading={schema.isLoading} />
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button onClick={onClose} className="px-3 py-1.5 rounded-btn text-xs text-secondary hover:text-foreground transition-colors cursor-pointer">取消</button>
-              <button onClick={handleSave} className="px-3 py-1.5 rounded-btn text-xs font-medium bg-accent text-base cursor-pointer">保存</button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    <Modal
+      onClose={onClose}
+      ariaLabel="个股通知标签配置"
+      panelClassName="w-full max-w-md rounded-2xl border border-border bg-surface p-5 shadow-2xl max-h-[85vh] overflow-y-auto"
+      overlayClassName="bg-black/40 backdrop-blur-sm"
+    >
+      <div className="flex items-center gap-2 mb-4">
+        <Tags className="h-4 w-4 text-accent" />
+        <h3 className="text-sm font-medium text-foreground">个股通知标签配置</h3>
+      </div>
+      <p className="text-[11px] text-muted mb-4">选择在触发记录和推送通知中显示的行业/概念字段,留空则不显示。</p>
+      <div className="space-y-4">
+        <ExtFieldSection label="行业字段" value={industry} onChange={setIndustry} groups={groups} loading={schema.isLoading} />
+        <ExtFieldSection label="概念字段" value={concept} onChange={setConcept} groups={groups} loading={schema.isLoading} />
+      </div>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="subtle" color="gray" size="xs" onClick={onClose}>取消</Button>
+        <Button color="accent" size="xs" onClick={handleSave}>保存</Button>
+      </div>
+    </Modal>
   )
 }
 
@@ -1001,34 +997,37 @@ function ExtFieldSection({ label, value, onChange, groups, loading }: {
     <div className="space-y-2">
       <label className="text-xs text-secondary block">{label}</label>
       <div className="flex items-center gap-2">
-        <select
-          value={field}
-          onChange={e => pickField(e.target.value || null)}
+        <Select
+          value={field || null}
+          onChange={pickField}
           disabled={loading}
-          className="flex-1 min-w-0 h-8 bg-elevated border border-border rounded text-xs text-foreground px-2 focus:outline-none focus:border-accent/50"
-        >
-          <option value="">不显示</option>
-          {groups.map(g => (
-            <optgroup key={g.group} label={g.group}>
-              {g.options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </optgroup>
-          ))}
-        </select>
+          size="xs"
+          className="flex-1 min-w-0"
+          placeholder="不显示"
+          data={[
+            { value: '', label: '不显示' },
+            ...groups.map(g => ({ group: g.group, items: g.options })),
+          ]}
+        />
         {field && (
-          <button onClick={() => onChange(null)} title="清除" className="shrink-0 p-1 rounded text-muted hover:text-danger transition-colors cursor-pointer">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <Tooltip label="清除">
+            <ActionIcon variant="subtle" color="gray" size="sm" aria-label="清除" className="shrink-0 hover:!text-danger" onClick={() => onChange(null)}>
+              <Trash2 className="h-3.5 w-3.5" />
+            </ActionIcon>
+          </Tooltip>
         )}
       </div>
       {field && (
         <div className="flex items-center gap-2 pl-0.5">
           <span className="text-[10px] text-muted shrink-0">显示前N个</span>
-          <input
-            type="number" min={0} max={20}
+          <NumberInput
+            min={0} max={20}
             value={maxTags || ''}
-            onChange={e => setMaxTags(e.target.value ? Number(e.target.value) : 0)}
+            onChange={v => setMaxTags(v === '' ? 0 : Number(v))}
             placeholder="不限"
-            className="w-14 h-6 bg-elevated border border-border rounded text-[11px] text-foreground px-1.5 focus:outline-none focus:border-accent/50"
+            size="xs"
+            w={64}
+            hideControls
           />
           <span className="text-[10px] text-muted/60">留空=全部</span>
         </div>

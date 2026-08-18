@@ -2,8 +2,11 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Database, Flame, Gauge, Info, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer } from 'lucide-react'
+import { ActionIcon, Button } from '@mantine/core'
+import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Coins, Database, Flame, Info, Layers, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer, TrendingUp, Zap } from 'lucide-react'
 import { DatePicker } from '@/components/DatePicker'
+import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { fmtBigNum, fmtPct } from '@/lib/format'
@@ -140,9 +143,9 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
               initial={{ opacity: 0, y: -8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
-              className="relative overflow-hidden rounded-md border border-border/40 bg-surface/60 pl-2.5 pr-2 py-1.5 hover:border-border hover:bg-surface transition-colors"
+              className="relative overflow-hidden rounded-md border border-white/8 bg-surface/50 pl-3 pr-2 py-1.5 backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface/80"
             >
-              <div className={cn('absolute left-0 top-0 h-full w-0.5', sev)} />
+              <div className={cn('absolute left-0 top-0 h-full w-1 shadow-[0_0_8px_currentColor]', sev)} />
               {/* 第一行: 代码 + 名称 + 价格 + 涨跌幅 (点击代码/名称弹日K) */}
               <div className="flex items-center gap-1.5">
                 <button
@@ -166,7 +169,7 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
                   <span className="text-[10px] font-mono text-foreground/60 shrink-0">{fmtPrice(ev.price)}</span>
                 )}
                 {ev.change_pct != null && (
-                  <span className={cn('text-[10px] font-mono font-medium shrink-0 w-12 text-right', pct >= 0 ? 'text-danger' : 'text-bear')}>
+                  <span className={cn('text-[10px] font-mono font-medium shrink-0 w-12 text-right', pct >= 0 ? 'text-bull' : 'text-bear')}>
                     {fmtPct(pct)}
                   </span>
                 )}
@@ -234,14 +237,28 @@ function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => 
   )
 }
 
-function KpiCell({ label, value, sub, tone = 'neutral' }: { label: ReactNode; value: ReactNode; sub?: string; tone?: 'bull' | 'bear' | 'accent' | 'neutral' }) {
+function KpiCell({ label, value, sub, tone = 'neutral', icon: Icon }: { label: ReactNode; value: ReactNode; sub?: string; tone?: 'bull' | 'bear' | 'accent' | 'neutral'; icon?: typeof Activity }) {
   const isPlain = typeof value === 'string' || typeof value === 'number'
   const color = tone === 'bull' ? 'text-bull' : tone === 'bear' ? 'text-bear' : tone === 'accent' ? 'text-accent' : 'text-foreground'
+  const chipCls = tone === 'bull'
+    ? 'bg-gradient-to-br from-bull/25 to-bull/5 text-bull'
+    : tone === 'bear'
+      ? 'bg-gradient-to-br from-bear/25 to-bear/5 text-bear'
+      : tone === 'accent'
+        ? 'bg-gradient-to-br from-accent/25 to-accent/5 text-accent'
+        : 'bg-gradient-to-br from-elevated to-surface text-secondary'
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-surface/80 px-2 py-1 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-all hover:border-accent/30 hover:shadow-[0_2px_8px_hsl(var(--accent)/0.15)]">
-      <div className="flex items-center gap-1 text-[11px] text-muted">{label}</div>
-      <div className={`mt-1 truncate font-mono text-lg font-semibold leading-none tabular-nums ${isPlain ? color : 'text-foreground'}`}>{value}</div>
-      {sub && <div className="mt-1 truncate text-[10px] text-muted">{sub}</div>}
+    <div className="glass-card group flex min-w-0 items-center gap-2 overflow-hidden rounded-xl px-2 py-1.5 hover:-translate-y-px">
+      {Icon && (
+        <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg shadow-inner ${chipCls}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1 truncate text-[11px] text-muted">{label}</div>
+        <div className={`mt-0.5 truncate font-mono text-xl font-semibold leading-none tabular-nums text-glow-soft ${isPlain ? color : 'text-foreground'}`}>{value}</div>
+        {sub && <div className="mt-1 truncate text-[10px] text-muted">{sub}</div>}
+      </div>
     </div>
   )
 }
@@ -249,16 +266,23 @@ function KpiCell({ label, value, sub, tone = 'neutral' }: { label: ReactNode; va
 function IndexTicker({ item }: { item: OverviewMarket['indices'][number] }) {
   const pct = item.change_pct
   const isUp = (n(pct) ?? 0) >= 0
+  const glowColor = isUp ? 'var(--bull)' : 'var(--bear)'
   return (
     <Link
       to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
-      className="grid min-w-0 grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 rounded-lg border border-border bg-elevated/45 px-1.5 py-1 shadow-[0_1px_1px_hsl(var(--border)/0.3)] backdrop-blur-sm transition-all hover:border-accent/40 hover:bg-elevated hover:shadow-[0_2px_6px_hsl(var(--accent)/0.15)]"
+      className="glass-card group relative grid min-w-0 grid-cols-[1fr_auto] items-center gap-x-2 gap-y-0.5 overflow-hidden rounded-xl px-2.5 pb-1.5 pt-2 hover:-translate-y-0.5"
     >
+      {/* 顶部渐变光线: 涨红跌绿, 借鉴 Vision UI 卡片发光描边 */}
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-0.5 opacity-80 transition-opacity group-hover:opacity-100"
+        style={{ background: `linear-gradient(90deg, transparent, hsl(${glowColor} / 0.9), transparent)` }}
+        aria-hidden
+      />
       <div className="truncate text-xs font-medium text-foreground">{item.name || item.symbol}</div>
-      <div className={`font-mono text-xs font-semibold ${pctClass(pct)}`}>{fmtIndexPct(pct)}</div>
+      <div className={`font-mono text-sm font-bold text-glow ${pctClass(pct)}`}>{fmtIndexPct(pct)}</div>
       <div className="font-mono text-[10px] text-muted">{item.symbol}</div>
       <div className={`flex items-center gap-1 font-mono text-[11px] ${pctClass(pct)}`}>
-        {isUp ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+        {isUp ? <ArrowUpRight className="h-3 w-3 transition-transform group-hover:translate-x-px group-hover:-translate-y-px" /> : <ArrowDownRight className="h-3 w-3 transition-transform group-hover:translate-x-px group-hover:translate-y-px" />}
         {fmtPrice(item.last_price)}
       </div>
     </Link>
@@ -272,15 +296,15 @@ function BreadthBar({ data }: { data: OverviewMarket['breadth'] }) {
   const flatW = Math.max(0, 100 - upW - downW)
   return (
     <div className="space-y-2">
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-elevated">
-        <div className="bg-bull/85" style={{ width: `${upW}%` }} />
-        <div className="bg-muted/45" style={{ width: `${flatW}%` }} />
-        <div className="bg-bear/85" style={{ width: `${downW}%` }} />
+      <div className="flex h-3 overflow-hidden rounded-full bg-elevated/70 shadow-inner">
+        <div className="bg-gradient-to-r from-bull/60 to-bull shadow-[0_0_10px_hsl(var(--bull)/0.45)]" style={{ width: `${upW}%` }} />
+        <div className="bg-muted/40" style={{ width: `${flatW}%` }} />
+        <div className="bg-gradient-to-r from-bear to-bear/60 shadow-[0_0_10px_hsl(var(--bear)/0.45)]" style={{ width: `${downW}%` }} />
       </div>
       <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-        <div className="rounded bg-bull/8 px-2 py-1 text-bull">涨 <span className="font-mono">{data.up}</span></div>
-        <div className="rounded bg-elevated/70 px-2 py-1 text-muted">平 <span className="font-mono">{data.flat}</span></div>
-        <div className="rounded bg-bear/8 px-2 py-1 text-bear">跌 <span className="font-mono">{data.down}</span></div>
+        <div className="rounded-md border border-bull/20 bg-bull/8 px-2 py-1 text-bull backdrop-blur-sm">涨 <span className="font-mono font-semibold">{data.up}</span></div>
+        <div className="rounded-md border border-border/50 bg-surface/50 px-2 py-1 text-muted backdrop-blur-sm">平 <span className="font-mono font-semibold">{data.flat}</span></div>
+        <div className="rounded-md border border-bear/20 bg-bear/8 px-2 py-1 text-bear backdrop-blur-sm">跌 <span className="font-mono font-semibold">{data.down}</span></div>
       </div>
     </div>
   )
@@ -293,10 +317,14 @@ function DistributionBars({ rows }: { rows: OverviewMarket['distribution'] }) {
       {rows.map((r, i) => {
         const positive = i >= 4
         return (
-          <div key={r.label} className="flex h-full min-w-0 flex-col items-center justify-end gap-0.5">
-            <div className="font-mono text-[9px] text-muted">{r.count || ''}</div>
+          <div key={r.label} className="group flex h-full min-w-0 flex-col items-center justify-end gap-0.5">
+            <div className="font-mono text-[9px] text-muted transition-colors group-hover:text-foreground">{r.count || ''}</div>
             <div
-              className={`w-2 rounded-full ${positive ? 'bg-gradient-to-t from-bull/45 to-bull/90' : 'bg-gradient-to-t from-bear/45 to-bear/90'}`}
+              className={`w-3 rounded-full transition-all group-hover:brightness-125 ${
+                positive
+                  ? 'bg-gradient-to-t from-bull/40 to-bull shadow-[0_0_8px_hsl(var(--bull)/0.4)]'
+                  : 'bg-gradient-to-t from-bear/40 to-bear shadow-[0_0_8px_hsl(var(--bear)/0.4)]'
+              }`}
               style={{ height: `${Math.max(4, r.count / maxCount * 86)}%` }}
               title={`${r.label}: ${r.count}只`}
             />
@@ -342,9 +370,17 @@ function EmotionRadar({ radar, score }: { radar: OverviewMarket['radar']; score:
       <svg viewBox={`0 0 ${size} ${size}`} className="h-56 w-full">
         <defs>
           <radialGradient id="emotionRadarFill" cx="50%" cy="45%" r="70%">
-            <stop offset="0%" stopColor={`${color}57`} />
+            <stop offset="0%" stopColor={`${color}66`} />
             <stop offset="100%" stopColor={`${color}1f`} />
           </radialGradient>
+          {/* 描边渐变 + 高斯柔光, 科技感发光轮廓 */}
+          <linearGradient id="emotionRadarStroke" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor={color} />
+            <stop offset="100%" stopColor={`${color}80`} />
+          </linearGradient>
+          <filter id="emotionRadarGlow" x="-40%" y="-40%" width="180%" height="180%">
+            <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor={color} floodOpacity="0.55" />
+          </filter>
           {/* 中心/网格用 CSS 变量取色, 亮暗主题自动切换 (SVG 属性支持 hsl(var(--x))) */}
           <radialGradient id="emotionRadarCenter" cx="50%" cy="50%" r="55%">
             <stop offset="0%" stopColor="hsl(var(--surface) / 0.92)" />
@@ -362,10 +398,10 @@ function EmotionRadar({ radar, score }: { radar: OverviewMarket['radar']; score:
           />
         ))}
         {points.map(p => <line key={p.key} x1={cx} y1={cy} x2={p.gx} y2={p.gy} stroke="hsl(var(--border) / 0.4)" />)}
-        <polygon points={polygon} fill="url(#emotionRadarFill)" stroke={color} strokeWidth="2" />
+        <polygon points={polygon} fill="url(#emotionRadarFill)" stroke="url(#emotionRadarStroke)" strokeWidth="2" filter="url(#emotionRadarGlow)" />
         {points.map(p => <circle key={p.key} cx={p.x} cy={p.y} r="2.8" fill={color} stroke="hsl(var(--surface) / 0.9)" strokeWidth="1" />)}
         <circle cx={cx} cy={cy} r="29" fill="url(#emotionRadarCenter)" />
-        <text x={cx} y={cy + 7} textAnchor="middle" className="fill-foreground font-mono text-[24px] font-bold">{score}</text>
+        <text x={cx} y={cy + 7} textAnchor="middle" className="fill-foreground font-mono text-[24px] font-bold" style={{ textShadow: `0 0 12px ${color}` }}>{score}</text>
         {points.map(p => (
           <text key={`${p.key}-label`} x={p.lx} y={p.ly + 4} textAnchor="middle" className="fill-secondary text-[10px] font-medium">{p.label}</text>
         ))}
@@ -378,22 +414,27 @@ function LadderMini({ limit }: { limit: OverviewMarket['limit'] }) {
   const tiers = limit.tiers.filter(t => t.boards >= 2).slice(0, 6)
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between rounded bg-elevated/55 px-2 py-1.5 text-[11px]">
+      <div className="flex items-center justify-between rounded-md border border-border/50 bg-surface/50 px-2 py-1.5 text-[11px] backdrop-blur-sm">
         <span className="text-muted">封板率</span>
-        <span className="font-mono text-accent">{(limit.seal_rate ?? 0).toFixed(0)}%</span>
+        <span className="font-mono font-semibold text-accent text-glow">{(limit.seal_rate ?? 0).toFixed(0)}%</span>
       </div>
       {tiers.length === 0 && <div className="rounded border border-dashed border-border py-5 text-center text-xs text-muted">暂无 2 板以上</div>}
       {tiers.map(t => {
         const stocks = t.stocks ?? []
         const showStocks = stocks.length > 0 && stocks.length <= 3
+        const boardCls = t.boards >= 5
+          ? 'bg-gradient-to-r from-bull to-orange-400 bg-clip-text text-transparent'
+          : t.boards >= 3
+            ? 'bg-gradient-to-r from-accent to-purple-400 bg-clip-text text-transparent'
+            : 'text-secondary'
         return (
-          <div key={t.boards} className="rounded bg-elevated/35 px-2 py-1.5">
+          <div key={t.boards} className="rounded-md border border-border/40 bg-surface/45 px-2 py-1.5 backdrop-blur-sm transition-colors hover:border-accent/25">
             <div className="grid grid-cols-[42px_1fr_auto] items-center gap-2">
-              <span className={`font-mono text-sm font-bold ${t.boards >= 5 ? 'text-bull' : t.boards >= 3 ? 'text-accent' : 'text-secondary'}`}>{t.boards}板</span>
-              <div className="h-1.5 overflow-hidden rounded-full bg-base">
-                <div className="h-full rounded-full bg-bull/70" style={{ width: `${Math.min(100, t.count * 12)}%` }} />
+              <span className={`font-mono text-sm font-bold ${boardCls}`}>{t.boards}板</span>
+              <div className="h-1.5 overflow-hidden rounded-full bg-base/80 shadow-inner">
+                <div className="h-full rounded-full bg-gradient-to-r from-bull/60 to-bull shadow-[0_0_8px_hsl(var(--bull)/0.5)]" style={{ width: `${Math.min(100, t.count * 12)}%` }} />
               </div>
-              <span className="font-mono text-xs text-foreground">{t.count}</span>
+              <span className="font-mono text-xs font-semibold text-foreground">{t.count}</span>
             </div>
             {showStocks && (
               <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 pl-[50px]">
@@ -413,10 +454,24 @@ function LadderMini({ limit }: { limit: OverviewMarket['limit'] }) {
 
 function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; value: string; cls?: string }) {
   return (
-    <div className="rounded-md bg-elevated/45 px-2 py-1.5 border border-border/40">
+    <div className="rounded-md border border-white/8 bg-surface/50 px-2 py-1.5 backdrop-blur-sm transition-colors hover:border-accent/25">
       <div className="text-[10px] text-muted">{label}</div>
-      <div className={`mt-0.5 font-mono text-xs font-semibold ${cls}`}>{value}</div>
+      <div className={`mt-0.5 font-mono text-xs font-semibold text-glow-soft ${cls}`}>{value}</div>
     </div>
+  )
+}
+
+// 榜单名次徽章: 前 3 名金/银/铜渐变圆牌 (借鉴开源 leaderboard 设计)
+function RankBadge({ idx }: { idx: number }) {
+  const medal = [
+    'bg-gradient-to-br from-amber-300 to-amber-500 text-black shadow-[0_0_8px_rgba(251,191,36,0.5)]',
+    'bg-gradient-to-br from-slate-200 to-slate-400 text-black shadow-[0_0_8px_rgba(203,213,225,0.4)]',
+    'bg-gradient-to-br from-orange-300 to-orange-500 text-black shadow-[0_0_8px_rgba(251,146,60,0.4)]',
+  ][idx]
+  return (
+    <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-bold ${medal ?? 'bg-elevated/70 text-muted'}`}>
+      {idx + 1}
+    </span>
   )
 }
 
@@ -425,7 +480,7 @@ function StockList({ title, rows, mode, onStockClick }: {
   onStockClick?: (symbol: string, name?: string) => void;
 }) {
   return (
-    <div className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+    <div className="glass-card rounded-card p-1.5">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-xs font-semibold text-foreground">{title}</h3>
         <span className="text-[9px] text-muted">TOP {Math.min(rows.length, 8)}</span>
@@ -434,10 +489,10 @@ function StockList({ title, rows, mode, onStockClick }: {
         {rows.slice(0, 8).map((r, idx) => (
           <div
             key={`${r.symbol}-${idx}`}
-            className="grid min-h-[56px] grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-transparent bg-elevated/40 px-2 py-1.5 cursor-pointer transition-colors hover:border-border/60 hover:bg-elevated hover:brightness-110"
+            className="grid min-h-[56px] grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-transparent bg-surface/40 px-2 py-1.5 cursor-pointer backdrop-blur-sm transition-all hover:translate-x-0.5 hover:border-accent/30 hover:bg-elevated/70 hover:shadow-[0_0_12px_hsl(var(--accent)/0.12)]"
             onClick={() => onStockClick?.(r.symbol, r.name ?? undefined)}
           >
-            <span className="text-center font-mono text-[11px] text-muted">{idx + 1}</span>
+            <RankBadge idx={idx} />
             <div className="min-w-0">
               <div className="flex min-w-0 items-start gap-1">
                 <span className="break-words text-[13px] font-semibold leading-4 text-foreground" title={r.name || r.symbol}>{r.name || r.symbol}</span>
@@ -455,17 +510,17 @@ function StockList({ title, rows, mode, onStockClick }: {
             <div className="text-right">
               {mode === 'amount' ? (
                 <>
-                  <div className="font-mono text-[12px] text-foreground">{fmtBigNum(r.amount)}</div>
+                  <div className="font-mono text-[12px] text-glow-soft text-foreground">{fmtBigNum(r.amount)}</div>
                   <div className={`font-mono text-[10px] ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
                 </>
               ) : mode === 'active' ? (
                 <>
-                  <div className="font-mono text-[12px] text-accent">{fmtPrice(r.turnover_rate, 1)}%</div>
+                  <div className="font-mono text-[12px] text-glow text-accent">{fmtPrice(r.turnover_rate, 1)}%</div>
                   <div className={`font-mono text-[10px] ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
                 </>
               ) : (
                 <>
-                  <div className={`font-mono text-[12px] font-semibold ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
+                  <div className={`font-mono text-[12px] font-semibold text-glow ${pctClass(r.change_pct)}`}>{fmtStockPct(r.change_pct)}</div>
                   <div className="font-mono text-[10px] text-muted">{fmtPrice(r.close)}</div>
                 </>
               )}
@@ -485,7 +540,7 @@ function RankColumn({ title, rows, tone, onStockClick, onDimensionClick }: {
 }) {
   return (
     <div className="min-w-0 space-y-1">
-      <div className={`text-[11px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
+      <div className={`bg-gradient-to-r bg-clip-text text-[11px] font-semibold text-transparent ${tone === 'bull' ? 'from-bull to-bull/60' : 'from-bear to-bear/60'}`}>{title}</div>
       {rows.slice(0, 5).map((r, idx) => (
         <div
           key={`${title}-${r.name}-${idx}`}
@@ -498,7 +553,7 @@ function RankColumn({ title, rows, tone, onStockClick, onDimensionClick }: {
               onDimensionClick(r)
             }
           }}
-          className={`grid min-h-[58px] grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border border-transparent bg-elevated/40 px-2 py-1.5 transition-colors hover:border-border/60 ${r.source_field && onDimensionClick ? 'cursor-pointer hover:bg-elevated' : ''}`}
+          className={`grid min-h-[58px] grid-cols-[16px_minmax(0,1fr)_auto] items-center gap-1.5 rounded-md border border-transparent bg-surface/40 px-2 py-1.5 backdrop-blur-sm transition-all hover:border-accent/25 hover:bg-elevated/60 ${r.source_field && onDimensionClick ? 'cursor-pointer' : ''}`}
         >
           <span className="text-center font-mono text-[10px] text-muted">{idx + 1}</span>
           <div className="min-w-0">
@@ -541,7 +596,7 @@ function HotRankCard({ title, rank, configUrl, kind, onStockClick, onDimensionCl
 }) {
   const hasData = (rank?.leading?.length ?? 0) > 0 || (rank?.lagging?.length ?? 0) > 0
   return (
-    <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+    <section className="glass-card rounded-card p-1.5">
       <SectionTitle icon={Flame} title={title} hint="领涨/领跌" />
       {hasData ? (
         <div className="grid grid-cols-2 gap-2">
@@ -687,7 +742,7 @@ export function Dashboard() {
       <div className="flex h-full items-center justify-center bg-base p-6">
         <div className="rounded-card border border-border bg-surface p-6 text-center">
           <div className="text-sm text-danger">看板加载失败</div>
-          <button onClick={() => overview.refetch()} className="mt-3 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-base">重试</button>
+          <Button size="xs" className="mt-3" onClick={() => overview.refetch()}>重试</Button>
         </div>
       </div>
     )
@@ -720,7 +775,58 @@ export function Dashboard() {
   const quoteMode = data.quote_status?.mode as ('none' | 'watchlist' | 'full_market') | undefined
 
   return (
-    <div className="min-h-full bg-base p-1.5">
+    <div className="relative min-h-full overflow-x-clip bg-base">
+      {/* 环境光晕: 借鉴 Vision UI 背景氛围光, 随情绪分变色 */}
+      <div className="glow-blob -right-24 -top-24 h-72 w-72" style={{ background: 'radial-gradient(circle, hsl(var(--accent) / 0.35), transparent 70%)' }} aria-hidden />
+      <div className="glow-blob -bottom-32 -left-24 h-80 w-80" style={{ background: `radial-gradient(circle, ${scoreColor(score)}30, transparent 70%)` }} aria-hidden />
+      {/* 统一页头: 情绪分徽标经 titleExtra 传入, 日期/行情状态/重载经 right 传入 */}
+      <PageHeader
+        title="市场看板"
+        titleExtra={
+          <span
+            className="rounded-full border px-2 py-0.5 text-[10px] font-medium"
+            style={{
+              color: scoreColor(score),
+              borderColor: `${scoreColor(score)}40`,
+              background: `${scoreColor(score)}14`,
+              boxShadow: `0 0 12px ${scoreColor(score)}30`,
+            }}
+          >
+            {data.emotion.label} · {score}
+          </span>
+        }
+        right={
+          <div className="flex items-center gap-3 text-[11px] text-muted">
+            {currentDate ? (
+              <DatePicker
+                value={currentDate}
+                onChange={setSelectedDate}
+                min={dataStatus.data?.enriched?.earliest_date ?? undefined}
+                max={effectiveLatestDate ?? undefined}
+                className="w-32"
+              />
+            ) : (
+              <span className="font-mono text-secondary">—</span>
+            )}
+            <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{quoteAge(data.quote_status?.quote_age_ms)}</span>
+            <span className="hidden" aria-hidden="true">
+              {snapshotStale ? '数据过期' : quoteRunning ? '实时' : '非实时'}
+            </span>
+            <span className={snapshotStale ? 'text-danger' : quoteRunning ? 'text-accent' : 'text-warning'}>
+              {snapshotStale ? (realtimeUnavailable ? `${sourceLabel} 未返回今日快照` : '数据过期') : quoteRunning ? '实时' : '非实时'}
+            </span>
+            <Button
+              size="xs"
+              variant="default"
+              onClick={handleRefresh}
+              disabled={manualFetching}
+              leftSection={<RefreshCw className={`h-3 w-3 ${manualFetching ? 'animate-spin' : ''}`} />}
+            >重载</Button>
+          </div>
+        }
+      />
+
+      <PageContainer>
       {/* 无本地数据常驻引导卡片 —— 一键触发盘后管道获取数据(无 Key 也可) */}
       {hasNoData && (
         <FetchDataCard
@@ -746,50 +852,6 @@ export function Dashboard() {
           />
         )}
       </AnimatePresence>
-      <div className="relative mb-1.5 flex flex-wrap items-center justify-between gap-2 overflow-hidden rounded-card border border-border bg-gradient-to-r from-surface/90 to-surface/70 px-3 py-1.5 shadow-[0_1px_3px_hsl(var(--border)/0.4)] backdrop-blur-sm">
-        <div className="pointer-events-none absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-accent to-accent/20" aria-hidden />
-        <div className="flex items-center gap-2">
-          <Gauge className="h-4 w-4 text-accent" />
-          <h1 className="text-base font-semibold text-foreground">市场看板</h1>
-          <span
-            className="rounded-full border px-2 py-0.5 text-[10px] font-medium"
-            style={{
-              color: scoreColor(score),
-              borderColor: `${scoreColor(score)}40`,
-              background: `${scoreColor(score)}14`,
-            }}
-          >
-            {data.emotion.label} · {score}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-[11px] text-muted">
-          {currentDate ? (
-            <DatePicker
-              value={currentDate}
-              onChange={setSelectedDate}
-              min={dataStatus.data?.enriched?.earliest_date ?? undefined}
-              max={effectiveLatestDate ?? undefined}
-              className="w-32"
-            />
-          ) : (
-            <span className="font-mono text-secondary">—</span>
-          )}
-          <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{quoteAge(data.quote_status?.quote_age_ms)}</span>
-          <span className="hidden" aria-hidden="true">
-            {snapshotStale ? '数据过期' : quoteRunning ? '实时' : '非实时'}
-          </span>
-          <span className={snapshotStale ? 'text-danger' : quoteRunning ? 'text-accent' : 'text-warning'}>
-            {snapshotStale ? (realtimeUnavailable ? `${sourceLabel} 未返回今日快照` : '数据过期') : quoteRunning ? '实时' : '非实时'}
-          </span>
-          <button
-            onClick={handleRefresh}
-            disabled={manualFetching}
-            className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground disabled:opacity-50"
-          >
-            <RefreshCw className={`h-3 w-3 ${manualFetching ? 'animate-spin' : ''}`} />重载
-          </button>
-        </div>
-      </div>
 
       {/* Free 档提示: 大盘看板为盘后数据, 仅自选股实时。避免用户误读为全市场实时。 */}
       {realtimeUnavailable && snapshotStale && (
@@ -812,8 +874,8 @@ export function Dashboard() {
       )}
 
       {quoteMode === 'watchlist' && (
-        <div className="mb-1.5 flex items-start gap-2 rounded-card border border-amber-500/30 bg-amber-500/8 px-3 py-1.5 text-[11px] leading-relaxed">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <div className="mb-1.5 flex items-start gap-2 rounded-card border border-warning/30 bg-warning/8 px-3 py-1.5 text-[11px] leading-relaxed">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
           <div className="min-w-0 flex-1 text-secondary">
             当前为「自选实时」模式,看板展示的大盘数据为<strong className="text-foreground">盘后快照</strong>(最新有数据日),并非盘中实时;
             仅自选股({data.quote_status?.watchlist_symbol_count ?? 0} 只)支持实时监控。
@@ -822,28 +884,28 @@ export function Dashboard() {
         </div>
       )}
 
-      <div className="mb-1.5 grid grid-cols-4 gap-1">
+      <div className="mb-1.5 grid grid-cols-2 gap-1 lg:grid-cols-4">
         {data.indices.map(item => <IndexTicker key={item.symbol} item={item} />)}
       </div>
 
-      <div className="mb-1.5 grid grid-cols-6 gap-1">
-        <KpiCell label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
-        <KpiCell label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
-        <KpiCell label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
-        <KpiCell label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
+      <div className="mb-1.5 grid grid-cols-2 gap-1 md:grid-cols-3 xl:grid-cols-6">
+        <KpiCell icon={TrendingUp} label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
+        <KpiCell icon={Zap} label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
+        <KpiCell icon={Flame} label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
+        <KpiCell icon={Layers} label="最高连板" value={`${data.limit.max_boards || 0}板`} sub={(() => {
           const top = data.limit.tiers.find(t => t.boards === data.limit.max_boards)
           const stocks = top?.stocks ?? []
           if (stocks.length > 0 && stocks.length <= 3) return stocks.map(s => s.name || s.symbol).join(' · ')
           return `梯队 ${data.limit.tiers.length}`
         })()} tone="accent" />
-        <KpiCell label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
-        <KpiCell label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
+        <KpiCell icon={Coins} label="成交额" value={fmtBigNum(data.amount.total)} sub={`均额 ${fmtBigNum(data.amount.avg)}`} />
+        <KpiCell icon={Activity} label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
       </div>
 
-      <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
         <main className="min-w-0 space-y-1.5">
           <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-3">
-            <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+            <section className="glass-card rounded-card p-1.5">
               <SectionTitle icon={BarChart3} title="涨跌分布 / 广度" hint={`${data.breadth.total}只`} />
               <DistributionBars rows={data.distribution} />
               <div className="mt-2">
@@ -856,14 +918,14 @@ export function Dashboard() {
             </section>
 
             <section
-              className="rounded-card border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]"
+              className="glass-card rounded-card p-1.5"
               style={{ borderColor: `${scoreColor(score)}40` }}
             >
               <SectionTitle icon={Sparkles} title="情绪雷达" hint={`情绪评分 ${score}`} />
               <EmotionRadar radar={data.radar} score={score} />
             </section>
 
-            <section className="flex flex-col rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+            <section className="glass-card flex flex-col rounded-card p-1.5">
               <div>
                 <SectionTitle icon={LineChart} title="趋势强度" hint="均线/新高低" />
                 <div className="grid grid-cols-3 gap-1.5">
@@ -923,20 +985,20 @@ export function Dashboard() {
         </main>
 
         <aside className="min-w-0 space-y-1.5">
-          <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
-            <SectionTitle icon={Flame} title="涨停梯队" hint={<span className="inline-flex items-center gap-1">{`涨停 ${data.limit.limit_up}`}{isSealedDegrade && <span className="text-[9px] px-1 rounded bg-yellow-500/10 text-yellow-600 dark:text-yellow-500">{hasDepth ? '未修正' : '降级'}</span>}</span>} />
+          <section className="glass-card rounded-card p-1.5">
+            <SectionTitle icon={Flame} title="涨停梯队" hint={<span className="inline-flex items-center gap-1">{`涨停 ${data.limit.limit_up}`}{isSealedDegrade && <span className="text-[9px] px-1 rounded bg-warning/10 text-warning">{hasDepth ? '未修正' : '降级'}</span>}</span>} />
             <LadderMini limit={data.limit} />
           </section>
-          <section className="rounded-card border border-border bg-surface/80 p-1.5 shadow-[0_1px_2px_hsl(var(--border)/0.4)] backdrop-blur-sm transition-shadow hover:shadow-[0_2px_8px_hsl(var(--border)/0.5)]">
+          <section className="glass-card rounded-card p-1.5">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <BellRing className="h-3.5 w-3.5 text-accent" />
                 <h2 className="text-xs font-semibold text-foreground">监控中心</h2>
                 <span className="font-mono text-[10px] text-muted">实时信号</span>
               </div>
-              <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控中心">
+              <ActionIcon component={Link} to="/monitor" variant="subtle" color="gray" size="sm" title="进入监控中心" aria-label="进入监控中心">
                 <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
+              </ActionIcon>
             </div>
             <MonitorWidget onStockClick={(event) => {
               if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event })
@@ -968,6 +1030,7 @@ export function Dashboard() {
         } : null}
         onClose={() => setPreviewStock(null)}
       />
+      </PageContainer>
     </div>
   )
 }
@@ -1025,21 +1088,11 @@ function FetchDataCard({
           ) : fetchFailed ? (
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-danger">同步失败,请重试</span>
-              <button
-                onClick={onStart}
-                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-btn bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
-              >
-                <Play className="h-3.5 w-3.5" />重新获取
-              </button>
+              <Button size="xs" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>重新获取</Button>
             </div>
           ) : (
             <div className="mt-3 flex items-center gap-3">
-              <button
-                onClick={onStart}
-                className="inline-flex items-center gap-1.5 px-4 h-8 rounded-btn bg-accent text-white text-xs font-medium hover:bg-accent/90 transition-colors"
-              >
-                <Play className="h-3.5 w-3.5" />立即获取数据
-              </button>
+              <Button size="sm" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>立即获取数据</Button>
               <Link
                 to="/data"
                 className="inline-flex items-center gap-0.5 text-xs text-secondary hover:text-accent transition-colors"
@@ -1085,18 +1138,8 @@ function WelcomeFetchModal({
           </div>
         )}
         <div className="mt-5 flex items-center justify-center gap-2.5">
-          <button
-            onClick={onClose}
-            className="px-4 h-9 rounded-btn text-sm text-secondary hover:text-foreground hover:bg-elevated transition-colors"
-          >
-            稍后再说
-          </button>
-          <button
-            onClick={onStart}
-            className="inline-flex items-center gap-2 px-5 h-9 rounded-xl bg-accent text-white text-sm font-semibold shadow-lg shadow-accent/20 hover:bg-accent/90 transition-all"
-          >
-            <Play className="h-4 w-4" />开始获取
-          </button>
+          <Button variant="subtle" color="gray" size="sm" onClick={onClose}>稍后再说</Button>
+          <Button size="sm" leftSection={<Play className="h-4 w-4" />} onClick={onStart}>开始获取</Button>
         </div>
       </div>
     </SettingsModal>

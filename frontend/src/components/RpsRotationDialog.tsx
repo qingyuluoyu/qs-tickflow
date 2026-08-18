@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, type ReactElement } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Repeat, Sparkles, ArrowDownUp, RefreshCw, AlertCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
@@ -153,7 +153,7 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
   }, [selected, dates, columns])
 
   const renderRows = useMemo(() => {
-    const rows: JSX.Element[] = []
+    const rows: ReactElement[] = []
     for (let displayIdx = visibleRange.start; displayIdx < visibleRange.end; displayIdx++) {
       const rawIdx = getRowIndex(displayIdx)
       const cells = dates.map((d) => {
@@ -210,7 +210,7 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
     <Modal
       onClose={onClose}
       labelledBy="rps-rotation-title"
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      overlayClassName="bg-black/50"
       panelClassName="w-[92vw] max-w-[1100px] h-[88vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
     >
           {/* 标题栏 */}

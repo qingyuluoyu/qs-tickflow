@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
+import { ActionIcon, Button, Tooltip } from '@mantine/core'
 import { RefreshCw, Download, Lock, Loader2, X, Search, FileText, Database, Clock, CheckCircle2, Hourglass, Lightbulb, ExternalLink, ChartPie } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { EmptyState } from '@/components/EmptyState'
 import { useCapabilities } from '@/lib/useSharedQueries'
 import { useFinancialStatus, useFinancialSync } from '@/lib/useFinancials'
@@ -10,7 +12,7 @@ import { ReportHistoryPanel } from '@/components/financials/ReportHistoryPanel'
 import { LastStockChip } from '@/components/LastStockChip'
 import { useLastStock } from '@/lib/useLastStock'
 import { fmtBigNum } from '@/lib/format'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 const TABLE_LABELS: Record<string, string> = {
   metrics: '核心指标',
@@ -63,7 +65,7 @@ export function Financials() {
     return (
       <>
         <PageHeader title="财务分析" subtitle="利润表 / 资负表 / 现金流 / 关键指标 / 股本 / AI分析 · Expert" />
-        <div className="px-8 py-10">
+        <PageContainer narrow className="py-10">
           <div className="mx-auto max-w-md rounded-card border border-warning/30 bg-warning/[0.04] p-8 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warning/10">
               <Lock className="h-6 w-6 text-warning" />
@@ -92,7 +94,7 @@ export function Financials() {
               </a>
             </div>
           </div>
-        </div>
+        </PageContainer>
       </>
     )
   }
@@ -173,22 +175,24 @@ export function Financials() {
                     : '同步中…'}
               </span>
             )}
-            <button
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-gradient-to-r from-accent/25 to-accent/10 border border-accent/30 text-accent text-xs font-medium hover:from-accent/35 hover:to-accent/20 transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed"
+            <Button
+              size="xs"
+              variant="light"
+              color="accent"
+              leftSection={syncing
+                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                : <RefreshCw className="h-3.5 w-3.5" />}
               onClick={() => handleSync('all')}
               disabled={syncing}
               title={syncing ? '正在同步，请稍候…' : '同步全部财务表'}
             >
-              {syncing
-                ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                : <RefreshCw className="h-3.5 w-3.5" />}
               {syncing ? '同步中…' : '全部同步'}
-            </button>
+            </Button>
           </div>
         }
       />
 
-      <div className="px-3 sm:px-8 py-6 space-y-6 max-w-7xl">
+      <PageContainer narrow className="space-y-6">
         {syncing && (
           <div className="flex items-center gap-2 rounded-card border border-accent/30 bg-accent/[0.06] px-3 py-2 text-xs text-accent">
             <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
@@ -235,16 +239,21 @@ export function Financials() {
                         )}
                         <span className="text-xs font-medium text-foreground">{label}</span>
                       </div>
-                      <button
-                        className="text-muted hover:text-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                        onClick={() => handleSync(key)}
-                        disabled={syncing}
-                        title={syncing ? '正在同步…' : `更新${label}`}
-                      >
-                        {syncing
-                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          : <Download className="h-3.5 w-3.5" />}
-                      </button>
+                      <Tooltip label={syncing ? '正在同步…' : `更新${label}`} disabled={syncing} withArrow position="top">
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          radius="md"
+                          onClick={() => handleSync(key)}
+                          disabled={syncing}
+                          aria-label={`更新${label}`}
+                        >
+                          {syncing
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Download className="h-3.5 w-3.5" />}
+                        </ActionIcon>
+                      </Tooltip>
                     </div>
                     <div className="mt-2 text-xl font-semibold tabular-nums text-foreground">
                       {fmtBigNum(info?.rows ?? 0)}
@@ -286,14 +295,16 @@ export function Financials() {
                   <div className="flex-1 max-w-xl">
                     <StockFinancialSearch onSelect={pick} />
                   </div>
-                  <button
+                  <Button
+                    size="xs"
+                    variant="default"
+                    leftSection={<X className="h-3.5 w-3.5" />}
                     onClick={() => setSelected(null)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs text-secondary hover:text-foreground rounded-btn border border-border hover:bg-elevated transition-colors shrink-0"
                     title="清除选择"
+                    className="shrink-0"
                   >
-                    <X className="h-3.5 w-3.5" />
                     清除
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 // 未选股:醒目居中引导
@@ -327,7 +338,7 @@ export function Financials() {
             {available && <ReportHistoryPanel />}
           </>
         )}
-      </div>
+      </PageContainer>
     </>
   )
 }

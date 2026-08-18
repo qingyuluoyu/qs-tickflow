@@ -24,12 +24,19 @@ export interface ReviewMeta {
 export interface ReviewState {
   phase: ReviewPhase
   content: string
+  reasoning: string
   error: string
   meta: ReviewMeta | null
   focus: string
+  complete: boolean
+  truncated: boolean
+  continuing: boolean
 }
 
-const INITIAL: ReviewState = { phase: 'idle', content: '', error: '', meta: null, focus: '' }
+const INITIAL: ReviewState = {
+  phase: 'idle', content: '', reasoning: '', error: '', meta: null, focus: '',
+  complete: true, truncated: false, continuing: false,
+}
 
 // ===== 模块级单例状态(组件卸载不销毁)=====
 let state: ReviewState = { ...INITIAL }
@@ -71,17 +78,19 @@ export function isReviewGenerating(): boolean {
  * @param asOf 复盘日期
  * @param focus 用户追加的复盘关注点
  * @param onDone 完成回调(供调用方做自动归档)
+ * @param sections 可选:纳入提示词的数据板块键;缺省由后端按全部处理
  */
 export async function startReviewGeneration(
   asOf: string | undefined,
   focus: string,
-  onDone?: (fullContent: string, meta: ReviewMeta | null) => void,
+  onDone?: (fullContent: string, meta: ReviewMeta | null, reasoning: string) => void,
+  sections?: string[],
 ): Promise<void> {
   // 已在生成中,不重复启动
   if (isReviewGenerating()) return
 
   generatingSource = 'manual'
-  state = { phase: 'loading', content: '', error: '', meta: null, focus }
+  state = { ...INITIAL, phase: 'loading', focus, complete: false }
   notify()
 
   abortCtrl = new AbortController()
@@ -90,15 +99,21 @@ export async function startReviewGeneration(
   let doneMeta: ReviewMeta | null = null
 
   try {
-    for await (const evt of api.reviewStream(asOf, focus)) {
+    for await (const evt of api.reviewStream(asOf, focus, sections)) {
       if (abortCtrl.signal.aborted) break
       if (evt.type === 'meta') {
         doneMeta = evt
         state = { ...state, meta: evt }
         notify()
+      } else if (evt.type === 'reasoning_delta' && evt.content) {
+        state = { ...state, reasoning: state.reasoning + evt.content }
+        notify()
+      } else if (evt.type === 'continuation') {
+        state = { ...state, continuing: true }
+        notify()
       } else if (evt.type === 'delta' && evt.content) {
         buf += evt.content
-        state = { ...state, content: buf, phase: 'streaming' }
+        state = { ...state, content: buf, phase: 'streaming', continuing: false }
         notify()
       } else if (evt.type === 'error') {
         failed = true
@@ -106,17 +121,25 @@ export async function startReviewGeneration(
         notify()
         return
       } else if (evt.type === 'done') {
-        state = { ...state, phase: 'done' }
+        state = {
+          ...state,
+          phase: 'done',
+          complete: evt.complete !== false,
+          truncated: evt.truncated === true,
+          continuing: false,
+        }
         notify()
       }
     }
     // 流正常结束但无 done 事件,按 done 处理
     if (buf && !failed) {
-      state = { ...state, phase: 'done' }
-      notify()
+      if (state.phase !== 'done') {
+        state = { ...state, phase: 'done', complete: true, truncated: false, continuing: false }
+        notify()
+      }
       // 自动归档(仅手动流: 定时流由后端归档, SSE done 不走这里)
-      if (buf && !failed) {
-        onDone?.(buf, doneMeta)
+      if (state.complete && !state.truncated) {
+        onDone?.(buf, doneMeta, state.reasoning)
       }
     }
   } catch (e: any) {
@@ -139,16 +162,20 @@ export function abortReviewGeneration(): void {
 /** 设置当前查看的历史报告(把 store 状态切到 done + 该报告内容)。 */
 export function setViewingReport(report: {
   content: string
+  reasoning?: string
   as_of?: string
   emotion_score?: number | null
   emotion_label?: string
   summary?: string
+  complete?: boolean
+  truncated?: boolean
 }): void {
   abortCtrl?.abort()
   abortCtrl = null
   state = {
     phase: 'done',
     content: report.content,
+    reasoning: report.reasoning ?? '',
     error: '',
     meta: {
       as_of: report.as_of,
@@ -157,6 +184,9 @@ export function setViewingReport(report: {
       summary: report.summary,
     },
     focus: state.focus,
+    complete: report.complete !== false,
+    truncated: report.truncated === true,
+    continuing: false,
   }
   notify()
 }
@@ -193,17 +223,28 @@ export function feedReviewEvent(evt: any): void {
   if (t === 'meta') {
     // 定时流的第一个事件: 标记来源为 sse, 进入 streaming 态, 重置 content
     generatingSource = 'sse'
-    state = { phase: 'streaming', content: '', error: '', meta: evt, focus: '' }
+    state = {
+      phase: 'streaming', content: '', reasoning: '', error: '', meta: evt, focus: '',
+      complete: false, truncated: false, continuing: false,
+    }
     notify()
   } else if (t === 'delta' && evt.content) {
     // 只有 sse 流进行中时才累积(防止 meta 丢失时的孤立 delta)
     if (generatingSource !== 'sse') return
-    state = { ...state, content: state.content + evt.content, phase: 'streaming' }
+    state = { ...state, content: state.content + evt.content, phase: 'streaming', continuing: false }
+    notify()
+  } else if (t === 'reasoning_delta' && evt.content) {
+    if (generatingSource !== 'sse') return
+    state = { ...state, reasoning: state.reasoning + evt.content, phase: 'streaming' }
+    notify()
+  } else if (t === 'continuation') {
+    if (generatingSource !== 'sse') return
+    state = { ...state, continuing: true, phase: 'streaming' }
     notify()
   } else if (t === 'retry') {
     if (generatingSource !== 'sse') return
     // 后端重试: 清空已累积内容, 等待新一轮 meta/delta
-    state = { ...state, content: '', phase: 'streaming' }
+    state = { ...state, content: '', reasoning: '', phase: 'streaming', complete: false, truncated: false, continuing: false }
     notify()
   } else if (t === 'error') {
     if (generatingSource !== 'sse') return
@@ -213,7 +254,13 @@ export function feedReviewEvent(evt: any): void {
   } else if (t === 'done') {
     if (generatingSource !== 'sse') return
     // 定时场景 done 带 archived=true: 后端已归档, 前端只切 done 态, 不调归档接口。
-    state = { ...state, phase: 'done' }
+    state = {
+      ...state,
+      phase: 'done',
+      complete: evt.complete !== false,
+      truncated: evt.truncated === true,
+      continuing: false,
+    }
     notify()
     generatingSource = null
   }

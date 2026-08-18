@@ -17,6 +17,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { ActionIcon, Badge } from '@mantine/core'
 import { Eye, EyeOff, ExternalLink, GripVertical, Settings, Bell } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
@@ -92,63 +93,57 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           {entry.label}
         </span>
         {hidden && (
-          <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted shrink-0">已隐藏</span>
+          <Badge size="xs" variant="light" color="gray" className="shrink-0">已隐藏</Badge>
         )}
         <span className="truncate text-[11px] text-muted font-mono">{entry.id}</span>
       </div>
       <div>
-        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
-          entry.type === 'analysis' ? 'bg-accent/10 text-accent' : 'bg-elevated text-muted'
-        }`}>
+        <Badge size="sm" variant="light" color={entry.type === 'analysis' ? 'accent' : 'gray'}>
           {entry.type === 'builtin' ? '内置' : '扩展'}
-        </span>
+        </Badge>
       </div>
       <div className="flex justify-center">
-        <button
+        <ActionIcon
+          variant="subtle"
+          color={hidden ? 'gray' : 'accent'}
           onClick={() => onToggleHidden(entry.id)}
-          className={`rounded p-1 transition-colors ${
-            hidden
-              ? 'text-muted hover:text-accent hover:bg-accent/10'
-              : 'text-accent hover:bg-accent/10'
-          }`}
           title={hidden ? '显示' : '隐藏'}
         >
           {hidden ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </button>
+        </ActionIcon>
       </div>
       <div className="flex justify-center">
         {entry.type === 'builtin' ? (
-          <Link
+          <ActionIcon
+            component={Link}
             to={entry.id}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+            variant="subtle" color="gray"
             title="打开页面"
           >
             <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
+          </ActionIcon>
         ) : (
-          <Link
+          <ActionIcon
+            component={Link}
             to={`/settings?tab=ext-pages`}
-            className="rounded p-1 text-muted hover:text-accent hover:bg-accent/10 transition-colors"
+            variant="subtle" color="gray"
             title="编辑扩展页面"
           >
             <Settings className="h-3.5 w-3.5" />
-          </Link>
+          </ActionIcon>
         )}
       </div>
       {/* 第 6 列: 徽标开关 (仅监控中心) */}
       <div className="flex justify-center">
         {onToggleBadge && (
-          <button
+          <ActionIcon
+            variant="subtle"
+            color={badgeEnabled ? 'accent' : 'gray'}
             onClick={() => onToggleBadge(entry.id)}
-            className={`rounded p-1 transition-colors ${
-              badgeEnabled
-                ? 'text-accent hover:bg-accent/10'
-                : 'text-muted hover:text-accent hover:bg-accent/10'
-            }`}
             title={badgeEnabled ? '关闭数字提示' : '开启数字提示'}
           >
             <Bell className="h-3.5 w-3.5" />
-          </button>
+          </ActionIcon>
         )}
       </div>
     </div>

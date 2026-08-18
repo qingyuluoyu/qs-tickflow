@@ -163,7 +163,7 @@ function BubbleItem({ task, isLast, onPointerDown }: {
   const accent = isWorking
     ? 'from-purple-500/25 to-fuchsia-500/20 text-purple-300 border-purple-300/40 shadow-[0_6px_24px_-10px_rgba(168,85,247,0.5)]'
     : isError
-      ? 'from-red-500/20 to-red-500/10 text-red-300 border-red-300/40 shadow-[0_6px_20px_-10px_rgba(239,68,68,0.4)]'
+      ? 'from-danger/20 to-danger/10 text-danger border-danger/40 shadow-[0_6px_20px_-10px_rgba(240,68,68,0.4)]'
       : 'from-emerald-500/20 to-emerald-500/10 text-emerald-300 border-emerald-300/40 shadow-[0_6px_20px_-10px_rgba(16,185,129,0.35)]'
 
   return (
@@ -209,7 +209,7 @@ function BubbleItem({ task, isLast, onPointerDown }: {
           {isWorking ? (
             <span className="text-purple-300/80">分析中</span>
           ) : isError ? (
-            <span className="text-red-300/80">失败</span>
+            <span className="text-danger/80">失败</span>
           ) : (
             <span className="text-emerald-300/80">点击查看</span>
           )}

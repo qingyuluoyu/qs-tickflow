@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Play, BarChart3, Clock } from 'lucide-react'
+import { Badge, Button, NumberInput, SegmentedControl, Select, Table, TextInput } from '@mantine/core'
 import { api, type FactorColumn, type FactorBacktestResult, type GroupStat } from '@/lib/api'
 import { fmtPct, priceColorClass } from '@/lib/format'
 import { EmptyState } from '@/components/EmptyState'
@@ -17,9 +18,6 @@ const monthsAgo = (months: number) => {
 }
 const TODAY = formatDate(new Date())
 const THREE_MONTHS_AGO = monthsAgo(3)
-
-const INPUT_CLS = `w-full px-2.5 py-1.5 rounded-input bg-surface border border-border text-xs
-  focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth`
 
 function StatCard({ label, value, highlight }: {
   label: string
@@ -96,7 +94,7 @@ export function FactorBacktest() {
     queryFn: api.factorColumns,
   })
 
-  // 按 group 分类的因子
+  // 按 group 分类的因子 (Mantine Select 分组数据)
   const factorGroups = useMemo(() => {
     const cols = columns.data?.columns ?? []
     const groups: Record<string, FactorColumn[]> = {}
@@ -105,6 +103,14 @@ export function FactorBacktest() {
     }
     return groups
   }, [columns.data])
+
+  const factorSelectData = useMemo(
+    () => Object.entries(factorGroups).map(([group, cols]) => ({
+      group,
+      items: cols.map(c => ({ value: c.id, label: c.label })),
+    })),
+    [factorGroups],
+  )
 
   // 当前因子描述
   const factorDesc = useMemo(() => {
@@ -161,10 +167,12 @@ export function FactorBacktest() {
         : rangeKey === 'all'
           ? '全部历史'
           : '自定义区间'
-  const rangeButtonCls = (key: string) => `rounded-btn px-2 py-1 text-[11px] font-medium transition-colors ${rangeKey === key
-    ? 'bg-accent/15 text-accent'
-    : 'text-muted hover:bg-elevated/70 hover:text-secondary'
-  }`
+  const applyRangeKey = (key: string) => {
+    if (key === 'all') applyAllRange()
+    else if (key === '3m') applyRange(3)
+    else if (key === '6m') applyRange(6)
+    else if (key === '1y') applyRange(12)
+  }
 
   return (
     <div className="h-full min-h-0 overflow-hidden rounded-card border border-border bg-surface/80 grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)]">
@@ -177,19 +185,13 @@ export function FactorBacktest() {
 
         <div>
           <label className="text-xs font-medium text-secondary block mb-1.5">因子</label>
-          <select
+          <Select
+            size="xs"
+            data={factorSelectData}
             value={factorName}
-            onChange={e => setFactorName(e.target.value)}
-            className={INPUT_CLS}
-          >
-            {Object.entries(factorGroups).map(([group, cols]) => (
-              <optgroup key={group} label={group}>
-                {cols.map(c => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+            onChange={v => v && setFactorName(v)}
+            allowDeselect={false}
+          />
           {factorDesc && (
             <p className="mt-1 text-[11px] text-muted">{factorDesc}</p>
           )}
@@ -197,38 +199,32 @@ export function FactorBacktest() {
 
         <div>
           <label className="text-xs font-medium text-secondary block mb-1.5">资产类型</label>
-          <div className="inline-flex h-8 rounded-btn border border-border overflow-hidden mb-2">
-            {(['stock', 'etf'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => { setAssetType(t); setSymbols('') }}
-                className={`h-full px-3 text-xs font-medium transition-colors cursor-pointer
-                  ${assetType === t ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
-              >
-                {t === 'stock' ? '股票' : 'ETF'}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            size="xs"
+            className="mb-2"
+            value={assetType}
+            onChange={v => { setAssetType(v as 'stock' | 'etf'); setSymbols('') }}
+            data={[
+              { value: 'stock', label: '股票' },
+              { value: 'etf', label: 'ETF' },
+            ]}
+          />
           <label className="text-xs font-medium text-secondary block mb-1.5">
             标的(逗号分隔，留空=全市场{assetType === 'etf' ? ' ETF' : ''})
           </label>
-          <input
-            type="text"
+          <TextInput
+            size="xs"
             value={symbols}
-            onChange={e => setSymbols(e.target.value)}
+            onChange={e => setSymbols(e.currentTarget.value)}
             placeholder="留空则使用全市场，建议最近3个月"
-            className={`w-full px-2.5 py-1.5 rounded-input bg-surface border border-border text-xs font-mono
-              focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth`}
+            classNames={{ input: 'font-mono' }}
           />
         </div>
 
         <div className="rounded-btn border border-border bg-surface p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs font-medium text-foreground">回测区间</div>
-            <span className="shrink-0 rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-              {rangeTitle}
-            </span>
+            <Badge size="sm" variant="light" color="accent" className="shrink-0">{rangeTitle}</Badge>
           </div>
 
           <div className="mt-2 grid grid-cols-2 gap-2">
@@ -256,47 +252,65 @@ export function FactorBacktest() {
             </div>
           </div>
 
-          <div className="mt-2 flex rounded-input bg-base/60 p-0.5">
-            <button type="button" onClick={() => applyRange(3)} className={`${rangeButtonCls('3m')} flex-1`}>3个月</button>
-            <button type="button" onClick={() => applyRange(6)} className={`${rangeButtonCls('6m')} flex-1`}>6个月</button>
-            <button type="button" onClick={() => applyRange(12)} className={`${rangeButtonCls('1y')} flex-1`}>1年</button>
-            <button type="button" onClick={applyAllRange} className={`${rangeButtonCls('all')} flex-1`}>全部</button>
+          <div className="mt-2">
+            <SegmentedControl
+              size="xs"
+              fullWidth
+              value={rangeKey}
+              onChange={applyRangeKey}
+              data={[
+                { value: '3m', label: '3个月' },
+                { value: '6m', label: '6个月' },
+                { value: '1y', label: '1年' },
+                { value: 'all', label: '全部' },
+              ]}
+            />
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">分组数</label>
-            <select value={nGroups} onChange={e => setNGroups(Number(e.target.value))} className={INPUT_CLS}>
-              <option value={3}>3组</option>
-              <option value={5}>5组</option>
-              <option value={10}>10组</option>
-            </select>
+            <Select
+              size="xs"
+              value={String(nGroups)}
+              onChange={v => v && setNGroups(Number(v))}
+              allowDeselect={false}
+              data={[
+                { value: '3', label: '3组' },
+                { value: '5', label: '5组' },
+                { value: '10', label: '10组' },
+              ]}
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">权重</label>
-            <select value={weight} onChange={e => setWeight(e.target.value as any)} className={INPUT_CLS}>
-              <option value="equal">等权</option>
-              <option value="factor_weight">因子加权</option>
-            </select>
+            <Select
+              size="xs"
+              value={weight}
+              onChange={v => v && setWeight(v as 'equal' | 'factor_weight')}
+              allowDeselect={false}
+              data={[
+                { value: 'equal', label: '等权' },
+                { value: 'factor_weight', label: '因子加权' },
+              ]}
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">佣金(万分之)</label>
-            <input type="number" value={fees} onChange={e => setFees(e.target.value)}
-              className={INPUT_CLS} />
+            <NumberInput size="xs" min={0} value={fees} onChange={v => setFees(String(v))} />
           </div>
         </div>
 
-        <button
+        <Button
+          fullWidth
+          size="sm"
+          leftSection={<Play className="h-3.5 w-3.5" />}
+          loading={run.isPending}
           onClick={() => run.mutate()}
-          disabled={run.isPending}
-          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-btn
-            bg-accent text-sm font-medium hover:bg-accent/90
-            transition-colors duration-150 ease-smooth disabled:opacity-50"
         >
-          <Play className="h-3.5 w-3.5" />
           {run.isPending ? '分析中…' : '开始因子分析'}
-        </button>
+        </Button>
       </section>
 
       {/* 结果面板 */}
@@ -401,51 +415,51 @@ export function FactorBacktest() {
             {/* 分层统计表 */}
             {result.group_stats.length > 0 && (
               <div className="rounded-card border border-border overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-elevated">
-                    <tr className="text-left text-secondary">
-                      <th className="px-4 py-2.5 font-medium">分组</th>
-                      <th className="px-4 py-2.5 font-medium text-right">总收益</th>
-                      <th className="px-4 py-2.5 font-medium text-right">年化</th>
-                      <th className="px-4 py-2.5 font-medium text-right">最大回撤</th>
-                      <th className="px-4 py-2.5 font-medium text-right">夏普</th>
-                      <th className="px-4 py-2.5 font-medium text-right">胜率</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table verticalSpacing={6} horizontalSpacing="md" highlightOnHover className="text-sm">
+                  <Table.Thead className="bg-elevated">
+                    <Table.Tr className="text-left text-secondary">
+                      <Table.Th className="font-medium">分组</Table.Th>
+                      <Table.Th className="font-medium text-right">总收益</Table.Th>
+                      <Table.Th className="font-medium text-right">年化</Table.Th>
+                      <Table.Th className="font-medium text-right">最大回撤</Table.Th>
+                      <Table.Th className="font-medium text-right">夏普</Table.Th>
+                      <Table.Th className="font-medium text-right">胜率</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
                     {result.group_stats.map((g: GroupStat) => (
-                      <tr key={g.group} className="border-t border-border hover:bg-elevated/50 transition-colors">
-                        <td className="px-4 py-2 text-sm font-medium">{g.label}</td>
-                        <td className={`px-4 py-2 text-right num ${priceColorClass(g.total_return)}`}>
+                      <Table.Tr key={g.group}>
+                        <Table.Td className="text-sm font-medium">{g.label}</Table.Td>
+                        <Table.Td className={`text-right num ${priceColorClass(g.total_return)}`}>
                           {fmtPct(g.total_return)}
-                        </td>
-                        <td className={`px-4 py-2 text-right num ${priceColorClass(g.annual_return)}`}>
+                        </Table.Td>
+                        <Table.Td className={`text-right num ${priceColorClass(g.annual_return)}`}>
                           {fmtPct(g.annual_return)}
-                        </td>
-                        <td className="px-4 py-2 text-right num text-bear">{fmtPct(g.max_drawdown)}</td>
-                        <td className="px-4 py-2 text-right num">{g.sharpe?.toFixed(2)}</td>
-                        <td className="px-4 py-2 text-right num">{fmtPct(g.win_rate)}</td>
-                      </tr>
+                        </Table.Td>
+                        <Table.Td className="text-right num text-bear">{fmtPct(g.max_drawdown)}</Table.Td>
+                        <Table.Td className="text-right num">{g.sharpe?.toFixed(2)}</Table.Td>
+                        <Table.Td className="text-right num">{fmtPct(g.win_rate)}</Table.Td>
+                      </Table.Tr>
                     ))}
                     {/* 多空行 */}
                     {result.long_short_stats?.total_return != null && (
-                      <tr className="border-t-2 border-accent/30 bg-accent/[0.03]">
-                        <td className="px-4 py-2 text-sm font-medium text-accent">
+                      <Table.Tr className="border-t-2 border-accent/30 bg-accent/[0.03]">
+                        <Table.Td className="text-sm font-medium text-accent">
                           多空({result.long_short_stats.top_group ?? ''}-{result.long_short_stats.bottom_group ?? ''})
-                        </td>
-                        <td className={`px-4 py-2 text-right num font-medium ${priceColorClass(result.long_short_stats.total_return)}`}>
+                        </Table.Td>
+                        <Table.Td className={`text-right num font-medium ${priceColorClass(result.long_short_stats.total_return)}`}>
                           {fmtPct(result.long_short_stats.total_return as number)}
-                        </td>
-                        <td className="px-4 py-2 text-right num">—</td>
-                        <td className="px-4 py-2 text-right num text-bear">
+                        </Table.Td>
+                        <Table.Td className="text-right num">—</Table.Td>
+                        <Table.Td className="text-right num text-bear">
                           {fmtPct(result.long_short_stats.max_drawdown as number)}
-                        </td>
-                        <td className="px-4 py-2 text-right num">—</td>
-                        <td className="px-4 py-2 text-right num">—</td>
-                      </tr>
+                        </Table.Td>
+                        <Table.Td className="text-right num">—</Table.Td>
+                        <Table.Td className="text-right num">—</Table.Td>
+                      </Table.Tr>
                     )}
-                  </tbody>
-                </table>
+                  </Table.Tbody>
+                </Table>
               </div>
             )}
 

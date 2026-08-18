@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react'
+import { Checkbox, NumberInput, Select } from '@mantine/core'
 import type { StrategyDetail, StrategyParamDef } from '@/lib/api'
 
 /** 参数扫描配置的共享逻辑与 UI — 优化器与 walk-forward 复用。 */
-
-export const INPUT_CLS =
-  'w-full px-2.5 py-1.5 rounded-input bg-surface border border-border text-xs focus:outline-none focus:border-accent'
 
 // 可选优化目标 (对齐后端 VALID_OBJECTIVES) + 中文标签
 export const OBJECTIVES: { id: string; label: string }[] = [
@@ -121,10 +119,13 @@ export function StrategySelect({ strategies, value, onChange }: {
   onChange: (id: string) => void
 }) {
   return (
-    <select value={value} onChange={e => onChange(e.target.value)} className={INPUT_CLS}>
-      <option value="">选择策略…</option>
-      {strategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-    </select>
+    <Select
+      size="xs"
+      placeholder="选择策略…"
+      data={strategies.map(s => ({ value: s.id, label: s.name }))}
+      value={value || null}
+      onChange={v => onChange(v ?? '')}
+    />
   )
 }
 
@@ -144,16 +145,22 @@ export function SweepParamList({ params, sweeps, updateSweep }: {
           const numeric = p.type === 'float' || p.type === 'int'
           return (
             <div key={p.id} className="rounded-input border border-border/60 p-2">
-              <label className="flex items-center gap-2 text-xs">
-                <input type="checkbox" checked={s.enabled} onChange={e => updateSweep(p.id, { enabled: e.target.checked })} />
-                <span className="font-medium text-foreground">{p.label}</span>
-                <span className="text-secondary">({p.type})</span>
-              </label>
+              <Checkbox
+                size="xs"
+                checked={s.enabled}
+                onChange={e => updateSweep(p.id, { enabled: e.currentTarget.checked })}
+                label={
+                  <span className="text-xs">
+                    <span className="font-medium text-foreground">{p.label}</span>
+                    <span className="text-secondary"> ({p.type})</span>
+                  </span>
+                }
+              />
               {s.enabled && numeric && (
                 <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  <input type="number" value={s.min} onChange={e => updateSweep(p.id, { min: e.target.value })} placeholder="min" className={INPUT_CLS} />
-                  <input type="number" value={s.max} onChange={e => updateSweep(p.id, { max: e.target.value })} placeholder="max" className={INPUT_CLS} />
-                  <input type="number" value={s.step} onChange={e => updateSweep(p.id, { step: e.target.value })} placeholder="step" className={INPUT_CLS} />
+                  <NumberInput size="xs" value={s.min} onChange={v => updateSweep(p.id, { min: String(v) })} placeholder="min" />
+                  <NumberInput size="xs" value={s.max} onChange={v => updateSweep(p.id, { max: String(v) })} placeholder="max" />
+                  <NumberInput size="xs" value={s.step} onChange={v => updateSweep(p.id, { step: String(v) })} placeholder="step" />
                 </div>
               )}
               {s.enabled && !numeric && (
@@ -174,7 +181,7 @@ export function CombosHint({ show, combos, gridError }: { show: boolean; combos:
   if (!show) return null
   const bad = combos > GRID_MAX_COMBINATIONS || !!gridError
   return (
-    <div className={`text-xs ${bad ? 'text-red-400' : 'text-secondary'}`}>
+    <div className={`text-xs ${bad ? 'text-danger' : 'text-secondary'}`}>
       {gridError
         ? gridError
         : combos === 0

@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import {
   X, Sparkles, Loader2, AlertTriangle, Copy, Check, RefreshCw,
   Database, Settings2, Send, Wand2, Minimize2, History,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { copyText } from '@/lib/clipboard'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { MarkdownRenderer } from './MarkdownRenderer'
 import {
   type ActiveTask, type HistoryReport,
   minimizeDialog, closeDialog, startAnalysis,
 } from '@/lib/aiReportStore'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 interface Props {
   /** 当前展示的任务;活跃任务或历史报告 */
@@ -82,24 +81,28 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const backdrop = useDialogBackdrop(closeDialog, () => !isWorking)
-
+  // 生成中禁止遮罩点击/ESC 关闭 (只能通过最小化气泡后台运行)
   if (!open) return null
 
   const error = task && 'error' in task ? task.error : ''
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-        {...backdrop}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
-          transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="w-full max-w-3xl max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        >
+    <MantineModal
+      opened
+      onClose={closeDialog}
+      withCloseButton={false}
+      closeOnClickOutside={!isWorking}
+      closeOnEscape={!isWorking}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+      classNames={{
+        content: 'w-full max-w-3xl max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
           {/* ===== 头部 ===== */}
           <div className="relative px-5 py-3.5 border-b border-border/50 bg-gradient-to-r from-purple-500/[0.06] via-fuchsia-500/[0.04] to-transparent">
             <div className="flex items-center gap-3">
@@ -254,9 +257,7 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
                 : '报告由项目已配置的 AI 模型基于本地财务数据生成;可在输入框追加关注点后重新生成。报告仅供参考,不构成投资建议。'}
             </p>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    </MantineModal>
   )
 }
 

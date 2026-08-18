@@ -2,12 +2,12 @@ import { useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { SSE_INVALIDATE_PREFIXES, QK } from './queryKeys'
 import { getQueryConfig } from './useQueryConfig'
-import { toast } from '@/components/Toast'
-import { pushAlertToasts } from '@/components/AlertToast'
+import { toast } from '@/lib/notify'
+import { pushAlertToasts } from '@/lib/alertNotify'
 import { feedReviewEvent } from './reviewStore'
 import type { StrategyAlertEvent } from './api'
 
-// ===== 全局 SSE 连接状态 (模块级 store, 仿 AlertToast.tsx 模式) =====
+// ===== 全局 SSE 连接状态 (模块级 store, 仿 alertNotify.tsx 模式) =====
 // 实时行情 SSE 断开时 UI 无感知 → 会漏掉策略告警。这里暴露连接状态,
 // 供 Layout 顶部渲染徽标、连续失败 N 次后弹一次 toast。
 export type QuoteStreamStatus = 'connected' | 'reconnecting' | 'disconnected'
@@ -77,7 +77,7 @@ export function useQuoteStream(
 ) {
   const qc = useQueryClient()
   const esRef = useRef<EventSource | null>(null)
-  const retryRef = useRef<ReturnType<typeof setTimeout>>()
+  const retryRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const pagesRef = useRef(sseRefreshPages)
   pagesRef.current = sseRefreshPages
 
@@ -91,9 +91,9 @@ export function useQuoteStream(
       toast(a.message, 'success')
     }
 
-    // 监控告警: 用专用 AlertToast (整批只响一声, 每条都弹, 受 maxVisible 上限保护)
+    // 监控告警: 用专用告警通知 (整批只响一声, 每条都弹, 受 maxVisible 上限保护)
     if (strategyAlerts.length > 0) {
-      // 有 onAlert 回调时走回调, 否则弹 AlertToast
+      // 有 onAlert 回调时走回调, 否则弹告警通知
       if (onAlert) {
         onAlert(strategyAlerts)
       }

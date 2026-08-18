@@ -16,7 +16,8 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Check, GripVertical } from 'lucide-react'
+import { Button, Checkbox } from '@mantine/core'
+import { GripVertical } from 'lucide-react'
 import { storage } from '@/lib/storage'
 
 export type CardKey =
@@ -178,12 +179,14 @@ export function PageSettingsModal({
         </SortableContext>
       </DndContext>
       <div className="flex items-center justify-end pt-1">
-        <button
+        <Button
+          size="compact-xs"
+          variant="subtle"
+          color="gray"
           onClick={reset}
-          className="px-2 py-0.5 rounded-btn text-[10px] text-secondary hover:text-foreground transition-colors"
         >
           恢复默认
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -234,17 +237,13 @@ function SortableCardRow({
         <GripVertical className="h-4 w-4" />
       </button>
       {/* 显隐勾选 */}
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-          on ? 'bg-accent border-accent' : 'bg-base border-border'
-        }`}
-        role="checkbox"
-        aria-checked={on}
-      >
-        {on && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-      </button>
+      <Checkbox
+        size="xs"
+        checked={on}
+        onChange={onToggle}
+        aria-label={`显示${label}`}
+        className="shrink-0"
+      />
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-foreground">{label}</div>
         <div className="text-[10px] text-muted leading-snug">{desc}</div>

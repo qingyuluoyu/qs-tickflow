@@ -20,6 +20,19 @@ function kv<T>(key: string) {
   }
 }
 
+/** User-interface preferences that must not bleed between local accounts. */
+export function storageForUser(userId: string) {
+  const prefix = `tf-user:${encodeURIComponent(userId)}:`
+  return {
+    watchlistColumns:     kv<unknown[]>(`${prefix}watchlist_columns`),
+    watchlistView:        kv<string>(`${prefix}watchlist_view`),
+    watchlistCandle:      kv<boolean>(`${prefix}watchlist_showCandle`),
+    watchlistIntraday:    kv<boolean>(`${prefix}watchlist_showIntraday`),
+    watchlistBoardFilter: kv<string[]>(`${prefix}watchlist_boardFilter`),
+    strategyPool:         kv<string[]>(`${prefix}strategy_pool`),
+  } as const
+}
+
 export const storage = {
   /** 查询轮询 / SSE 配置 */
   queryConfig:          kv<unknown>('tf-stocks-query-config'),

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient, useMutation, useQuery } from '@tanstack/react-query'
+import { Badge, Button, Checkbox, PasswordInput, Slider, Switch, TextInput } from '@mantine/core'
 import {
   Activity,
   Wifi,
@@ -20,8 +21,9 @@ import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useShared
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { tierRank } from '@/lib/capability-labels'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { DepthConfigContent } from '@/components/data/DepthConfigCard'
+import { useAuth } from '@/lib/auth'
 
 // 页面 → 显示名
 const PAGE_LABELS: Record<string, string> = {
@@ -41,6 +43,7 @@ const SIDEBAR_INDEX_OPTIONS = [
 
 export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = {}) {
   const qc = useQueryClient()
+  const { user } = useAuth()
   const { data: prefs } = usePreferences()
   const { data: caps } = useCapabilities()
   const { data: quoteStatus } = useQuoteStatus()
@@ -109,7 +112,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
   }, [wecomBotId, wecomBotSecret])
   const watchlistSymbols = prefs?.realtime_watchlist_symbols ?? []
   const watchlist = useQuery({
-    queryKey: QK.watchlist,
+    queryKey: QK.watchlistFor(user.id),
     queryFn: () => api.watchlistList(),
     enabled: isFreeTier && watchlistSymbols.length > 0,
   })
@@ -284,22 +287,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
   if (isNoneTier && !realtimeAllowed) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl
-                        bg-gradient-to-br from-purple-500/20 to-blue-500/20 mb-5">
-          <Activity className="h-7 w-7 text-purple-400" />
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-accent/10 mb-5">
+          <Activity className="h-7 w-7 text-accent" />
         </div>
         <h2 className="text-lg font-medium text-foreground mb-2">实时监控</h2>
         <p className="text-sm text-secondary max-w-md mb-6">
           实时行情需要 Free 及以上档位。None 档可使用 free-api 获取历史日K（当日数据需盘后1-2小时），但不能调用付费服务器实时接口。
         </p>
-        <a
-          href="/settings?tab=account"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-btn
-                     bg-accent text-white text-sm font-medium
-                     hover:bg-accent/90 transition-colors"
-        >
+        <Button component="a" href="/settings?tab=account" size="md">
           配置 API Key 升级
-        </a>
+        </Button>
       </div>
     )
   }
@@ -336,14 +333,14 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               </span>
             </div>
             <div className="flex items-center gap-3 mt-2">
-              <input
-                type="range"
+              <Slider
+                className="flex-1"
                 min={minInterval}
                 max={maxInterval}
                 step={minInterval < 1 ? 0.1 : minInterval < 3 ? 0.5 : 1}
                 value={intervalDraft}
-                onChange={(e) => setIntervalDraft(parseFloat(e.target.value))}
-                className="flex-1 h-1 accent-accent cursor-pointer"
+                onChange={setIntervalDraft}
+                label={null}
               />
               <span className="text-[10px] text-muted shrink-0">
                 {intervalDraft !== interval ? '2秒后保存' : `${minInterval}s — ${maxInterval}s`}
@@ -379,12 +376,9 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           )}
           <div className="mt-2 flex items-center justify-between gap-3">
             <span className="text-[10px] text-muted">当前 {watchlistSymbols.length}/5 只</span>
-            <Link
-              to="/watchlist"
-              className="px-3 py-1 rounded-btn bg-elevated text-secondary text-xs font-medium hover:text-foreground transition-colors"
-            >
+            <Button component={Link} to="/watchlist" size="xs" variant="default">
               管理自选
-            </Link>
+            </Button>
           </div>
         </Card>
         )}
@@ -429,14 +423,14 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               </span>
             </div>
             <div className="flex items-center gap-3 mt-2">
-              <input
-                type="range"
+              <Slider
+                className="flex-1"
                 min={3}
                 max={60}
                 step={1}
                 value={intradayIntervalDraft}
-                onChange={(e) => setIntradayIntervalDraft(parseInt(e.target.value, 10))}
-                className="flex-1 h-1 accent-accent cursor-pointer"
+                onChange={setIntradayIntervalDraft}
+                label={null}
               />
               <span className="text-[10px] text-muted shrink-0">
                 {intradayIntervalDraft !== intradayInterval ? '2秒后保存' : '3s — 60s'}
@@ -485,16 +479,14 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           title="连板梯队降级修正"
           badge={!hasDepth ? '需 Pro+' : undefined}
           right={hasDepth ? (
-            <button
+            <Button
+              size="xs" variant="light"
               onClick={() => runFix.mutate()}
               disabled={runFix.isPending}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px]
-                         bg-accent/15 text-accent hover:bg-accent/25 transition-colors
-                         disabled:opacity-50 disabled:cursor-not-allowed"
+              leftSection={<Zap className="h-3 w-3" />}
             >
-              <Zap className="h-3 w-3" />
               {runFix.isPending ? '修正中…' : '立即修正'}
-            </button>
+            </Button>
           ) : undefined}
         >
           {hasDepth ? (
@@ -539,20 +531,19 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                 onClick={() => setChannelOpen(o => !o)}
                 className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
+                  size="xs"
                   checked={webhookDefaultChannels.includes('feishu')}
                   onChange={e => { e.stopPropagation(); toggleDefaultChannel('feishu', e.target.checked) }}
                   onClick={e => e.stopPropagation()}
                   title="作为新建规则的默认推送渠道"
-                  className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">飞书</span>
                 <span className="text-[9px] text-muted">群推送 Webhook</span>
                 {webhookDefaultChannels.includes('feishu') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">默认</span>
                 )}
-                <span className={`ml-auto text-[9px] ${feishuWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
+                <span className={`ml-auto text-[9px] ${feishuWebhookUrl ? 'text-bear' : 'text-warning'}`}>
                   {feishuWebhookUrl ? '已配置' : '未配置'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${channelOpen ? 'rotate-180' : ''}`} />
@@ -561,41 +552,42 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               {/* 飞书地址配置 — 行内展开 */}
               {channelOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
-                  <label className="block space-y-1.5">
+                  <div className="space-y-1.5">
                     <span className="text-[11px] text-muted">Webhook 地址</span>
-                    <input
+                    <TextInput
+                      size="sm"
                       value={feishuDraft}
                       onChange={e => setFeishuDraft(e.target.value)}
                       placeholder={FEISHU_PREFIX + 'xxxxxxxx'}
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+                      classNames={{ input: 'font-mono' }}
                     />
-                  </label>
+                  </div>
 
-                  <label className="block mt-2 space-y-1.5">
+                  <div className="mt-2 space-y-1.5">
                     <span className="text-[11px] text-muted">签名密钥 (可选 · 启用签名校验时填)</span>
-                    <input
-                      type="password"
+                    <PasswordInput
+                      size="sm"
                       value={feishuSecretDraft}
                       onChange={e => setFeishuSecretDraft(e.target.value)}
                       placeholder="机器人未启用签名校验则留空"
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+                      classNames={{ input: 'font-mono' }}
                     />
-                  </label>
+                  </div>
 
                   {feishuError && (
                     <div className="mt-2 text-[11px] text-danger">{feishuError}</div>
                   )}
 
                   <div className="mt-2 flex items-center gap-2">
-                    <button
+                    <Button
+                      size="xs"
                       onClick={submitFeishu}
                       disabled={saveFeishuWebhook.isPending || (feishuDraft.trim() === feishuWebhookUrl && feishuSecretDraft.trim() === feishuWebhookSecret)}
-                      className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveFeishuWebhook.isPending ? '保存中…' : '保存'}
-                    </button>
+                    </Button>
                     {feishuWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-bear">● 已配置</span>
                     )}
                   </div>
 
@@ -625,20 +617,19 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                 onClick={() => setWecomOpen(o => !o)}
                 className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
+                  size="xs"
                   checked={webhookDefaultChannels.includes('wecom')}
                   onChange={e => { e.stopPropagation(); toggleDefaultChannel('wecom', e.target.checked) }}
                   onClick={e => e.stopPropagation()}
                   title="作为新建规则的默认推送渠道"
-                  className="h-3 w-3 accent-accent cursor-pointer"
                 />
                 <span className="text-[11px] font-medium text-foreground">企业微信</span>
                 <span className="text-[9px] text-muted">群推送 Webhook</span>
                 {webhookDefaultChannels.includes('wecom') && (
                   <span className="rounded bg-accent/15 px-1 py-px text-[9px] text-accent">默认</span>
                 )}
-                <span className={`ml-auto text-[9px] ${wecomWebhookUrl ? 'text-emerald-500' : 'text-warning'}`}>
+                <span className={`ml-auto text-[9px] ${wecomWebhookUrl ? 'text-bear' : 'text-warning'}`}>
                   {wecomWebhookUrl ? '已配置' : '未配置'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${wecomOpen ? 'rotate-180' : ''}`} />
@@ -646,30 +637,31 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
 
               {wecomOpen && (
                 <div className="border-t border-border/60 bg-base/30 p-3">
-                  <label className="block space-y-1.5">
+                  <div className="space-y-1.5">
                     <span className="text-[11px] text-muted">Webhook 地址 或 Key</span>
-                    <input
+                    <TextInput
+                      size="sm"
                       value={wecomDraft}
                       onChange={e => setWecomDraft(e.target.value)}
                       placeholder={WECOM_PREFIX + '?key=xxxxxxxx' + ' 或直接填 key'}
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+                      classNames={{ input: 'font-mono' }}
                     />
-                  </label>
+                  </div>
 
                   {wecomError && (
                     <div className="mt-2 text-[11px] text-danger">{wecomError}</div>
                   )}
 
                   <div className="mt-2 flex items-center gap-2">
-                    <button
+                    <Button
+                      size="xs"
                       onClick={submitWecom}
                       disabled={saveWecomWebhook.isPending || wecomDraft.trim() === wecomWebhookUrl}
-                      className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveWecomWebhook.isPending ? '保存中…' : '保存'}
-                    </button>
+                    </Button>
                     {wecomWebhookUrl && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-bear">● 已配置</span>
                     )}
                   </div>
 
@@ -699,18 +691,17 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                 onClick={() => setBotOpen(o => !o)}
                 className="flex items-center gap-2 px-2.5 py-2 cursor-pointer transition-colors hover:bg-base/60"
               >
-                <input
-                  type="checkbox"
+                <Checkbox
+                  size="xs"
                   checked={wecomBotEnabled}
                   onChange={e => { e.stopPropagation(); toggleBotConnection.mutate(e.target.checked) }}
                   onClick={e => e.stopPropagation()}
                   disabled={!wecomBotId || toggleBotConnection.isPending}
                   title="开启后建立长连接保活, 关闭则断开"
-                  className="h-3 w-3 accent-accent cursor-pointer disabled:opacity-40"
                 />
                 <span className="text-[11px] font-medium text-foreground">企业微信</span>
                 <span className="text-[9px] text-muted">智能机器人</span>
-                <span className={`ml-auto text-[9px] ${wecomBotId ? (botStatus?.connected ? 'text-emerald-500' : 'text-warning') : 'text-muted'}`}>
+                <span className={`ml-auto text-[9px] ${wecomBotId ? (botStatus?.connected ? 'text-bear' : 'text-warning') : 'text-muted'}`}>
                   {wecomBotId ? (botStatus?.connected ? '已连接' : (wecomBotEnabled ? '连接中' : '已配置')) : '未配置'}
                 </span>
                 <ChevronDown className={`h-3 w-3 text-muted transition-transform ${botOpen ? 'rotate-180' : ''}`} />
@@ -722,26 +713,27 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                     勾选卡片左侧开关可启用长连接保活(开启后后端持续保持与企业微信的
                     WebSocket 连接)。保存凭证后需勾选才会连接, 取消勾选则立即断开。
                   </p>
-                  <label className="block space-y-1.5">
+                  <div className="space-y-1.5">
                     <span className="text-[11px] text-muted">BotID</span>
-                    <input
+                    <TextInput
+                      size="sm"
                       value={botIdDraft}
                       onChange={e => setBotIdDraft(e.target.value)}
                       placeholder="智能机器人的唯一标识"
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+                      classNames={{ input: 'font-mono' }}
                     />
-                  </label>
+                  </div>
 
-                  <label className="block mt-2 space-y-1.5">
+                  <div className="mt-2 space-y-1.5">
                     <span className="text-[11px] text-muted">Secret (长连接专用密钥)</span>
-                    <input
-                      type="password"
+                    <PasswordInput
+                      size="sm"
                       value={botSecretDraft}
                       onChange={e => setBotSecretDraft(e.target.value)}
                       placeholder="开启长连接 API 模式后获取的密钥"
-                      className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs font-mono text-foreground focus:outline-none focus:border-accent/50"
+                      classNames={{ input: 'font-mono' }}
                     />
-                  </label>
+                  </div>
 
                   {botError && (
                     <div className="mt-2 text-[11px] text-danger">{botError}</div>
@@ -752,15 +744,15 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
                   )}
 
                   <div className="mt-2 flex items-center gap-2">
-                    <button
+                    <Button
+                      size="xs"
                       onClick={submitBot}
                       disabled={saveWecomBot.isPending || (botIdDraft.trim() === wecomBotId && botSecretDraft.trim() === wecomBotSecret)}
-                      className="px-3 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer hover:bg-accent/90 transition-colors"
                     >
                       {saveWecomBot.isPending ? '保存中…' : '保存并连接'}
-                    </button>
+                    </Button>
                     {wecomBotId && (
-                      <span className="text-[10px] text-emerald-500">● 已配置</span>
+                      <span className="text-[10px] text-bear">● 已配置</span>
                     )}
                   </div>
 
@@ -821,19 +813,13 @@ function ToggleRow({
           <div className="text-[11px] text-muted truncate">{desc}</div>
         </div>
       </div>
-      <button
-        onClick={() => !disabled && onChange(!checked)}
+      <Switch
+        size="sm"
+        className="shrink-0"
+        checked={checked}
+        onChange={() => onChange(!checked)}
         disabled={disabled}
-        className={`relative inline-flex h-5 w-9 items-center rounded-full shrink-0 transition-colors duration-200 ${
-          checked ? 'bg-accent' : 'bg-elevated'
-        } ${disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
-      >
-        <span
-          className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-            checked ? 'translate-x-[18px]' : 'translate-x-[3px]'
-          }`}
-        />
-      </button>
+      />
     </div>
   )
 }
@@ -857,9 +843,9 @@ function Card({ icon: Icon, title, badge, right, children }: CardProps) {
           <Icon className="h-4 w-4 text-secondary" />
           <h2 className="text-sm font-medium text-foreground">{title}</h2>
           {badge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-elevated text-muted">
+            <Badge size="xs" variant="light" color="gray" className="font-mono normal-case">
               {badge}
-            </span>
+            </Badge>
           )}
         </div>
         {right}

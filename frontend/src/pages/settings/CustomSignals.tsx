@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ActionIcon, Badge, Button } from '@mantine/core'
 import { Plus, Trash2, Zap, Settings2, Lock } from 'lucide-react'
 import { api, type CustomSignal } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -10,11 +11,7 @@ import { Skeleton } from '@/components/data/Skeleton'
 type SignalSection = 'builtin' | 'custom'
 
 const KIND_LABEL: Record<SignalKind, string> = { entry: '入场', exit: '出场', both: '出入通用' }
-const KIND_CLASS: Record<SignalKind, string> = {
-  entry: 'bg-accent/10 text-accent',
-  exit: 'bg-warning/10 text-warning',
-  both: 'bg-muted/10 text-muted',
-}
+const KIND_COLOR: Record<SignalKind, string> = { entry: 'accent', exit: 'yellow', both: 'gray' }
 
 export function SettingsCustomSignalsPanel() {
   const qc = useQueryClient()
@@ -90,19 +87,19 @@ export function SettingsCustomSignalsPanel() {
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(234,179,8,0.12),transparent_38%)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-amber-400/80">信号库</div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-warning/80">信号库</div>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">统一查看策略、回测与监控可用信号</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
               内置信号由系统预计算，作为只读信号库展示；自定义信号可用「字段 + 运算符 + 值」组合条件创建，保存后可在策略、回测与监控中选择使用。
             </p>
           </div>
-          <button
+          <Button
+            size="xs" color="yellow"
             onClick={openNew}
-            className="inline-flex items-center justify-center gap-1.5 rounded-btn bg-amber-500/90 px-3 py-1.5 text-xs font-medium text-base hover:bg-amber-500 transition-colors"
+            leftSection={<Plus className="h-3.5 w-3.5" />}
           >
-            <Plus className="h-3.5 w-3.5" />
             新建自定义信号
-          </button>
+          </Button>
         </div>
 
         <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -120,11 +117,11 @@ export function SettingsCustomSignalsPanel() {
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveSection(tab.key)}
-                  className={`rounded-btn px-4 py-3 text-left transition-colors ${active ? 'bg-amber-500/15 text-amber-300 shadow-sm' : 'text-secondary hover:bg-elevated hover:text-foreground'}`}
+                  className={`rounded-btn px-4 py-3 text-left transition-colors ${active ? 'bg-warning/15 text-warning shadow-sm' : 'text-secondary hover:bg-elevated hover:text-foreground'}`}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-medium">{tab.label}</span>
-                    <span className={`rounded px-2 py-0.5 text-[11px] ${active ? 'bg-amber-400/15 text-amber-300' : 'bg-elevated text-muted'}`}>{tab.count}</span>
+                    <Badge size="sm" variant="light" color={active ? 'yellow' : 'gray'}>{tab.count}</Badge>
                   </div>
                   <div className="mt-1 text-[11px] text-muted">{tab.hint}</div>
                 </button>
@@ -141,7 +138,7 @@ export function SettingsCustomSignalsPanel() {
               <div className="flex items-center gap-2">
                 <Lock className="h-3.5 w-3.5 text-muted" />
                 <h3 className="text-sm font-medium text-foreground">内置信号</h3>
-                <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] text-muted">只读</span>
+                <Badge size="xs" variant="light" color="gray">只读</Badge>
               </div>
               <p className="mt-1 text-xs text-muted">这些信号由系统在 enriched 数据中预计算，策略选择器会直接展示。</p>
             </div>
@@ -154,13 +151,13 @@ export function SettingsCustomSignalsPanel() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h4 className="text-sm font-medium text-foreground truncate">{sig.name}</h4>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] ${KIND_CLASS[sig.kind]}`}>
+                      <Badge size="xs" variant="light" color={KIND_COLOR[sig.kind]}>
                         {KIND_LABEL[sig.kind]}
-                      </span>
+                      </Badge>
                     </div>
                     <p className="mt-1 text-[11px] text-muted font-mono truncate">{sig.id}</p>
                   </div>
-                  <span className="shrink-0 rounded border border-border bg-elevated px-1.5 py-0.5 text-[10px] text-muted">{sig.category}</span>
+                  <Badge size="xs" variant="outline" color="gray" className="shrink-0">{sig.category}</Badge>
                 </div>
                 <p className="mt-3 text-xs leading-5 text-secondary">{sig.description}</p>
               </div>
@@ -174,19 +171,19 @@ export function SettingsCustomSignalsPanel() {
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <Zap className="h-3.5 w-3.5 text-amber-400" />
+                <Zap className="h-3.5 w-3.5 text-warning" />
                 <h3 className="text-sm font-medium text-foreground">自定义信号</h3>
-                <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-[10px] text-amber-400">可配置</span>
+                <Badge size="xs" variant="light" color="yellow">可配置</Badge>
               </div>
               <p className="mt-1 text-xs text-muted">这些信号由你定义，可启用/停用，并在策略、回测与监控中作为 csg_* 信号使用。</p>
             </div>
-            <button
+            <Button
+              size="xs" variant="light" color="yellow"
               onClick={openNew}
-              className="inline-flex items-center justify-center gap-1.5 rounded-btn border border-amber-400/30 bg-amber-400/5 px-3 py-1.5 text-xs font-medium text-amber-400 hover:bg-amber-400/10 transition-colors"
+              leftSection={<Plus className="h-3.5 w-3.5" />}
             >
-              <Plus className="h-3.5 w-3.5" />
               新建自定义信号
-            </button>
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -196,38 +193,44 @@ export function SettingsCustomSignalsPanel() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-sm font-medium text-foreground truncate">{sig.name}</h3>
-                      <span className={`rounded px-1.5 py-0.5 text-[10px] ${KIND_CLASS[sig.kind]}`}>
+                      <Badge size="xs" variant="light" color={KIND_COLOR[sig.kind]}>
                         {KIND_LABEL[sig.kind]}
-                      </span>
-                      {!sig.enabled && <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[10px] text-muted">已停用</span>}
+                      </Badge>
+                      {!sig.enabled && <Badge size="xs" variant="light" color="gray">已停用</Badge>}
                     </div>
                     <p className="mt-1 text-[11px] text-muted font-mono truncate">csg_{sig.id}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <button onClick={() => toggleEnabled(sig)} title={sig.enabled ? '停用' : '启用'} className={`p-1 rounded cursor-pointer ${sig.enabled ? 'text-emerald-400 hover:bg-emerald-400/10' : 'text-muted hover:bg-elevated'}`}>
+                    <ActionIcon
+                      variant="subtle" size="sm"
+                      color={sig.enabled ? 'green' : 'gray'}
+                      onClick={() => toggleEnabled(sig)} title={sig.enabled ? '停用' : '启用'}
+                    >
                       <Zap className="h-3.5 w-3.5" />
-                    </button>
-                    <button onClick={() => openEdit(sig)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10 cursor-pointer" title="编辑">
+                    </ActionIcon>
+                    <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => openEdit(sig)} title="编辑">
                       <Settings2 className="h-3.5 w-3.5" />
-                    </button>
+                    </ActionIcon>
                     {confirmingDeleteId === sig.id ? (
-                      <button
+                      <Button
+                        size="compact-xs" color="red" variant="light"
                         onClick={() => handleDeleteClick(sig)}
                         disabled={del.isPending}
                         title="再次点击确认删除"
-                        className="inline-flex items-center gap-1 rounded-md bg-danger/15 px-1.5 py-0.5 text-[10px] font-medium text-danger border border-danger/30 animate-pulse cursor-pointer disabled:opacity-50"
+                        className="animate-pulse"
+                        leftSection={<Trash2 className="h-2.5 w-2.5" />}
                       >
-                        <Trash2 className="h-2.5 w-2.5" />确认
-                      </button>
+                        确认
+                      </Button>
                     ) : (
-                      <button
+                      <ActionIcon
+                        variant="subtle" color="red" size="sm"
                         onClick={() => handleDeleteClick(sig)}
                         disabled={del.isPending}
-                        className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10 cursor-pointer disabled:opacity-50"
                         title="删除"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      </ActionIcon>
                     )}
                   </div>
                 </div>

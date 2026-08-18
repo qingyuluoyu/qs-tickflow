@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import {
   AlertCircle,
   BarChart3,
@@ -30,7 +30,6 @@ import { cn } from '@/lib/cn'
 import type { DimensionGroup, QuoteMap } from '@/lib/analysis-adapter'
 import { computeQuoteMetrics } from '@/lib/analysis-adapter'
 import { fmtPct, priceColorClass } from '@/lib/format'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 // ===== 配置类型 =====
 
@@ -63,7 +62,6 @@ export function AnalysisConfigDialog({
   showHierarchyLevel?: boolean
 }) {
   const [draft, setDraft] = useState<AnalysisFieldConfig>(currentConfig)
-  const backdrop = useDialogBackdrop(onClose)
   const { data: extList } = useQuery({
     queryKey: QK.extData,
     queryFn: api.extDataList,
@@ -86,14 +84,17 @@ export function AnalysisConfigDialog({
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-surface border border-border rounded-lg shadow-xl w-[420px]"
-        onClick={e => e.stopPropagation()}
-      >
+    <MantineModal
+      opened
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5 }}
+      classNames={{ content: 'bg-surface border border-border rounded-lg shadow-xl w-[420px]' }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <span className="text-sm font-medium">配置数据源</span>
           <button onClick={onClose} className="p-0.5 text-muted hover:text-foreground">
@@ -164,8 +165,7 @@ export function AnalysisConfigDialog({
             保存
           </button>
         </div>
-      </motion.div>
-    </div>
+    </MantineModal>
   )
 }
 

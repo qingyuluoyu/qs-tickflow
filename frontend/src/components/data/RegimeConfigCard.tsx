@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Activity, Layers } from 'lucide-react'
+import { Button, Checkbox, NumberInput } from '@mantine/core'
+import { Loader2, Activity, Layers } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 /**
  * 市场环境(regime) 计算设置 —— 控制盘后管道是否自动计算 + 全量回填分批参数。
@@ -75,18 +76,14 @@ export function RegimeConfigCard() {
       <label className={`flex items-start gap-2.5 rounded-card border px-3 py-2.5 transition-colors cursor-pointer ${
         on ? 'border-accent/40 bg-accent/[0.05]' : 'border-border bg-base/30 hover:border-border/70'
       }`}>
-        <button
-          type="button"
-          onClick={() => updateEnabled.mutate(!on)}
+        <Checkbox
+          size="xs"
+          checked={on}
+          onChange={(e) => updateEnabled.mutate(e.currentTarget.checked)}
           disabled={updateEnabled.isPending}
-          className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-            on ? 'bg-accent border-accent' : 'bg-base border-border'
-          }`}
-          role="checkbox"
-          aria-checked={on}
-        >
-          {on && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-        </button>
+          aria-label="盘后自动计算"
+          className="mt-0.5 shrink-0"
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
             <Activity className="h-3.5 w-3.5 text-accent" />
@@ -111,31 +108,35 @@ export function RegimeConfigCard() {
         <div className="mt-2.5 grid grid-cols-2 gap-2.5">
           <div>
             <label className="text-[10px] text-muted">每批天数(交易日)</label>
-            <input
-              type="number"
+            <NumberInput
+              size="xs"
+              hideControls
               min={25}
               max={500}
               value={draftBatch}
-              onChange={e => setDraftBatch(e.target.value)}
+              onChange={v => setDraftBatch(String(v))}
               onBlur={saveBatch}
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
               disabled={updateParams.isPending}
-              className="mt-1 h-7 w-full rounded-input border border-border bg-base px-2 text-xs text-foreground outline-none focus:border-accent disabled:opacity-50"
+              className="mt-1"
+              classNames={{ input: 'rounded-input bg-base border-border' }}
             />
             <div className="mt-0.5 text-[9px] text-muted">范围 25 ~ 500 · 默认 60</div>
           </div>
           <div>
             <label className="text-[10px] text-muted">预热天数(日历日)</label>
-            <input
-              type="number"
+            <NumberInput
+              size="xs"
+              hideControls
               min={35}
               max={90}
               value={draftWarmup}
-              onChange={e => setDraftWarmup(e.target.value)}
+              onChange={v => setDraftWarmup(String(v))}
               onBlur={saveWarmup}
               onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
               disabled={updateParams.isPending}
-              className="mt-1 h-7 w-full rounded-input border border-border bg-base px-2 text-xs text-foreground outline-none focus:border-accent disabled:opacity-50"
+              className="mt-1"
+              classNames={{ input: 'rounded-input bg-base border-border' }}
             />
             <div className="mt-0.5 text-[9px] text-muted">范围 35 ~ 90 · 默认 40</div>
           </div>
@@ -149,18 +150,15 @@ export function RegimeConfigCard() {
             { label: '默认', batch: 60, warmup: 40 },
             { label: '更快', batch: 120, warmup: 40 },
           ].map(p => (
-            <button
+            <Button
               key={p.label}
+              size="compact-xs"
+              variant={batchDays === p.batch ? 'light' : 'default'}
               onClick={() => updateParams.mutate({ batch_days: p.batch, warmup_days: p.warmup })}
               disabled={updateParams.isPending}
-              className={`h-5 rounded-btn border px-2 text-[10px] transition-colors disabled:opacity-50 ${
-                batchDays === p.batch
-                  ? 'border-accent/40 bg-accent/10 text-accent'
-                  : 'border-border bg-base text-secondary hover:text-accent hover:border-accent/40'
-              }`}
             >
               {p.label} {p.batch}天
-            </button>
+            </Button>
           ))}
         </div>
       </div>

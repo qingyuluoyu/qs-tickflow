@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react'
+import { Table } from '@mantine/core'
 
 /**
  * 轻量 Markdown 渲染器 — 零依赖,专为 AI 财务分析报告设计。
@@ -117,7 +118,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
         i++
       }
       blocks.push(
-        <blockquote key={key++} className="my-4 pl-3 border-l-2 border-amber-400/40 bg-amber-400/[0.04] py-1.5 pr-2 rounded-r text-xs text-secondary">
+        <blockquote key={key++} className="my-4 pl-3 border-l-2 border-warning/40 bg-warning/[0.04] py-1.5 pr-2 rounded-r text-xs text-secondary">
           {renderInline(quoteLines.join(' '), `q-${key}`)}
         </blockquote>,
       )
@@ -132,7 +133,13 @@ export function MarkdownRenderer({ content }: { content: string }) {
         const ncol = header.length
         blocks.push(
           <div key={key++} className="my-5 overflow-hidden rounded-btn border border-border/30">
-            <table className="w-full text-xs border-collapse table-fixed">
+            {/* Mantine Table: 默认无行/列边框, 间距用 px 对齐原 Tailwind 密度 */}
+            <Table
+              className="w-full text-xs table-fixed"
+              horizontalSpacing={10}
+              verticalSpacing={6}
+              layout="fixed"
+            >
               <colgroup>
                 {/* 首列(维度)较窄;末列(判断/说明)最宽并允许折行 */}
                 <col className="w-auto" />
@@ -140,27 +147,27 @@ export function MarkdownRenderer({ content }: { content: string }) {
                   <col key={ci} className={ci === ncol - 2 ? 'w-1/2' : 'w-auto'} />
                 ))}
               </colgroup>
-              <thead>
-                <tr className="bg-elevated/50">
+              <Table.Thead>
+                <Table.Tr className="bg-elevated/50">
                   {header.map((cell, ci) => (
-                    <th key={ci} className="px-2.5 py-1.5 text-left font-medium text-foreground border-b border-border/40 whitespace-nowrap">
+                    <Table.Th key={ci} className="text-left font-medium text-foreground border-b border-border/40 whitespace-nowrap">
                       {renderInline(cell, `th-${key}-${ci}`)}
-                    </th>
+                    </Table.Th>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
                 {body.map((row, ri) => (
-                  <tr key={ri} className="border-b border-border/20 last:border-0 hover:bg-elevated/20">
+                  <Table.Tr key={ri} className="border-b border-border/20 last:border-0 hover:bg-elevated/20">
                     {row.map((cell, ci) => (
-                      <td key={ci} className="px-2.5 py-1.5 text-foreground align-top break-words">
+                      <Table.Td key={ci} className="text-foreground align-top break-words">
                         {renderInline(cell, `td-${key}-${ri}-${ci}`)}
-                      </td>
+                      </Table.Td>
                     ))}
-                  </tr>
+                  </Table.Tr>
                 ))}
-              </tbody>
-            </table>
+              </Table.Tbody>
+            </Table>
           </div>,
         )
         i += table.consumed

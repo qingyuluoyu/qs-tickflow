@@ -21,6 +21,7 @@ export interface ActiveTask {
   focus: string
   phase: Phase
   content: string
+  reasoning: string
   error: string
   meta: {
     summary?: string
@@ -31,6 +32,9 @@ export interface ActiveTask {
   savedReportId?: string
   doneAt?: number
   dismissed?: boolean
+  complete: boolean
+  truncated: boolean
+  continuing: boolean
 }
 
 export interface HistoryReport {
@@ -39,10 +43,13 @@ export interface HistoryReport {
   name: string
   focus: string
   content: string
+  reasoning?: string
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
   created_at: string
+  complete?: boolean
+  truncated?: boolean
 }
 
 const MAX_ACTIVE = 3
@@ -174,8 +181,9 @@ export async function startAnalysis(symbol: string, name: string, focus = ''): P
   const id = `stask_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
   const task: ActiveTask = {
     id, symbol, name, focus,
-    phase: 'loading', content: '', error: '',
+    phase: 'loading', content: '', reasoning: '', error: '',
     meta: null, createdAt: Date.now(),
+    complete: false, truncated: false, continuing: false,
   }
   activeTasks = [...activeTasks, task]
   activeDialogTaskId = id
@@ -197,20 +205,31 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
         case 'meta':
           patchTask(id, { meta: { summary: chunk.summary, levels: chunk.levels, close: chunk.close } })
           break
+        case 'reasoning_delta':
+          patchTask(id, { reasoning: cur.reasoning + (chunk.content ?? '') })
+          break
+        case 'continuation':
+          patchTask(id, { continuing: true })
+          break
         case 'delta':
           if (firstDelta) { patchTask(id, { phase: 'streaming' }); firstDelta = false }
-          patchTask(id, { content: cur.content + (chunk.content ?? '') })
+          patchTask(id, { content: cur.content + (chunk.content ?? ''), continuing: false })
           break
         case 'error':
           patchTask(id, { phase: 'error', error: chunk.message ?? '分析失败' })
           return
         case 'done':
-          patchTask(id, { phase: 'done' })
+          patchTask(id, {
+            phase: 'done',
+            complete: chunk.complete !== false,
+            truncated: chunk.truncated === true,
+            continuing: false,
+          })
           break
       }
     }
     const final = activeTasks.find(t => t.id === id)
-    if (final && final.phase !== 'error') {
+    if (final && final.phase !== 'error' && final.complete && !final.truncated) {
       // 兜底:流正常结束但从未收到 delta(后端在生成内容前异常断流)→ 标记失败,避免卡死
       if (!final.content) {
         patchTask(id, { phase: 'error', error: '分析未返回内容(后端可能异常中断),请重试' })
@@ -221,6 +240,9 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
           symbol: final.symbol, name: final.name, focus: final.focus,
           content: final.content, summary: final.meta?.summary ?? '',
           close: final.meta?.close ?? null, levels: final.meta?.levels,
+          reasoning: final.reasoning,
+          complete: final.complete,
+          truncated: final.truncated,
         })
         if (res.report) {
           patchTask(id, { savedReportId: res.report.id })

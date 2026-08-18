@@ -44,6 +44,15 @@ export function AuthGate({ children }: { children?: ReactNode }) {
     }
   }, [queryClient])
 
+  const authenticate = useCallback((nextUser: AuthUser) => {
+    // AccountEntry can be reached after a browser reload as well as after an
+    // explicit switch. Clear before mounting the new account so prefetched
+    // private queries and mutation callbacks cannot reuse shared keys.
+    queryClient.clear()
+    setHasExistingAccounts(true)
+    setUser(nextUser)
+  }, [queryClient])
+
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center bg-base"><Loader2 className="h-6 w-6 animate-spin text-muted" /></div>
   }
@@ -60,7 +69,7 @@ export function AuthGate({ children }: { children?: ReactNode }) {
       </div>
     )
   }
-  if (!user) return <AccountEntry onAuthenticated={setUser} hasExistingAccounts={hasExistingAccounts} />
+  if (!user) return <AccountEntry onAuthenticated={authenticate} hasExistingAccounts={hasExistingAccounts} />
 
   return (
     <AuthContext.Provider value={{ user, logout }}>

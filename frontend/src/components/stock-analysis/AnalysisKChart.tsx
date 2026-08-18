@@ -4,6 +4,7 @@ import * as echarts from 'echarts'
 import type { ECharts, EChartsOption } from 'echarts'
 import type { KlineRow, LevelSeries } from '@/lib/api'
 import { Maximize2, Minimize2 } from 'lucide-react'
+import { Button, SegmentedControl, Tooltip } from '@mantine/core'
 
 /**
  * 个股分析专用日 K 图表。
@@ -514,22 +515,23 @@ export function AnalysisKChart({
               ? raw.filter(p => p.rank === undefined || p.rank <= pivotRank).length
               : raw.length
             return (
-              <button
+              <Button
                 key={g.key}
+                size="compact-xs"
+                variant="default"
                 onClick={() => toggleType(g.key)}
                 disabled={raw.length === 0}
                 title={`${g.label} (${count} 个)`}
-                className={`inline-flex items-center gap-1 h-6 px-2 rounded-md text-[10px] font-medium border transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                  active
-                    ? 'text-foreground'
-                    : 'text-muted bg-base/40 border-border/30 hover:border-border/60'
-                }`}
-                style={active ? { borderColor: g.color + '66', backgroundColor: g.color + '1a' } : undefined}
+                className="!h-6 !px-2 !text-[10px] !font-medium"
+                classNames={{ label: 'inline-flex items-center gap-1' }}
+                style={active
+                  ? { borderColor: g.color + '66', backgroundColor: g.color + '1a', color: 'hsl(var(--fg-primary))' }
+                  : { color: 'hsl(var(--fg-muted))' }}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: active ? g.color : '#52525B' }} />
                 {g.label}
                 <span className="opacity-50">{count}</span>
-              </button>
+              </Button>
             )
           })}
 
@@ -537,33 +539,32 @@ export function AnalysisKChart({
           {activeTypes.has('pivot') && (levels.pivot?.length ?? 0) > 0 && (
             <div className="inline-flex items-center gap-0.5 ml-1 pl-2 border-l border-border/40">
               <span className="text-[10px] text-muted mr-1">档位</span>
-              {([1, 2, 3] as const).map(r => (
-                <button
-                  key={r}
-                  onClick={() => setPivotRank(r)}
-                  title={r === 1 ? 'P + R1/S1(3 个)' : r === 2 ? '到 R2/S2(5 个)' : '全档 R3/S3(7 个)'}
-                  className={`h-6 px-2 rounded-md text-[10px] font-mono border transition-all ${
-                    pivotRank === r
-                      ? 'bg-[#8B5CF6]/15 border-[#8B5CF6]/40 text-[#c4b5fd]'
-                      : 'text-muted bg-base/40 border-border/30 hover:border-border/60'
-                  }`}
-                >
-                  {r}
-                </button>
-              ))}
+              <SegmentedControl
+                size="xs"
+                value={String(pivotRank)}
+                onChange={value => setPivotRank(Number(value) as 1 | 2 | 3)}
+                data={[
+                  { value: '1', label: '1' },
+                  { value: '2', label: '2' },
+                  { value: '3', label: '3' },
+                ]}
+                classNames={{ root: '!h-6', label: '!h-6 !leading-6 font-mono' }}
+              />
             </div>
           )}
         </>}
-        <button
-          type="button"
-          onClick={() => { void toggleFullscreen() }}
-          className="ml-auto inline-flex items-center gap-1.5 h-7 px-2 rounded-md border border-border/50 bg-base/60 text-[10px] text-secondary hover:text-foreground hover:border-border transition-colors"
-          title={isFullscreen ? '退出全屏' : '全屏查看 K 线'}
-          aria-label={isFullscreen ? '退出全屏' : '全屏查看 K 线'}
-        >
-          {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          {isFullscreen ? '退出全屏' : '全屏'}
-        </button>
+        <Tooltip label={isFullscreen ? '退出全屏' : '全屏查看 K 线'} position="bottom">
+          <Button
+            size="compact-xs"
+            variant="default"
+            onClick={() => { void toggleFullscreen() }}
+            leftSection={isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+            className="ml-auto"
+            aria-label={isFullscreen ? '退出全屏' : '全屏查看 K 线'}
+          >
+            {isFullscreen ? '退出全屏' : '全屏'}
+          </Button>
+        </Tooltip>
       </div>
       {/* 图表:右侧预留带(grid.right 预留)显示价位标签文字,不压蜡烛 */}
       <div ref={chartRef} style={{ width: '100%', height: chartHeight }} />

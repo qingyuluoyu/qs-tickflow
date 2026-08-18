@@ -8,6 +8,7 @@
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Drawer } from '@mantine/core'
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
   useSensor, useSensors, type DragEndEvent,
@@ -23,7 +24,6 @@ import { useQuery } from '@tanstack/react-query'
 import { QK } from '@/lib/queryKeys'
 import type { ColumnConfig, ColumnGroup, ExtColumnDisplayConfig, CandleColumnConfig, IntradayColumnConfig } from '@/lib/list-columns'
 import { resolveCandleConfig, resolveIntradayConfig } from '@/lib/list-columns'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 interface ListColumnCustomizerProps {
   columns: ColumnConfig[]
@@ -156,7 +156,6 @@ export function ListColumnCustomizer({
     enabled: open && showExtColumns,
     staleTime: 60_000,
   })
-  const backdrop = useDialogBackdrop(onClose)
 
   const [searchQuery, setSearchQuery] = useState('')
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
@@ -716,20 +715,20 @@ export function ListColumnCustomizer({
   }
 
   return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            {...backdrop}
-          />
-          <motion.div
-            initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-[360px] max-w-[90vw] h-full bg-base border-l border-border shadow-2xl flex flex-col"
-          >
+    <Drawer
+      opened={open}
+      onClose={onClose}
+      position="right"
+      size={360}
+      withCloseButton={false}
+      padding={0}
+      overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+      classNames={{
+        content: 'bg-base border-l border-border shadow-2xl flex flex-col',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { maxWidth: '90vw' } }}
+    >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <h3 className="text-sm font-medium text-foreground">{title}</h3>
               <button onClick={onClose} className="p-1 rounded hover:bg-elevated text-muted hover:text-foreground transition-colors">
@@ -884,9 +883,6 @@ export function ListColumnCustomizer({
                 </div>
               )}
             </div>
-          </motion.div>
-        </div>
-      )}
-    </AnimatePresence>
+    </Drawer>
   )
 }

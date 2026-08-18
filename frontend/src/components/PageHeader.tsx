@@ -1,3 +1,4 @@
+import { Group, Text, Title } from '@mantine/core'
 import { cn } from '@/lib/cn'
 
 interface Props {
@@ -9,20 +10,29 @@ interface Props {
   className?: string
 }
 
+// Mantine 组件承载结构, 视觉沿用既有设计 token (px-5 pt-3 pb-2 border-b / text-lg font-semibold)。
+// gap 用数字(px) 以精确对应原 Tailwind gap-4 / gap-2, 避免 Mantine 间距档位 (xs=10px) 造成偏移。
 export function PageHeader({ title, subtitle, titleExtra, right, className }: Props) {
   return (
-    <header
-      className={cn(
-        'px-5 pt-3 pb-2 border-b border-border flex items-center justify-between gap-4',
-        className,
-      )}
+    <Group
+      component="header"
+      justify="space-between"
+      gap={16}
+      wrap="nowrap"
+      className={cn('px-5 pt-3 pb-2 border-b border-border', className)}
     >
-      <div className="flex items-center gap-2">
-        <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
+      <Group gap={8} wrap="nowrap">
+        <Title order={1} className="text-lg font-semibold tracking-tight">
+          {title}
+        </Title>
         {titleExtra}
-        {subtitle && <span className="text-xs text-muted">{subtitle}</span>}
-      </div>
+        {subtitle && (
+          <Text component="span" className="text-xs text-muted">
+            {subtitle}
+          </Text>
+        )}
+      </Group>
       {right}
-    </header>
+    </Group>
   )
 }

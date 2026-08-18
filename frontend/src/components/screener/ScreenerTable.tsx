@@ -6,6 +6,7 @@
  * score、signals、candle、ext 列。其余纯数据列（价格/指标/财务…）交给共享原语。
  */
 import { useState, type CSSProperties, type ReactNode } from 'react'
+import { ActionIcon, Tooltip } from '@mantine/core'
 import { Check, Plus, Eye, EyeOff, RefreshCw } from 'lucide-react'
 import type { KlineRow, MinuteKlineRow } from '@/lib/api'
 import { fmtPrice, formatExtNumber } from '@/lib/format'
@@ -241,24 +242,23 @@ export function ScreenerTable({
                 )}
               </button>
               {isExpired ? (
-                <span className="shrink-0 inline-flex items-center px-1.5 py-px rounded text-[9px] font-medium leading-tight bg-red-500/10 text-red-400/60 border border-red-500/15">
+                <span className="shrink-0 inline-flex items-center px-1.5 py-px rounded text-[9px] font-medium leading-tight bg-danger/10 text-danger/60 border border-danger/15">
                   失效
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => onToggleWatchlist(r.symbol, inWatchlist)}
-                  disabled={watchlistPending}
-                  className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full border transition-colors cursor-pointer
-                    disabled:opacity-50
-                    ${inWatchlist
-                      ? 'border-accent/40 bg-accent/10 text-accent'
-                      : 'border-border text-muted hover:border-accent/40 hover:text-accent'
-                    }`}
-                  title={inWatchlist ? '移出自选' : '加入自选'}
-                >
-                  {inWatchlist ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-                </button>
+                <Tooltip label={inWatchlist ? '移出自选' : '加入自选'}>
+                  <ActionIcon
+                    size={20}
+                    radius="xl"
+                    variant={inWatchlist ? 'light' : 'subtle'}
+                    className={inWatchlist ? '' : 'border border-border text-muted'}
+                    onClick={() => onToggleWatchlist(r.symbol, inWatchlist)}
+                    disabled={watchlistPending}
+                    aria-label={inWatchlist ? '移出自选' : '加入自选'}
+                  >
+                    {inWatchlist ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+                  </ActionIcon>
+                </Tooltip>
               )}
             </div>
           </td>
@@ -280,7 +280,7 @@ export function ScreenerTable({
         return (
           <td key={col.id} className={numCls}>
             {r.score != null ? (
-              <span className={r.score >= 70 ? 'text-accent font-medium' : r.score >= 50 ? 'text-amber-400' : 'text-secondary'}>
+              <span className={r.score >= 70 ? 'text-accent font-medium' : r.score >= 50 ? 'text-warning' : 'text-secondary'}>
                 {Number(r.score).toFixed(1)}
               </span>
             ) : (
@@ -372,19 +372,16 @@ export function ScreenerTable({
           return (
             <span className="inline-flex items-center justify-center gap-1.5">
               <span>{col.label}</span>
-              <button
-                type="button"
-                onClick={(event) => { event.stopPropagation(); onToggleDailyKChart() }}
-                className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
-                  dailyKChartVisible
-                    ? 'text-accent bg-accent/10 hover:bg-accent/20'
-                    : 'text-muted hover:text-foreground hover:bg-elevated'
-                }`}
-                title={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
-                aria-label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
-              >
-                {dailyKChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              </button>
+              <Tooltip label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}>
+                <ActionIcon
+                  size="xs"
+                  variant={dailyKChartVisible ? 'light' : 'subtle'}
+                  onClick={(event) => { event.stopPropagation(); onToggleDailyKChart() }}
+                  aria-label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
+                >
+                  {dailyKChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </ActionIcon>
+              </Tooltip>
             </span>
           )
         }
@@ -393,31 +390,29 @@ export function ScreenerTable({
           return (
             <span className="inline-flex items-center justify-center gap-1.5">
               <span>{col.label}</span>
-              <button
-                type="button"
-                onClick={(event) => { event.stopPropagation(); onToggleIntradayChart() }}
-                className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
-                  intradayChartVisible
-                    ? 'text-accent bg-accent/10 hover:bg-accent/20'
-                    : 'text-muted hover:text-foreground hover:bg-elevated'
-                }`}
-                title={intradayChartVisible ? '隐藏分时图' : '显示分时图'}
-                aria-label={intradayChartVisible ? '隐藏分时图' : '显示分时图'}
-              >
-                {intradayChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-              </button>
+              <Tooltip label={intradayChartVisible ? '隐藏分时图' : '显示分时图'}>
+                <ActionIcon
+                  size="xs"
+                  variant={intradayChartVisible ? 'light' : 'subtle'}
+                  onClick={(event) => { event.stopPropagation(); onToggleIntradayChart() }}
+                  aria-label={intradayChartVisible ? '隐藏分时图' : '显示分时图'}
+                >
+                  {intradayChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                </ActionIcon>
+              </Tooltip>
               {/* 分时图显示 且 未开自动轮询时, 提供手动刷新按钮 */}
               {intradayChartVisible && !intradayAutoRefresh && onRefreshIntraday && (
-                <button
-                  type="button"
-                  onClick={(event) => { event.stopPropagation(); onRefreshIntraday() }}
-                  disabled={intradayRefreshing}
-                  className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
-                  title="刷新分时数据"
-                  aria-label="刷新分时数据"
-                >
-                  <RefreshCw className={`h-3.5 w-3.5 ${intradayRefreshing ? 'animate-spin' : ''}`} />
-                </button>
+                <Tooltip label="刷新分时数据">
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    onClick={(event) => { event.stopPropagation(); onRefreshIntraday() }}
+                    disabled={intradayRefreshing}
+                    aria-label="刷新分时数据"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${intradayRefreshing ? 'animate-spin' : ''}`} />
+                  </ActionIcon>
+                </Tooltip>
               )}
               {/* 自动轮询中: 显示旋转图标提示正在实时刷新 */}
               {intradayChartVisible && intradayAutoRefresh && (

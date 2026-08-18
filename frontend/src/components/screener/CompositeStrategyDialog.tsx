@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useMemo, useEffect } from 'react'
+import { Modal as MantineModal } from '@mantine/core'
 import { X, Layers, Plus, Loader2, Search } from 'lucide-react'
 import { api, type ScreenerStrategy } from '@/lib/api'
 
@@ -34,8 +34,6 @@ export function CompositeStrategyDialog({ open, onClose, onSavedId, editStrategy
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  // 记录鼠标按下时是否落在遮罩上, 避免拖选文本时鼠标移出面板导致误关。
-  const mouseDownOnBackdrop = useRef(false)
 
   // 拉取所有可用子策略(排除 composite 自身)
   const [available, setAvailable] = useState<ScreenerStrategy[]>([])
@@ -137,28 +135,20 @@ export function CompositeStrategyDialog({ open, onClose, onSavedId, editStrategy
   }
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onMouseDown={(e) => {
-            mouseDownOnBackdrop.current = e.target === e.currentTarget
-          }}
-          onClick={(e) => {
-            // 仅当按下和松开都在遮罩上才关闭, 避免面板内拖选文本误关。
-            if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose()
-          }}
-        >
-          <motion.div
-            className="relative flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-border bg-base shadow-2xl"
-            initial={{ scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.96, opacity: 0 }}
-            onClick={e => e.stopPropagation()}
-          >
+    <MantineModal
+      opened={open}
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5 }}
+      classNames={{
+        content: 'relative flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-panel border border-border bg-base shadow-2xl',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
             {/* 头部 */}
             <div className="flex items-center gap-2 border-b border-border px-4 py-3">
               <Layers className="h-4 w-4 text-teal-400" />
@@ -343,9 +333,6 @@ export function CompositeStrategyDialog({ open, onClose, onSavedId, editStrategy
                 {isEdit ? '保存修改' : '创建'}
               </button>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </MantineModal>
   )
 }

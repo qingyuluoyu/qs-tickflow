@@ -5,7 +5,7 @@
  * 来自 list-columns，策略页等其它股票列表可复用同一底座。
  */
 
-import { storage } from '@/lib/storage'
+import { storage, storageForUser } from '@/lib/storage'
 import {
   buildExtColumnsParam as buildExtColumnsParamBase,
   createExtColumn as createExtColumnBase,
@@ -108,10 +108,11 @@ export function serializeColumns(columns: ColumnConfig[]): ColumnConfig[] {
 }
 
 /** 序列化并保存到后端 + localStorage */
-export async function saveColumnConfig(columns: ColumnConfig[]): Promise<void> {
+export async function saveColumnConfig(columns: ColumnConfig[], userId?: string): Promise<void> {
   const saveable = serializeColumns(columns)
   // 同时写 localStorage（即时）和后端（持久化）
-  storage.watchlistColumns.set(saveable)
+  const local = userId ? storageForUser(userId) : storage
+  local.watchlistColumns.set(saveable)
   try {
     const { api } = await import('@/lib/api')
     await api.updateWatchlistColumns(saveable)
@@ -121,7 +122,8 @@ export async function saveColumnConfig(columns: ColumnConfig[]): Promise<void> {
 }
 
 /** 加载列配置：优先后端，回退 localStorage，最终用默认值 */
-export async function loadColumnConfig(): Promise<ColumnConfig[]> {
+export async function loadColumnConfig(userId?: string): Promise<ColumnConfig[]> {
+  const local = userId ? storageForUser(userId) : storage
   // 1. 尝试从后端加载
   try {
     const { api } = await import('@/lib/api')
@@ -129,7 +131,7 @@ export async function loadColumnConfig(): Promise<ColumnConfig[]> {
     if (res.columns && res.columns.length > 0) {
       const merged = mergeColumns(res.columns, BUILTIN_COLUMNS)
       // 同步到 localStorage
-      storage.watchlistColumns.set(serializeColumns(merged))
+      local.watchlistColumns.set(serializeColumns(merged))
       return merged
     }
   } catch {
@@ -137,7 +139,7 @@ export async function loadColumnConfig(): Promise<ColumnConfig[]> {
   }
 
   // 2. 尝试从 localStorage 加载
-  const saved = storage.watchlistColumns.get([]) as ColumnConfig[]
+  const saved = local.watchlistColumns.get([]) as ColumnConfig[]
   if (saved.length > 0) {
     return mergeColumns(saved, BUILTIN_COLUMNS)
   }

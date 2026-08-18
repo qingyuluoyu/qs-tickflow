@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2 } from 'lucide-react'
+import { Checkbox } from '@mantine/core'
+import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
@@ -48,20 +49,16 @@ export function PipelineScopeConfig() {
                   locked ? 'cursor-default' : 'cursor-pointer'
                 } ${on ? 'border-accent/40 bg-accent/[0.05]' : 'border-border bg-base/30 hover:border-border/70'}`}
               >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!locked) updateToggle.mutate({ [item.key]: !on } as never)
+                <Checkbox
+                  size="xs"
+                  checked={on}
+                  onChange={(e) => {
+                    if (!locked) updateToggle.mutate({ [item.key]: e.currentTarget.checked } as never)
                   }}
                   disabled={locked || updateToggle.isPending}
-                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                    on ? 'bg-accent border-accent' : 'bg-base border-border'
-                  } ${locked ? 'opacity-80' : ''}`}
-                  role="checkbox"
-                  aria-checked={on}
-                >
-                  {on && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
-                </button>
+                  aria-label={item.label}
+                  className="mt-0.5 shrink-0"
+                />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium text-foreground">{item.label}</span>

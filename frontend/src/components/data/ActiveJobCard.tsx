@@ -1,5 +1,6 @@
 import { useRef, useMemo, useEffect } from 'react'
 import { motion } from 'framer-motion'
+import { Card } from '@mantine/core'
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react'
 import { formatDuration, formatLogTime } from '@/lib/format'
 import { Pill } from './StatCard'
@@ -71,7 +72,8 @@ export function ActiveJobCard({ job }: { job: PipelineJob }) {
   const stageLabel = isDone ? meta.label : (STAGE_LABELS[job.stage] ?? job.stage)
 
   return (
-    <div className={`rounded-card border ${meta.border} ${meta.bg} p-5`}>
+    <Card padding={0} className={`border ${meta.border} ${meta.bg}`}>
+      <div className="p-5">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5">
           <Icon className={`h-5 w-5 ${meta.color} ${meta.spinning ? 'animate-spin' : ''}`} />
@@ -130,6 +132,7 @@ export function ActiveJobCard({ job }: { job: PipelineJob }) {
           {job.error}
         </div>
       )}
-    </div>
+      </div>
+    </Card>
   )
 }

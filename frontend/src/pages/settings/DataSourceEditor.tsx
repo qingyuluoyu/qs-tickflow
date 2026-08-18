@@ -1,13 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ActionIcon, Button, NumberInput, Select, Switch, TextInput } from '@mantine/core'
 import { KeyRound, Play, Plus, Save, Trash2, X, Zap, Check, ChevronDown } from 'lucide-react'
 import { api, type CustomSourceConfig, type DatasetConfig } from '@/lib/api'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
-// 暗色适配的标准输入框样式 (与 AI 页统一, bg-base 在暗色下为深色, 不会白底白字)
-const INPUT_CLS =
-  'w-full h-9 px-2.5 rounded-lg bg-base border-0 ring-1 ring-border/40 text-xs text-foreground placeholder:text-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/40 transition-shadow'
+const AUTH_TYPE_OPTIONS = [
+  { value: 'none', label: '无需鉴权' },
+  { value: 'bearer', label: 'Bearer Token' },
+  { value: 'header', label: '自定义 Header' },
+  { value: 'query', label: 'Query 参数' },
+]
 
 const DATASETS = ['daily', 'adj_factor', 'realtime', 'minute'] as const
 type DatasetKey = typeof DATASETS[number]
@@ -190,20 +194,22 @@ export function DataSourceEditor({
             </span>
           )}
           {!isNew && !isActive && config.name.trim() && (
-            <button
+            <Button
+              size="xs" variant="light"
               onClick={() => onActivate(config.name.toLowerCase().trim())}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"
+              leftSection={<Zap className="h-3 w-3" />}
             >
-              <Zap className="h-3 w-3" /> 切换为当前
-            </button>
+              切换为当前
+            </Button>
           )}
           {!isNew && onDelete && (
-            <button
+            <Button
+              size="xs" variant="subtle" color="red"
               onClick={onDelete}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-btn text-xs text-muted hover:text-danger hover:bg-danger/10 transition-colors"
+              leftSection={<Trash2 className="h-3 w-3" />}
             >
-              <Trash2 className="h-3 w-3" /> 删除
-            </button>
+              删除
+            </Button>
           )}
         </div>
       </div>
@@ -215,40 +221,37 @@ export function DataSourceEditor({
           {/* 左: 基本信息 + 鉴权 + 数据集开关 */}
           <div className="p-5 space-y-4 border-r border-border/40">
             <Field label="名称" hint="小写字母/数字/下划线">
-              <input
+              <TextInput
+                size="sm"
                 value={config.name}
                 onChange={e => setConfig({ ...config, name: e.target.value })}
                 placeholder="my_tushare"
                 disabled={!isNew}
-                className={`${INPUT_CLS} w-full disabled:opacity-60`}
               />
             </Field>
             <Field label="显示名">
-              <input
+              <TextInput
+                size="sm"
                 value={config.display_name}
                 onChange={e => setConfig({ ...config, display_name: e.target.value })}
                 placeholder="我的 Tushare"
-                className={`${INPUT_CLS} w-full`}
               />
             </Field>
             <Field label="鉴权">
               <div className="space-y-2">
-                <select
+                <Select
+                  size="sm"
                   value={config.auth.type}
-                  onChange={e => setConfig({ ...config, auth: { ...config.auth, type: e.target.value } })}
-                  className={`${INPUT_CLS} w-full`}
-                >
-                  <option value="none">无需鉴权</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="header">自定义 Header</option>
-                  <option value="query">Query 参数</option>
-                </select>
+                  onChange={v => v && setConfig({ ...config, auth: { ...config.auth, type: v } })}
+                  data={AUTH_TYPE_OPTIONS}
+                  allowDeselect={false}
+                />
                 {config.auth.type !== 'none' && (
-                  <input
+                  <TextInput
+                    size="sm"
                     value={config.auth.token_env ?? ''}
                     onChange={e => setConfig({ ...config, auth: { ...config.auth, token_env: e.target.value } })}
                     placeholder="环境变量名 (MY_TOKEN)"
-                    className={`${INPUT_CLS} w-full`}
                   />
                 )}
               </div>
@@ -272,9 +275,11 @@ export function DataSourceEditor({
                       ? <span className="text-[9px] text-accent">已配置</span>
                       : <span className="text-[9px] text-muted/50">回退 TF</span>
                     }
-                    <Toggle
+                    <Switch
+                      size="xs"
                       checked={enabled}
-                      onChange={(e) => { e?.stopPropagation(); setDatasetEnabled(key, !enabled) }}
+                      onClick={e => e.stopPropagation()}
+                      onChange={() => setDatasetEnabled(key, !enabled)}
                     />
                   </button>
                 )
@@ -304,17 +309,17 @@ export function DataSourceEditor({
           {Object.keys(config.datasets).length} 个数据集已配置
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={onCancel} className="px-3 py-1.5 rounded-btn text-sm text-secondary hover:text-foreground transition-colors">
+          <Button size="sm" variant="subtle" color="gray" onClick={onCancel}>
             取消
-          </button>
-          <button
+          </Button>
+          <Button
+            size="sm"
             onClick={() => save.mutate()}
             disabled={!canSave}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
+            leftSection={<Save className="h-3.5 w-3.5" />}
           >
-            <Save className="h-3.5 w-3.5" />
             {save.isPending ? '保存中...' : '保存'}
-          </button>
+          </Button>
         </div>
       </div>
     </section>
@@ -361,7 +366,7 @@ function DatasetDetail({
           <h3 className="text-sm font-medium text-foreground">{DATASET_LABEL[datasetKey]}</h3>
           <span className="text-[10px] text-muted/50 font-mono">{datasetKey}</span>
         </div>
-        <Toggle checked={enabled} onChange={() => onToggle(!enabled)} />
+        <Switch size="sm" checked={enabled} onChange={() => onToggle(!enabled)} />
       </div>
 
       <AnimatePresence mode="wait">
@@ -376,61 +381,60 @@ function DatasetDetail({
           >
             <div className="grid grid-cols-1 md:grid-cols-[1fr_90px] gap-2">
               <Field label="接口 URL">
-                <input
+                <TextInput
+                  size="sm"
                   value={cfg.url}
                   onChange={e => onUpdate({ url: e.target.value })}
                   placeholder="https://my.api/daily"
-                  className={`${INPUT_CLS} w-full`}
                 />
               </Field>
               <Field label="方法">
-                <select
+                <Select
+                  size="sm"
                   value={cfg.method}
-                  onChange={e => onUpdate({ method: e.target.value })}
-                  className={`${INPUT_CLS} w-full`}
-                >
-                  <option value="GET">GET</option>
-                  <option value="POST">POST</option>
-                </select>
+                  onChange={v => v && onUpdate({ method: v })}
+                  data={['GET', 'POST']}
+                  allowDeselect={false}
+                />
               </Field>
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
               <Field label="批量">
-                <input
+                <NumberInput
+                  size="sm"
+                  min={1}
                   value={cfg.batch ?? ''}
-                  onChange={e => onUpdate({ batch: e.target.value ? Number(e.target.value) : null })}
+                  onChange={v => onUpdate({ batch: v === '' || v == null ? null : Number(v) })}
                   placeholder="100"
-                  className={`${INPUT_CLS} w-full`}
                 />
               </Field>
               <Field label="RPM">
-                <input
+                <NumberInput
+                  size="sm"
+                  min={1}
                   value={cfg.rpm ?? ''}
-                  onChange={e => onUpdate({ rpm: e.target.value ? Number(e.target.value) : null })}
+                  onChange={v => onUpdate({ rpm: v === '' || v == null ? null : Number(v) })}
                   placeholder="200"
-                  className={`${INPUT_CLS} w-full`}
                 />
               </Field>
               <Field label="超时">
-                <input
-                  type="number"
-                  min="0.1"
-                  max="300"
-                  step="any"
+                <NumberInput
+                  size="sm"
+                  min={0.1}
+                  max={300}
+                  step={1}
                   value={cfg.timeout ?? ''}
-                  onChange={e => onUpdate({ timeout: e.target.value ? Number(e.target.value) : null })}
-                  onWheel={e => e.currentTarget.blur()}
+                  onChange={v => onUpdate({ timeout: v === '' || v == null ? null : Number(v) })}
                   placeholder="30"
-                  className={`${INPUT_CLS} w-full`}
                 />
               </Field>
               <Field label="响应路径">
-                <input
+                <TextInput
+                  size="sm"
                   value={cfg.response_path}
                   onChange={e => onUpdate({ response_path: e.target.value })}
                   placeholder="data.list"
-                  className={`${INPUT_CLS} w-full`}
                 />
               </Field>
             </div>
@@ -461,27 +465,27 @@ function DatasetDetail({
                       {showTimeParams && (
                         <>
                           <Field label="代码参数">
-                            <input
+                            <TextInput
+                              size="sm"
                               value={cfg.symbols_param ?? ''}
                               onChange={e => onUpdate({ symbols_param: e.target.value || undefined })}
                               placeholder="symbols"
-                              className={`${INPUT_CLS} w-full`}
                             />
                           </Field>
                           <Field label="起始时间参数">
-                            <input
+                            <TextInput
+                              size="sm"
                               value={cfg.start_param ?? ''}
                               onChange={e => onUpdate({ start_param: e.target.value || undefined })}
                               placeholder="start_time"
-                              className={`${INPUT_CLS} w-full`}
                             />
                           </Field>
                           <Field label="结束时间参数">
-                            <input
+                            <TextInput
+                              size="sm"
                               value={cfg.end_param ?? ''}
                               onChange={e => onUpdate({ end_param: e.target.value || undefined })}
                               placeholder="end_time"
-                              className={`${INPUT_CLS} w-full`}
                             />
                           </Field>
                         </>
@@ -489,19 +493,19 @@ function DatasetDetail({
                       {datasetKey === 'minute' && (
                         <>
                           <Field label="资产类型参数">
-                            <input
+                            <TextInput
+                              size="sm"
                               value={cfg.asset_type_param ?? ''}
                               onChange={e => onUpdate({ asset_type_param: e.target.value || null })}
                               placeholder="asset_type"
-                              className={`${INPUT_CLS} w-full`}
                             />
                           </Field>
                           <Field label="周期参数">
-                            <input
+                            <TextInput
+                              size="sm"
                               value={cfg.freq_param ?? ''}
                               onChange={e => onUpdate({ freq_param: e.target.value || null })}
                               placeholder="period"
-                              className={`${INPUT_CLS} w-full`}
                             />
                           </Field>
                         </>
@@ -546,19 +550,20 @@ function DatasetDetail({
                 <span className="text-[11px] font-medium text-secondary">测试连接</span>
               </div>
               <div className="flex items-center gap-2">
-                <input
+                <TextInput
+                  className="flex-1"
+                  size="sm"
                   value={testSymbols}
                   onChange={e => setTestSymbols(e.target.value)}
-                  className={`${INPUT_CLS} flex-1 text-xs`}
                   placeholder="测试标的, 逗号分隔"
                 />
-                <button
+                <Button
+                  size="xs" variant="default"
                   onClick={() => test.mutate()}
                   disabled={test.isPending || !cfg.url}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:text-foreground text-xs disabled:opacity-40 transition-colors"
                 >
                   {test.isPending ? '测试中...' : '测试'}
-                </button>
+                </Button>
               </div>
               {test.data && (
                 <div className="mt-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 text-xs">
@@ -582,12 +587,13 @@ function DatasetDetail({
           >
             <div className="text-sm text-muted mb-1">{DATASET_LABEL[datasetKey]} 未启用</div>
             <div className="text-[11px] text-muted/60">启用后此数据集将由该自定义源提供, 未启用则回退 TickFlow</div>
-            <button
+            <Button
+              size="xs" variant="light" className="mt-3"
               onClick={() => onToggle(true)}
-              className="mt-3 inline-flex items-center gap-1 px-3 py-1.5 rounded-btn bg-accent/10 text-accent text-xs font-medium hover:bg-accent/20 transition-colors"
+              leftSection={<Plus className="h-3 w-3" />}
             >
-              <Plus className="h-3 w-3" /> 启用{DATASET_LABEL[datasetKey]}
-            </button>
+              启用{DATASET_LABEL[datasetKey]}
+            </Button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -665,39 +671,43 @@ function FieldMapEditor({
       )}
       {rows.map((row) => (
         <div key={row.id} className="grid grid-cols-[1fr_auto_1.2fr_auto] gap-1.5 items-center">
-          <input
+          <TextInput
+            size="sm"
             value={row.src}
             onChange={e => updateRow(row.id, { src: e.target.value })}
             placeholder="外部字段名"
-            className={`${INPUT_CLS} text-xs`}
           />
           <span className="text-muted/50 text-[10px]">→</span>
-          <select
-            value={targets.includes(row.target) ? row.target : ''}
-            onChange={e => updateRow(row.id, { target: e.target.value })}
-            className={`${INPUT_CLS} text-xs ${row.target && !targets.includes(row.target) ? 'text-warning' : ''}`}
-          >
-            <option value="">{row.target || '(选择)'}</option>
-            {targets.map(t => (
-              <option key={t} value={t}>
-                {t}（{FIELD_LABELS[t] || t}）
-              </option>
-            ))}
-          </select>
-          <button
+          <Select
+            size="sm"
+            value={row.target || null}
+            onChange={v => updateRow(row.id, { target: v ?? '' })}
+            placeholder={row.target || '(选择)'}
+            data={[
+              // 已保存值不在当前数据集目标字段内时, 保留原始值并以警示色展示
+              ...(row.target && !targets.includes(row.target)
+                ? [{ value: row.target, label: row.target }]
+                : []),
+              ...targets.map(t => ({ value: t, label: `${t}（${FIELD_LABELS[t] || t}）` })),
+            ]}
+            classNames={row.target && !targets.includes(row.target) ? { input: 'text-warning' } : undefined}
+          />
+          <ActionIcon
+            variant="subtle" color="gray" size="sm"
             onClick={() => removeRow(row.id)}
-            className="text-muted hover:text-danger p-0.5 transition-colors"
+            className="hover:text-danger"
           >
             <X className="h-3 w-3" />
-          </button>
+          </ActionIcon>
         </div>
       ))}
-      <button
+      <Button
+        size="xs" variant="subtle" className="mt-1"
         onClick={addRow}
-        className="inline-flex items-center gap-1 text-xs text-accent hover:text-accent/80 mt-1"
+        leftSection={<Plus className="h-3 w-3" />}
       >
-        <Plus className="h-3 w-3" /> 添加映射
-      </button>
+        添加映射
+      </Button>
     </div>
   )
 }
@@ -711,18 +721,5 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
       </div>
       {children}
     </div>
-  )
-}
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (e?: React.MouseEvent) => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onChange}
-      className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${checked ? 'bg-accent' : 'bg-elevated'}`}
-      aria-pressed={checked}
-    >
-      <span className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform ${checked ? 'translate-x-[14px]' : 'translate-x-[2px]'}`} />
-    </button>
   )
 }

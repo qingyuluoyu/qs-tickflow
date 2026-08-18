@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ActionIcon, Badge, Button, Select, TextInput } from '@mantine/core'
 import { ExternalLink, Pencil, Plus, Save, Trash2, X } from 'lucide-react'
 import { api, type AnalysisColumn, type AnalysisMenu, type ExtDataConfig, type ExtDataField } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -139,13 +140,13 @@ export function SettingsExtPagesPanel() {
               选择扩展数据源、分析模板、分组字段和列表列后，系统会生成一个可访问的动态分析页面。
             </p>
           </div>
-          <button
+          <Button
+            size="xs"
             onClick={() => { resetForm(); setShowForm(true) }}
-            className="inline-flex items-center justify-center gap-1.5 rounded-btn bg-accent/90 px-3 py-1.5 text-xs font-medium text-base hover:bg-accent transition-colors"
+            leftSection={<Plus className="h-3.5 w-3.5" />}
           >
-            <Plus className="h-3.5 w-3.5" />
             新建页面
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -156,67 +157,82 @@ export function SettingsExtPagesPanel() {
               <h3 className="text-sm font-medium text-foreground">{editingMenu ? '编辑扩展页面' : '新建扩展页面'}</h3>
               <p className="mt-1 text-[11px] text-muted">菜单标识保存后不可在此处直接修改，如需更换标识请新建页面。</p>
             </div>
-            <button onClick={() => { setShowForm(false); setError('') }} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground">
+            <ActionIcon variant="subtle" color="gray" onClick={() => { setShowForm(false); setError('') }}>
               <X className="h-4 w-4" />
-            </button>
+            </ActionIcon>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="space-y-1.5">
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">菜单标识</span>
-              <input
+              <TextInput
+                size="sm"
                 value={id}
                 disabled={!!editingMenu}
                 onChange={e => setId(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
                 placeholder="如 concept_hot"
-                className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground disabled:opacity-60"
               />
-            </label>
-            <label className="space-y-1.5">
+            </div>
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">菜单名称</span>
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="如 概念热度" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
-            </label>
-            <label className="space-y-1.5">
+              <TextInput size="sm" value={label} onChange={e => setLabel(e.target.value)} placeholder="如 概念热度" />
+            </div>
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">扩展数据源</span>
-              <select
-                value={dataSource || activeConfig?.id || ''}
-                onChange={e => {
-                  const cfg = configs.find(c => c.id === e.target.value)
-                  setDataSource(e.target.value)
+              <Select
+                size="sm"
+                value={dataSource || activeConfig?.id || null}
+                onChange={v => {
+                  if (!v) return
+                  const cfg = configs.find(c => c.id === v)
+                  setDataSource(v)
                   setDimensionField(firstMatchingField(cfg, ['概念', 'industry', '行业', 'sector']))
                   setRankField('')
                   setSelectedColumns(cfg?.fields.filter(f => !['symbol', 'code'].includes(f.name)).slice(0, 6).map(f => f.name) ?? [])
                 }}
-                className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground"
-              >
-                {configs.map(cfg => <option key={cfg.id} value={cfg.id}>{cfg.label}</option>)}
-              </select>
-            </label>
+                data={configs.map(cfg => ({ value: cfg.id, label: cfg.label }))}
+                allowDeselect={false}
+              />
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <label className="space-y-1.5">
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">模板</span>
-              <select value={template} onChange={e => setTemplate(e.target.value as any)} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground">
-                <option value="dimension_rank">维度热度榜</option>
-                <option value="ranking">指标排名榜</option>
-                <option value="table">明细表</option>
-              </select>
-            </label>
-            <label className="space-y-1.5">
+              <Select
+                size="sm"
+                value={template}
+                onChange={v => v && setTemplate(v as any)}
+                data={[
+                  { value: 'dimension_rank', label: '维度热度榜' },
+                  { value: 'ranking', label: '指标排名榜' },
+                  { value: 'table', label: '明细表' },
+                ]}
+                allowDeselect={false}
+              />
+            </div>
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">分组字段</span>
-              <select value={dimensionField} onChange={e => setDimensionField(e.target.value)} disabled={template !== 'dimension_rank'} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground disabled:opacity-50">
-                <option value="">请选择</option>
-                {fields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1.5">
+              <Select
+                size="sm"
+                value={dimensionField || null}
+                onChange={v => setDimensionField(v ?? '')}
+                disabled={template !== 'dimension_rank'}
+                placeholder="请选择"
+                data={fields.map(f => ({ value: f.name, label: f.label || f.name }))}
+              />
+            </div>
+            <div className="space-y-1.5">
               <span className="text-[11px] text-muted">排名字段</span>
-              <select value={rankField} onChange={e => setRankField(e.target.value)} disabled={template !== 'ranking'} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground disabled:opacity-50">
-                <option value="">请选择</option>
-                {numericFields.map(f => <option key={f.name} value={f.name}>{f.label || f.name}</option>)}
-              </select>
-            </label>
+              <Select
+                size="sm"
+                value={rankField || null}
+                onChange={v => setRankField(v ?? '')}
+                disabled={template !== 'ranking'}
+                placeholder="请选择"
+                data={numericFields.map(f => ({ value: f.name, label: f.label || f.name }))}
+              />
+            </div>
           </div>
 
           <div>
@@ -240,10 +256,10 @@ export function SettingsExtPagesPanel() {
           {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}
 
           <div className="flex justify-end gap-2">
-            <button onClick={() => { setShowForm(false); setError('') }} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs">取消</button>
-            <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium disabled:opacity-50">
-              <Save className="h-3.5 w-3.5" />保存
-            </button>
+            <Button size="xs" variant="default" onClick={() => { setShowForm(false); setError('') }}>取消</Button>
+            <Button size="xs" onClick={() => save.mutate()} disabled={save.isPending} leftSection={<Save className="h-3.5 w-3.5" />}>
+              保存
+            </Button>
           </div>
         </section>
       )}
@@ -255,19 +271,19 @@ export function SettingsExtPagesPanel() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-medium text-foreground">{menu.label}</h3>
-                  {menu.builtin && <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[10px] text-accent">默认</span>}
-                  {!menu.visible && <span className="rounded bg-muted/10 px-1.5 py-0.5 text-[10px] text-muted">已隐藏</span>}
+                  {menu.builtin && <Badge size="xs" variant="light">默认</Badge>}
+                  {!menu.visible && <Badge size="xs" variant="light" color="gray">已隐藏</Badge>}
                 </div>
                 <p className="mt-1 text-[11px] text-muted font-mono">{menu.id}</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => editMenu(menu)} className="p-1 rounded text-muted hover:text-accent hover:bg-accent/10" title="编辑">
+                <ActionIcon variant="subtle" color="gray" size="sm" onClick={() => editMenu(menu)} title="编辑">
                   <Pencil className="h-3.5 w-3.5" />
-                </button>
+                </ActionIcon>
                 {!menu.builtin && (
-                  <button onClick={() => del.mutate(menu.id)} disabled={del.isPending} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10" title="删除">
+                  <ActionIcon variant="subtle" color="red" size="sm" onClick={() => del.mutate(menu.id)} disabled={del.isPending} title="删除">
                     <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  </ActionIcon>
                 )}
               </div>
             </div>
@@ -277,10 +293,13 @@ export function SettingsExtPagesPanel() {
               {menu.dimension_field && <div>分组字段：{menu.dimension_field}</div>}
               <div>列表列：{menu.detail_columns.length} 个</div>
             </div>
-            <Link to={`/analysis/${menu.id}`} className="mt-4 inline-flex w-full items-center justify-center gap-1.5 rounded-btn border border-border bg-elevated px-3 py-1.5 text-xs text-foreground hover:bg-border/30 transition-colors">
-              <ExternalLink className="h-3.5 w-3.5" />
+            <Button
+              component={Link} to={`/analysis/${menu.id}`}
+              size="xs" variant="default" fullWidth className="mt-4"
+              leftSection={<ExternalLink className="h-3.5 w-3.5" />}
+            >
               打开分析页
-            </Link>
+            </Button>
           </div>
         ))}
         {menus.isLoading &&

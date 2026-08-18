@@ -3,7 +3,7 @@
 // Dev:Vite 代理 /api 到 :3018
 // Prod:同源(FastAPI 托管前端 dist)
 
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 const BASE = ''
 
@@ -223,7 +223,106 @@ export interface AiStockReport {
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
+  reasoning?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
+}
+
+// ===== 个股洞察 (stock-insight) =====
+
+/** 估值历史分位单指标 (PE-TTM / PB 同构) */
+export interface ValPercentileMetric {
+  current: number
+  percentile: number
+  min: number
+  max: number
+  p20: number
+  p50: number
+  p80: number
+  /** 参与统计的历史样本点数 */
+  n: number
+}
+
+export interface StockInsightValuation {
+  period: string
+  metrics: {
+    pe_ttm?: ValPercentileMetric
+    pb?: ValPercentileMetric
+  }
+}
+
+/** 最新报告期财务关键指标;金额单位为元,比率/同比为百分数 */
+export interface StockInsightFinancials {
+  period: string
+  revenue: number | null
+  revenue_yoy: number | null
+  net_profit: number | null
+  net_profit_yoy: number | null
+  eps: number | null
+  bvps: number | null
+  roe: number | null
+  gross_margin: number | null
+  net_margin: number | null
+  op_cf_ps: number | null
+}
+
+export interface StockInsightReport {
+  title: string
+  publishDate: string
+  orgSName: string
+  emRatingName: string
+  indvInduName: string
+  infoCode: string
+  pdfUrl: string
+}
+
+export interface StockInsightAnnouncement {
+  date: string
+  title: string
+  type: string
+  url: string
+}
+
+/** 个股新闻 — 后端返回中文字段名,保持原样 */
+export interface StockInsightNewsItem {
+  新闻标题: string
+  发布时间: string
+  文章来源: string
+  新闻链接: string
+}
+
+/** 资金流向单日记录,单位为元;按日期升序 */
+export interface StockInsightFundFlowRow {
+  date: string
+  main_net: number
+  small_net: number
+  mid_net: number
+  large_net: number
+  super_net: number
+}
+
+export interface DragonTigerRecord {
+  date: string
+  reason: string
+  /** 净买额,单位万元 */
+  net_buy: number
+  /** 成交额,单位万元 */
+  turnover: number
+}
+
+export interface DragonTigerSeat {
+  name: string
+  buy_amt: number
+  sell_amt: number
+  net: number
+}
+
+export interface StockInsightDragonTiger {
+  records: DragonTigerRecord[]
+  seats: { buy: DragonTigerSeat[]; sell: DragonTigerSeat[] }
+  /** 机构专用席位合计,单位万元 */
+  institution: { buy_amt: number; sell_amt: number; net_amt: number }
 }
 
 // ===== Kline =====
@@ -529,6 +628,9 @@ export interface AiReviewReport {
   summary?: string
   emotion_score?: number | null
   emotion_label?: string
+  reasoning?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
 }
 
@@ -2066,6 +2168,8 @@ export const api = {
         }
       }
     }
+    // flush TextDecoder 中可能残留的 UTF-8 多字节序列,避免回答末尾被截掉。
+    buf += decoder.decode()
     // 处理残余
     if (buf.trim()) {
       try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
@@ -2083,6 +2187,7 @@ export const api = {
     symbol: string; name?: string; focus?: string; content: string
     summary?: string; close?: number | null
     levels?: Record<LevelType, PriceLevel[]>
+    reasoning?: string; complete?: boolean; truncated?: boolean
   }) =>
     request<{ ok: boolean; report: AiStockReport }>('/api/stock-analysis/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -2091,18 +2196,46 @@ export const api = {
   stockAnalysisReportDelete: (reportId: string) =>
     request<{ ok: boolean }>(`/api/stock-analysis/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
 
+  // ===== 个股洞察 (stock-insight) =====
+  // 子板块各自展示错误态, 走 quiet 避免每个面板失败都弹全局 toast
+  stockInsightValuation: (symbol: string) =>
+    request<StockInsightValuation>(`/api/stock-insight/valuation?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightFinancials: (symbol: string) =>
+    request<StockInsightFinancials>(`/api/stock-insight/financials?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightReports: (symbol: string, pages = 2) =>
+    request<{ reports: StockInsightReport[] }>(`/api/stock-insight/reports?symbol=${encodeURIComponent(symbol)}&pages=${pages}`, { quiet: true }),
+
+  stockInsightAnnouncements: (symbol: string) =>
+    request<{ announcements: StockInsightAnnouncement[] }>(`/api/stock-insight/announcements?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightNews: (symbol: string, limit = 20) =>
+    request<{ news: StockInsightNewsItem[] }>(`/api/stock-insight/news?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { quiet: true }),
+
+  stockInsightFundFlow: (symbol: string) =>
+    request<{ rows: StockInsightFundFlowRow[] }>(`/api/stock-insight/fund-flow?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightDragonTiger: (symbol: string) =>
+    request<StockInsightDragonTiger>(`/api/stock-insight/dragon-tiger?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
   /**
    * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
    * meta 里额外带 levels(关键价位)供图表回放。
    */
   async *stockAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+    type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     symbol?: string
     summary?: string
     levels?: Record<LevelType, PriceLevel[]>
     close?: number | null
     content?: string
     message?: string
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
+    continuations?: number
+    attempt?: number
   }> {
     const res = await fetch('/api/stock-analysis/analyze', {
       method: 'POST',
@@ -2133,6 +2266,7 @@ export const api = {
         try { yield JSON.parse(s) } catch { /* ignore */ }
       }
     }
+    buf += decoder.decode()
     if (buf.trim()) {
       try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
@@ -2145,6 +2279,7 @@ export const api = {
   reviewReportSave: (r: {
     as_of: string; focus?: string; content: string
     summary?: string; emotion_score?: number | null; emotion_label?: string
+    reasoning?: string; complete?: boolean; truncated?: boolean
   }) =>
     request<{ ok: boolean; report: AiReviewReport }>('/api/market-recap/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -2157,19 +2292,24 @@ export const api = {
    * AI 大盘复盘 — 流式调用(NDJSON,与个股/财务分析同协议)。
    * meta 里带 as_of / emotion_score / emotion_label / summary,供前端先渲染信号灯。
    */
-  async *reviewStream(asOf?: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+  async *reviewStream(asOf?: string, focus?: string, sections?: string[]): AsyncGenerator<{
+    type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     as_of?: string
     emotion_score?: number
     emotion_label?: string
     summary?: string
     content?: string
     message?: string
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
+    continuations?: number
+    attempt?: number
   }> {
     const res = await fetch('/api/market-recap/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '' }),
+      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '', sections: sections ?? null }),
     })
     if (!res.ok) {
       let detail = ''
@@ -2195,6 +2335,7 @@ export const api = {
         try { yield JSON.parse(s) } catch { /* ignore */ }
       }
     }
+    buf += decoder.decode()
     if (buf.trim()) {
       try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
@@ -2279,7 +2420,20 @@ export const api = {
 
   /** 删除自定义策略（内置策略不可删除） */
   strategyDelete: (strategyId: string) =>
-    request<{ ok: boolean }>(`/api/strategies/${strategyId}`, { method: 'DELETE' }),
+    request<{ ok: boolean; warnings?: string[] }>(`/api/strategies/${encodeURIComponent(strategyId)}`, { method: 'DELETE' }),
+
+  /** 恢复当前用户的策略层到打包的 18 个内置策略 */
+  strategyRestoreDefaults: () =>
+    request<{
+      ok: boolean
+      count: number
+      builtin_strategy_ids: string[]
+      deleted: string[]
+      warnings?: string[]
+    }>('/api/strategies/restore-defaults', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    }),
 
   strategyReload: () =>
     request<{ ok: boolean; count: number }>('/api/strategies/reload', { method: 'POST' }),

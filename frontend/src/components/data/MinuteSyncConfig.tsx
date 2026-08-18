@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2, Trash2, Download, Calendar } from 'lucide-react'
+import { ActionIcon, Badge, Button, Modal as MantineModal, Switch } from '@mantine/core'
+import { Minus, Plus, Loader2, Trash2, Download, Calendar } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
@@ -26,9 +27,9 @@ export function MinuteSyncConfig({ caps, onJobStart }: { caps: { label: string; 
   useEffect(() => { setLocalDays(days) }, [days])
   useEffect(() => { setLocalSegment(segmentDays) }, [segmentDays])
 
-  const handleToggle = () => {
+  const handleToggle = (v: boolean) => {
     if (!hasMinuteCap) return
-    update.mutate({ enabled: !enabled, days: localDays })
+    update.mutate({ enabled: v, days: localDays })
   }
 
   const setDays = (v: number) => {
@@ -69,48 +70,55 @@ export function MinuteSyncConfig({ caps, onJobStart }: { caps: { label: string; 
     }).finally(() => setFetchingMode(''))
   }
 
+  // 步进器按钮共用样式 (拼接 −/值/+ 结构, 保留原有密度)
+  const stepBtnCls = 'rounded-btn border-border'
+
   return (
     <div className="px-4 pb-4 pt-3 border-t border-accent/20 space-y-3">
       {/* 区块 A: 自动同步 (盘后定时拉取的偏好设置) */}
       <div className="space-y-2.5">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <button
-            onClick={handleToggle}
+          <Switch
+            size="sm"
+            checked={enabled}
             disabled={!hasMinuteCap}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 shrink-0 ${
-              enabled ? 'bg-accent shadow-[0_0_6px_rgba(61,214,140,0.3)]' : 'bg-elevated'
-            } ${!hasMinuteCap ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
-          >
-            <span
-              className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                enabled ? 'translate-x-[18px]' : 'translate-x-0.5'
-              }`}
-            />
-          </button>
+            onChange={(e) => handleToggle(e.currentTarget.checked)}
+            aria-label="分钟K自动同步开关"
+          />
           <span className="text-xs text-foreground font-medium">
             自动同步{enabled ? '已开启' : '已关闭'}
           </span>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center">
-            <button
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="减少天数"
               onClick={() => setDays(localDays - 1)}
               disabled={!hasMinuteCap || !enabled || localDays <= 1}
-              className="h-6 w-6 flex items-center justify-center rounded-l-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-            >−</button>
-            <div className={`h-6 w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums ${enabled ? 'text-foreground bg-base' : 'text-muted bg-elevated/50'}`}>
+              className={`${stepBtnCls} rounded-r-none`}
+            >
+              <Minus className="h-3 w-3" />
+            </ActionIcon>
+            <div className={`h-[22px] w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums ${enabled ? 'text-foreground bg-base' : 'text-muted bg-elevated/50'}`}>
               {localDays}
             </div>
-            <button
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="增加天数"
               onClick={() => setDays(localDays + 1)}
               disabled={!hasMinuteCap || !enabled || localDays >= 30}
-              className="h-6 w-6 flex items-center justify-center rounded-r-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-            >+</button>
+              className={`${stepBtnCls} rounded-l-none`}
+            >
+              <Plus className="h-3 w-3" />
+            </ActionIcon>
           </div>
           <span className="text-[10px] text-muted">天</span>
           {!hasMinuteCap && (
-            <span className="text-[10px] text-warning/80 bg-warning/8 rounded px-1.5 py-px font-medium">需 Pro+</span>
+            <Badge size="xs" variant="light" className="h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-warning/8 text-warning/80">需 Pro+</Badge>
           )}
         </div>
       </div>
@@ -120,23 +128,33 @@ export function MinuteSyncConfig({ caps, onJobStart }: { caps: { label: string; 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
           <span className="text-xs text-foreground font-medium">分段大小</span>
-          <span className="text-[10px] text-muted px-1 py-px rounded bg-warning/8 text-warning/80">内存优化</span>
+          <Badge size="xs" variant="light" className="h-auto min-h-0 px-1 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-warning/8 text-warning/80">内存优化</Badge>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center">
-            <button
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="减少分段大小"
               onClick={() => setSegment(localSegment - 5)}
               disabled={!hasMinuteCap || localSegment <= 5}
-              className="h-6 w-6 flex items-center justify-center rounded-l-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-            >−</button>
-            <div className="h-6 w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums bg-base text-foreground">
+              className={`${stepBtnCls} rounded-r-none`}
+            >
+              <Minus className="h-3 w-3" />
+            </ActionIcon>
+            <div className="h-[22px] w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums bg-base text-foreground">
               {localSegment}
             </div>
-            <button
+            <ActionIcon
+              variant="default"
+              size="sm"
+              aria-label="增加分段大小"
               onClick={() => setSegment(localSegment + 5)}
               disabled={!hasMinuteCap || localSegment >= 30}
-              className="h-6 w-6 flex items-center justify-center rounded-r-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-            >+</button>
+              className={`${stepBtnCls} rounded-l-none`}
+            >
+              <Plus className="h-3 w-3" />
+            </ActionIcon>
           </div>
           <span className="text-[10px] text-muted">交易日/段</span>
         </div>
@@ -154,28 +172,33 @@ export function MinuteSyncConfig({ caps, onJobStart }: { caps: { label: string; 
           <span className="text-[10px] text-muted">不受自动同步开关影响</span>
         </div>
         <div className="grid grid-cols-2 gap-2">
-        <button
+        <Button
+          size="xs"
           onClick={() => handleFetch('40d')}
           disabled={!hasMinuteCap || fetchingMode !== ''}
-          className="inline-flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-btn bg-accent/90 text-foreground text-xs font-medium hover:bg-accent disabled:opacity-40 transition-colors duration-150"
+          className="h-auto py-2"
+          classNames={{ label: 'flex flex-col items-center gap-0.5' }}
         >
           {fetchingMode === '40d' ? (
             <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>获取中…</span></>
           ) : (
             <><Download className="h-3.5 w-3.5" /><span>单次获取 {localSegment} 天</span></>
           )}
-        </button>
-        <button
+        </Button>
+        <Button
+          size="xs"
+          variant="light"
           onClick={() => handleFetch('1y')}
           disabled={!hasMinuteCap || fetchingMode !== ''}
-          className="inline-flex flex-col items-center justify-center gap-0.5 px-2 py-2 rounded-btn border border-amber-400/40 bg-amber-400/10 text-amber-400 text-xs font-medium hover:bg-amber-400/20 disabled:opacity-40 transition-colors duration-150"
+          className="h-auto py-2 border border-warning/40 bg-warning/10 text-warning hover:bg-warning/20"
+          classNames={{ label: 'flex flex-col items-center gap-0.5' }}
         >
           {fetchingMode === '1y' ? (
             <><Loader2 className="h-3.5 w-3.5 animate-spin" /><span>分段获取中…</span></>
           ) : (
             <><Calendar className="h-3.5 w-3.5" /><span>获取最近 1 年</span><span className="text-[9px] opacity-70">分段拉取</span></>
           )}
-        </button>
+        </Button>
         </div>
         <div className="text-[10px] text-muted leading-relaxed">
           A股标的 · 前复权价格 · 从本地最早数据向前叠加 ·{' '}
@@ -184,36 +207,52 @@ export function MinuteSyncConfig({ caps, onJobStart }: { caps: { label: string; 
       </div>
 
       {/* 区块 C: 清空 (危险操作, 独立分隔) */}
-      <button
+      <Button
+        fullWidth
+        size="xs"
+        variant="outline"
+        leftSection={<Trash2 className="h-3 w-3" />}
         onClick={() => setConfirmClear(true)}
         disabled={clearMutation.isPending}
         title="清空分钟K数据"
-        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn border border-danger/30 text-danger/80 text-xs font-medium hover:bg-danger/10 disabled:opacity-40 transition-colors duration-150"
+        className="border-danger/30 text-danger/80 hover:bg-danger/10"
       >
-        <Trash2 className="h-3 w-3" />
         清空分钟K数据
-      </button>
+      </Button>
 
-      {/* 清空确认弹窗 */}
-      {confirmClear && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !clearMutation.isPending && setConfirmClear(false)} />
-          <div className="relative rounded-card border border-border bg-surface shadow-2xl mx-4 px-6 py-5 max-w-sm w-full space-y-4">
+      {/* 清空确认弹窗 (Mantine Modal: ESC/遮罩点击/焦点管理内置; 清空中禁止关闭) */}
+      <MantineModal
+        opened={confirmClear}
+        onClose={() => { if (!clearMutation.isPending) setConfirmClear(false) }}
+        withCloseButton={false}
+        centered
+        padding={0}
+        transitionProps={{ duration: 150 }}
+        overlayProps={{ backgroundOpacity: 0.6, blur: 4 }}
+        classNames={{ content: 'relative rounded-card border border-border bg-surface shadow-2xl mx-4 px-6 py-5 max-w-sm w-full' }}
+        styles={{ content: { flex: '0 1 auto' } }}
+      >
+          <div className="space-y-4">
             <div className="text-sm text-foreground text-center font-medium">确认清空分钟K数据？</div>
             <div className="text-[11px] text-muted text-center leading-relaxed">
               此操作仅删除分钟K (kline_minute) 数据, <span className="text-foreground/80">不影响</span>日K、复权因子、指标等其他数据。清空后可重新获取。
             </div>
             <div className="flex items-center justify-center gap-3">
-              <button onClick={() => setConfirmClear(false)} disabled={clearMutation.isPending}
-                className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs hover:bg-elevated/80 transition-colors duration-150">取消</button>
-              <button onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending}
-                className="px-4 py-1.5 rounded-btn bg-danger/90 text-foreground text-xs font-medium hover:bg-danger disabled:opacity-40 transition-colors duration-150">
-                {clearMutation.isPending ? <span className="inline-flex items-center gap-1.5"><Loader2 className="h-3 w-3 animate-spin" />清空中…</span> : '确认清空'}
-              </button>
+              <Button variant="default" size="xs" onClick={() => setConfirmClear(false)} disabled={clearMutation.isPending}>
+                取消
+              </Button>
+              <Button
+                size="xs"
+                onClick={() => clearMutation.mutate()}
+                disabled={clearMutation.isPending}
+                loading={clearMutation.isPending}
+                className="bg-danger/90 text-foreground hover:bg-danger"
+              >
+                {clearMutation.isPending ? '清空中…' : '确认清空'}
+              </Button>
             </div>
           </div>
-        </div>
-      )}
+      </MantineModal>
     </div>
   )
 }

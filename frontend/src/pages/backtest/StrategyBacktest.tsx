@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
+import { ActionIcon, Button, Checkbox, Drawer, NumberInput, Popover, SegmentedControl, Select, Slider, Switch, Table, TextInput } from '@mantine/core'
 import { Play, FlaskConical, Clock, Loader2, Square, Search, Plus, X, SlidersHorizontal, BarChart3, Gauge, Zap, ListPlus, HelpCircle, ChevronRight, AlertTriangle, Layers } from 'lucide-react'
 import {
   api,
@@ -24,11 +25,12 @@ import { useDataStatus, useCapabilities } from '@/lib/useSharedQueries'
 import { EmptyState } from '@/components/EmptyState'
 import { WarmupBadge } from '@/components/WarmupBadge'
 import { DatePicker } from '@/components/DatePicker'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { StrategyNavChart } from './charts/StrategyNavChart'
 import { ReturnDistributionChart } from './charts/ReturnDistributionChart'
 import { TradeKlineModal } from './components/TradeKlineModal'
 import { SignalTriggerActions } from '@/components/signals/SignalTriggerActions'
+import { useAuth } from '@/lib/auth'
 
 const formatDate = (date: Date) => date.toISOString().slice(0, 10)
 const monthsAgo = (months: number) => {
@@ -90,65 +92,44 @@ const quickRangeTitle = (range: QuickRangeConfig) => range.unit === 'all'
     ? `近 ${range.value} 年`
     : `近 ${range.value} 个月`
 
-const INPUT_CLS = `w-full px-2.5 py-1.5 rounded-input bg-surface border border-border text-xs
-  focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth`
-
 /** 成交时序说明 — 黄色问号图标, 点击弹出气泡。
- * 用 fixed 定位脱离父容器 overflow 裁剪(左侧表单是 overflow-y-auto, absolute 气泡会被裁)。 */
+ * Mantine Popover: 自动定位防溢出、点击外部/ESC 关闭、portal 渲染(脱离父容器 overflow 裁剪)。 */
 function FillRuleHint() {
   const [open, setOpen] = useState(false)
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
-  const iconRef = useRef<HTMLButtonElement>(null)
-
-  const handleOpen = () => {
-    if (!open && iconRef.current) {
-      const r = iconRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 4, left: r.left })
-    }
-    setOpen(v => !v)
-  }
-
-  // 气泡宽度 256px(w-64), 若右侧超出视口则向左对齐
-  const bubbleLeft = pos ? Math.min(pos.left, window.innerWidth - 256 - 8) : 0
 
   return (
-    <div className="relative inline-flex items-center">
-      <button
-        ref={iconRef}
-        type="button"
-        onClick={handleOpen}
-        aria-label="查看成交时序说明"
-        aria-expanded={open}
-        title="查看成交时序说明"
-        className="inline-flex h-3.5 w-3.5 items-center justify-center text-yellow-500/80 transition-colors hover:text-yellow-500"
-      >
-        <HelpCircle className="h-3.5 w-3.5" />
-      </button>
-      <AnimatePresence>
-        {open && pos && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              style={{ top: pos.top, left: bubbleLeft }}
-              className="fixed z-50 w-64 bg-surface border border-border rounded-md shadow-xl p-3 text-[11px] text-secondary leading-relaxed"
-              onClick={e => e.stopPropagation()}
-            >
-              <div className="font-medium text-foreground mb-1.5">成交时序说明</div>
-              <div className="space-y-1">
-                <div><b className="text-foreground">建仓口径</b>和<b className="text-foreground">清仓口径</b>分别控制买卖信号出现后的成交时点。</div>
-                <div><b className="text-foreground">信号日收盘</b>仅适用于收盘前可确认的信号；收盘后确认的信号应选择<b className="text-foreground">次日开盘</b>。</div>
-                <div><b className="text-foreground">信号触发卖出</b>仅在分钟成交开启且卖出信号支持分钟回放时可用；分钟收盘确认后按下一分钟开盘成交。</div>
-                <div>买卖信号由<b className="text-foreground">策略触发器</b>决定，这里只控制信号出现后的成交时点。</div>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </div>
+    <Popover
+      opened={open}
+      onChange={setOpen}
+      position="bottom-start"
+      width={256}
+      withinPortal
+      shadow="xl"
+      transitionProps={{ duration: 150 }}
+      classNames={{ dropdown: 'bg-surface border border-border rounded-md p-3 text-[11px] text-secondary leading-relaxed' }}
+    >
+      <Popover.Target>
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          aria-label="查看成交时序说明"
+          aria-expanded={open}
+          title="查看成交时序说明"
+          className="inline-flex h-3.5 w-3.5 items-center justify-center text-yellow-500/80 transition-colors hover:text-yellow-500"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+        </button>
+      </Popover.Target>
+      <Popover.Dropdown>
+        <div className="font-medium text-foreground mb-1.5">成交时序说明</div>
+        <div className="space-y-1">
+          <div><b className="text-foreground">建仓口径</b>和<b className="text-foreground">清仓口径</b>分别控制买卖信号出现后的成交时点。</div>
+          <div><b className="text-foreground">信号日收盘</b>仅适用于收盘前可确认的信号；收盘后确认的信号应选择<b className="text-foreground">次日开盘</b>。</div>
+          <div><b className="text-foreground">信号触发卖出</b>仅在分钟成交开启且卖出信号支持分钟回放时可用；分钟收盘确认后按下一分钟开盘成交。</div>
+          <div>买卖信号由<b className="text-foreground">策略触发器</b>决定，这里只控制信号出现后的成交时点。</div>
+        </div>
+      </Popover.Dropdown>
+    </Popover>
   )
 }
 
@@ -215,6 +196,7 @@ const round4 = (v: number) => Math.round(v * 10000) / 10000
  * 数字输入框 — 解决"删除即跳最小值"问题。
  * 受控 input 的 onChange 立即 clamp 会让用户键入低于 min 的中间值时被钳到 min,
  * 无法平滑输入/删除重输。本组件: 输入时只更新文本草稿(不钳制), 失焦时才校正到 [min,max]。
+ * Mantine NumberInput 承载样式, clampBehavior="none" 避免与手动失焦校正冲突。
  */
 function NumberField({ value, onChange, min, max, step, className, placeholder }:
 {
@@ -231,17 +213,20 @@ function NumberField({ value, onChange, min, max, step, className, placeholder }
   // 显示值: 有草稿用草稿, 否则用外部 value (null 显示空)
   const display = draft !== null ? draft : (value == null ? '' : String(value))
   return (
-    <input
-      type="number"
+    <NumberInput
       value={display}
       min={min}
       max={max}
       step={step}
       placeholder={placeholder}
-      onChange={e => {
+      clampBehavior="none"
+      hideControls
+      size="xs"
+      onChange={v => {
         // 输入时只更新草稿 + 把原始数字推给父级(不钳制), 让用户自由编辑
-        setDraft(e.target.value)
-        onChange(numOrNull(e.target.value))
+        const raw = String(v)
+        setDraft(raw)
+        onChange(numOrNull(raw))
       }}
       onBlur={() => {
         // 失焦时校正: 空值保持 null; 否则钳制到 [min,max]
@@ -329,10 +314,13 @@ const fmtLots = (v: number | null | undefined) => {
   return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
 }
 
+const BULL_COLOR = 'hsl(var(--bull))'
+const BEAR_COLOR = 'hsl(var(--bear))'
+
 const statValueColor = (v: number | null | undefined) => {
-  // 中性值继承页面前景色 (亮暗主题都可读), 不再写死近白色
+  // 中性值继承页面前景色 (亮暗主题都可读), 涨跌走 bull/bear 语义 token
   if (v == null || Number.isNaN(v) || v === 0) return 'inherit'
-  return v > 0 ? '#f87171' : '#34d399'
+  return v > 0 ? BULL_COLOR : BEAR_COLOR
 }
 
 /** 信号 ID → 可读名称映射 (内置 + 自定义), 供交易记录显示具体触发信号。 */
@@ -392,17 +380,15 @@ function DailyTradeChip({ trade, side, strategyName, onClick, signalNames }: { t
   const price = isBuy ? trade.entry_price : trade.exit_price
   const amount = isBuy ? trade.entry_value : trade.exit_value
   const pnlColor = priceColorClass(trade.pnl_amount ?? trade.pnl_pct)
-  const footerColor = isBuy ? 'text-secondary' : pnlColor
-  const footerText = `仓位 ${fmtPositionPct(trade.position_pct, 2)}`
   const scoreText = fmtScore(trade.entry_score)
   const buyStrategy = strategyName || '策略'
 
   return (
-    <button type="button" onClick={onClick} className={`inline-flex ${isBuy ? 'w-[14.5rem]' : 'w-[14.5rem]'} flex-col gap-0.5 rounded-btn border px-1.5 py-1 text-left text-[11px] leading-4 transition-colors hover:border-accent/45 hover:bg-elevated/60 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
+    <button type="button" onClick={onClick} title={isBuy ? `策略 ${buyStrategy}` : undefined} className={`inline-flex w-[10.5rem] flex-col rounded-btn border px-1 py-0.5 text-left text-[10px] leading-4 transition-colors hover:border-accent/45 hover:bg-elevated/60 focus:outline-none focus:ring-1 focus:ring-accent/40 ${
       isBuy ? 'border-accent/25 bg-accent/5' : 'border-border/70 bg-base/45'
     }`}>
       <span className="flex items-center gap-1">
-        <span className={`shrink-0 rounded px-1 py-px text-[9px] font-medium ${
+        <span className={`shrink-0 rounded px-1 text-[9px] font-medium ${
           isBuy ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary'
         }`}>
           {isBuy ? '买' : '卖'}
@@ -410,49 +396,35 @@ function DailyTradeChip({ trade, side, strategyName, onClick, signalNames }: { t
         <span className="min-w-0 flex-1 truncate text-foreground">{trade.name || trade.symbol}</span>
         {tag && <span className={`shrink-0 rounded px-1 text-[9px] font-medium ${isBuy ? 'bg-accent/20 text-accent' : 'bg-elevated text-secondary'}`}>{tag}</span>}
       </span>
-      <span className="flex items-center justify-between gap-2 text-muted">
+      <span className="flex items-center justify-between gap-1 text-muted">
         <span className="min-w-0 truncate">
           <span className="font-mono">{trade.symbol}</span>
-          <span className="mx-1">·</span>
+          <span className="mx-0.5">·</span>
           <span className="num">{fmtLots(trade.lots)}手</span>
+          <span className="mx-0.5">·</span>
+          <span className="num">{fmtPositionPct(trade.position_pct, 0)}</span>
         </span>
         {isBuy ? (
           <span className="num shrink-0 text-secondary">{fmtPrice(price)}</span>
         ) : (
-          <span className="flex shrink-0 items-center gap-1.5">
+          <span className="flex shrink-0 items-center gap-1">
             <span className="num text-secondary">{fmtPrice(price)}</span>
             <ExitReasonBadge reason={trade.exit_reason} signalId={trade.exit_signal_id} signalNames={signalNames} />
           </span>
         )}
       </span>
       {isBuy ? (
-        <>
-          <span className="flex items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-muted" title={buyStrategy}>策略 {buyStrategy}</span>
-            <span className="shrink-0 rounded border border-accent/25 bg-accent/10 px-1.5 py-px font-mono text-[10px] text-accent">
-              评分 {scoreText}
-            </span>
-          </span>
-          <span className="flex items-center justify-between gap-2">
-            <span className="num font-medium text-foreground">{fmtMoney(amount)}</span>
-            <span className={`min-w-0 truncate text-right num ${footerColor}`}>{footerText}</span>
-          </span>
-        </>
+        <span className="flex items-center justify-between gap-1">
+          <span className="num font-medium text-foreground">{fmtMoney(amount)}</span>
+          <span className="shrink-0 font-mono text-[9px] text-accent">评分 {scoreText}</span>
+        </span>
       ) : (
-        <>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-muted">卖出</span>
-            <span className="num font-medium text-foreground">{fmtMoney(amount)}</span>
+        <span className="flex items-center justify-between gap-1">
+          <span className="num font-medium text-foreground">{fmtMoney(amount)}</span>
+          <span className={`shrink-0 num font-medium ${pnlColor}`}>
+          {fmtSignedMoney(trade.pnl_amount)} / {fmtPct(trade.pnl_pct)}
           </span>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-muted">盈亏</span>
-            <span className={`flex shrink-0 items-center gap-1.5 text-right num font-medium ${pnlColor}`}>
-              <span>{fmtSignedMoney(trade.pnl_amount)}</span>
-              <span className="text-muted/40">/</span>
-              <span>{fmtPct(trade.pnl_pct)}</span>
-            </span>
-          </span>
-        </>
+        </span>
       )}
     </button>
   )
@@ -685,14 +657,16 @@ function ScoringWeightRow({ name, weight, pct, editing, onChange }: {
     <div className="flex items-center gap-2">
       <span className="w-20 shrink-0 truncate text-right text-[11px] text-secondary" title={name}>{label}</span>
       {editing ? (
-        <input
-          type="range"
+        <Slider
           min={0}
           max={100}
           step={1}
           value={weight}
-          onChange={e => onChange(Number(e.target.value))}
-          className="h-1 flex-1 cursor-pointer accent-amber-400"
+          onChange={onChange}
+          color="yellow"
+          size="xs"
+          label={null}
+          className="flex-1"
         />
       ) : (
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-elevated">
@@ -712,35 +686,33 @@ function StrategyParamInput({ param, value, onChange }: {
   if (param.type === 'bool') {
     const checked = value === true || value === 'true' || value === 'True' || value === true
     return (
-      <label className="block">
+      <div>
         <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
-        <button
-          type="button"
-          onClick={() => onChange(!checked)}
-          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 cursor-pointer ${
-            checked ? 'bg-accent shadow-[0_0_6px_rgba(59,130,246,0.3)]' : 'bg-elevated'
-          }`}
-          aria-pressed={checked}
-        >
-          <span className={`inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-            checked ? 'translate-x-[18px]' : 'translate-x-0.5'
-          }`} />
-        </button>
-      </label>
+        <Switch
+          size="xs"
+          checked={checked}
+          onChange={e => onChange(e.currentTarget.checked)}
+          aria-label={param.label}
+        />
+      </div>
     )
   }
   if (param.type === 'select') {
     return (
-      <label className="block">
+      <div>
         <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
-        <select value={value ?? param.default} onChange={e => onChange(e.target.value)} className={INPUT_CLS}>
-          {(param.options ?? []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
-        </select>
-      </label>
+        <Select
+          size="xs"
+          data={(param.options ?? []).map(String)}
+          value={value == null ? String(param.default ?? '') : String(value)}
+          onChange={v => onChange(v)}
+          allowDeselect={false}
+        />
+      </div>
     )
   }
   return (
-    <label className="block">
+    <div>
       <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
       <NumberField
         value={value == null || value === '' ? null : Number(value)}
@@ -748,13 +720,13 @@ function StrategyParamInput({ param, value, onChange }: {
         max={param.max}
         step={param.step ?? (param.type === 'int' ? 1 : 0.01)}
         onChange={n => onChange(n == null ? '' : (param.type === 'int' ? Math.round(n) : n))}
-        className={INPUT_CLS}
       />
-    </label>
+    </div>
   )
 }
 
 function StockPoolPicker({ value, onChange, assetType = 'stock' }: { value: string; onChange: (value: string) => void; assetType?: 'stock' | 'etf' }) {
+  const { user } = useAuth()
   const symbols = useMemo(() => value.split(',').map(s => s.trim()).filter(Boolean), [value])
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
@@ -770,7 +742,7 @@ function StockPoolPicker({ value, onChange, assetType = 'stock' }: { value: stri
   const results = search.data?.results ?? []
   // 自选列表 — 供「从自选导入」一键填入回测范围
   const watchlist = useQuery({
-    queryKey: QK.watchlist,
+    queryKey: QK.watchlistFor(user.id),
     queryFn: () => api.watchlistList(),
     staleTime: 30_000,
   })
@@ -819,14 +791,14 @@ function StockPoolPicker({ value, onChange, assetType = 'stock' }: { value: stri
     <div className="space-y-2" ref={ref}>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-          <input
-            type="text"
+          <TextInput
             value={query}
-            onChange={e => { setQuery(e.target.value); setOpen(true) }}
+            onChange={e => { setQuery(e.currentTarget.value); setOpen(true) }}
             onFocus={() => { if (query.trim()) setOpen(true) }}
             placeholder="搜索股票名称/代码添加股票池"
-            className="w-full rounded-input border border-border bg-surface py-1.5 pl-8 pr-2.5 text-xs focus:border-accent focus:outline-none"
+            leftSection={<Search className="h-3.5 w-3.5 text-muted" />}
+            leftSectionPointerEvents="none"
+            size="xs"
           />
           {open && results.length > 0 && (
             <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-card border border-border bg-base shadow-xl">
@@ -861,26 +833,27 @@ function StockPoolPicker({ value, onChange, assetType = 'stock' }: { value: stri
           <span className={`whitespace-nowrap text-[11px] font-medium ${symbols.length === 0 ? 'text-amber-400' : 'text-accent'}`}>
             {symbols.length === 0 ? '全市场' : `共 ${symbols.length} 只`}
           </span>
-          <button
-            type="button"
+          <Button
+            size="compact-sm"
+            variant="default"
             onClick={importFromWatchlist}
             disabled={watchlist.isLoading || watchlistCount === 0}
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-input border border-border bg-surface px-2 py-1.5 text-[11px] text-secondary transition-colors hover:border-accent/50 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            leftSection={<ListPlus className="h-3 w-3" />}
             title="把自选列表的个股加入回测范围"
           >
-            <ListPlus className="h-3 w-3" />
             {watchlist.isLoading ? '加载…' : watchlistCount === 0 ? '自选空' : `导入自选(${watchlistCount})`}
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            size="compact-sm"
+            variant="default"
+            color="red"
             onClick={() => setSymbols([])}
             disabled={symbols.length === 0}
-            className="inline-flex items-center gap-1 whitespace-nowrap rounded-input border border-border bg-surface px-2 py-1.5 text-[11px] text-secondary transition-colors hover:border-danger/50 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+            leftSection={<X className="h-3 w-3" />}
             title="清空回测范围"
           >
-            <X className="h-3 w-3" />
             清空
-          </button>
+          </Button>
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5">
@@ -1195,10 +1168,6 @@ export function StrategyBacktest() {
   )
   const rangeKey = matchedQuickRange?.id ?? 'custom'
   const rangeTitle = matchedQuickRange ? quickRangeTitle(matchedQuickRange) : '自定义区间'
-  const rangeButtonCls = (key: string) => `rounded-btn px-2 py-1 text-[11px] font-medium transition-colors ${rangeKey === key
-    ? 'bg-accent/15 text-accent'
-    : 'text-muted hover:bg-elevated/70 hover:text-secondary'
-  }`
 
   const sortedTrades = useMemo(() => {
     return [...(result?.trades ?? [])].sort((a, b) => {
@@ -1385,32 +1354,28 @@ export function StrategyBacktest() {
     .filter(item => item.value > 0)
 
   return (
-    <div className="h-full min-h-0 overflow-hidden rounded-card border border-border bg-surface/80 grid grid-cols-1 xl:grid-cols-[18rem_minmax(0,1fr)]">
+    <div className="h-full min-h-0 overflow-y-auto rounded-card border border-border bg-surface/80">
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(15rem,20rem)_minmax(0,1fr)]">
       {/* 配置面板 */}
-      <section className="space-y-3 border-b xl:border-b-0 xl:border-r border-border bg-base/25 px-3 py-3 xl:overflow-y-auto">
+      <section className="space-y-3 border-b xl:border-b-0 xl:border-r border-border bg-base/25 px-3 py-3">
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs font-medium text-secondary">选择策略</label>
             {/* 分钟K成交 */}
             <div className="flex items-center gap-1">
               <Gauge className={`h-3 w-3 ${highGranularity ? 'text-amber-400' : 'text-muted/50'}`} />
-              <button
-                onClick={toggleMinuteFill}
+              <Switch
+                size="xs"
+                color="yellow"
+                checked={highGranularity}
                 disabled={!hasMinuteBatch}
+                onChange={() => toggleMinuteFill()}
                 title={!hasMinuteBatch
                   ? '分钟K成交价：需 Pro+ 权限 (分钟K批量)'
                   : '分钟K成交：细化成交价，并为兼容的卖出信号提供下一分钟成交。'
                 }
-                className={`group relative inline-flex h-3.5 w-6 items-center rounded-full shrink-0 transition-colors duration-200 ${
-                  !hasMinuteBatch ? 'bg-elevated opacity-50 cursor-not-allowed'
-                  : highGranularity ? 'bg-amber-500 cursor-pointer'
-                  : 'bg-elevated cursor-pointer'
-                }`}
-              >
-                <span className={`inline-block h-2.5 w-2.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                  highGranularity ? 'translate-x-[13px]' : 'translate-x-0.5'
-                }`} />
-              </button>
+                aria-label="分钟K成交"
+              />
               <span className={`text-[9px] font-medium ${highGranularity ? 'text-amber-400' : 'text-muted/50'}`}>分钟成交</span>
               {!hasMinuteBatch && (
                 <span className="text-[8px] text-accent/70 font-medium bg-accent/10 px-1 py-px rounded">Pro+</span>
@@ -1428,20 +1393,14 @@ export function StrategyBacktest() {
             </div>
           )}
           <div className="overflow-hidden rounded-input border border-border bg-surface">
-            <div className="flex border-b border-border/60 bg-base/30 p-0.5">
-              {STRATEGY_GROUPS.map(group => (
-                <button
-                  key={group.id}
-                  type="button"
-                  onClick={() => setStrategyGroup(group.id)}
-                  className={`flex-1 rounded-[6px] px-1.5 py-1 text-[10px] font-medium transition-colors ${strategyGroup === group.id
-                    ? 'bg-accent/15 text-accent shadow-sm'
-                    : 'text-muted hover:bg-elevated/70 hover:text-secondary'
-                  }`}
-                >
-                  {group.label}
-                </button>
-              ))}
+            <div className="border-b border-border/60 bg-base/30 p-1">
+              <SegmentedControl
+                fullWidth
+                size="xs"
+                value={strategyGroup}
+                onChange={v => setStrategyGroup(v as StrategyGroup)}
+                data={STRATEGY_GROUPS.map(group => ({ value: group.id, label: group.label }))}
+              />
             </div>
             <div className="flex max-h-[128px] flex-wrap gap-1 overflow-y-auto p-1">
             {strategies.isLoading && (
@@ -1536,30 +1495,26 @@ export function StrategyBacktest() {
           </div>
 
           <div className="mt-2 flex items-center gap-1">
-            <div className="flex min-w-0 flex-1 rounded-input bg-base/60 p-0.5">
-              {visibleQuickRanges.map(range => (
-                <button
-                  key={range.id}
-                  type="button"
-                  onClick={() => applyQuickRange(range)}
-                  className={`${rangeButtonCls(range.id)} flex-1`}
-                >
-                  {quickRangeLabel(range)}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
+            <SegmentedControl
+              fullWidth
+              size="xs"
+              className="min-w-0 flex-1"
+              value={rangeKey}
+              onChange={id => {
+                const range = visibleQuickRanges.find(r => r.id === id)
+                if (range) applyQuickRange(range)
+              }}
+              data={visibleQuickRanges.map(range => ({ value: range.id, label: quickRangeLabel(range) }))}
+            />
+            <ActionIcon
+              variant={rangeSettingsOpen ? 'light' : 'default'}
+              size="md"
               onClick={() => setRangeSettingsOpen(v => !v)}
               title="设置快捷区间"
               aria-label="设置快捷区间"
-              className={`shrink-0 rounded-btn border px-2 py-1.5 transition-colors ${rangeSettingsOpen
-                ? 'border-accent/40 bg-accent/10 text-accent'
-                : 'border-border bg-base text-secondary hover:border-accent/40 hover:text-accent'
-              }`}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
-            </button>
+            </ActionIcon>
           </div>
 
           {rangeSettingsOpen && (
@@ -1572,34 +1527,34 @@ export function StrategyBacktest() {
                 {quickRanges.map((range, index) => {
                   const limits = range.unit === 'all' ? null : QUICK_RANGE_LIMITS[range.unit]
                   return (
-                    <div key={range.id} className="grid grid-cols-[3rem_1fr_4.5rem] items-center gap-1.5">
-                      <label className="flex items-center gap-1 text-[11px] text-secondary">
-                        <input
-                          type="checkbox"
-                          checked={range.enabled}
-                          onChange={e => updateQuickRange(range.id, { enabled: e.target.checked })}
-                          className="h-3 w-3 accent-accent"
-                        />
-                        {index + 1}
-                      </label>
-                      <select
+                    <div key={range.id} className="grid grid-cols-[3rem_minmax(0,1fr)_4.5rem] items-center gap-1.5">
+                      <Checkbox
+                        size="xs"
+                        checked={range.enabled}
+                        onChange={e => updateQuickRange(range.id, { enabled: e.currentTarget.checked })}
+                        label={index + 1}
+                        aria-label={`快捷区间 ${index + 1}`}
+                      />
+                      <Select
+                        size="xs"
                         value={range.unit}
-                        onChange={e => updateQuickRange(range.id, { unit: e.target.value as QuickRangeUnit })}
-                        className={INPUT_CLS}
-                      >
-                        <option value="month">月</option>
-                        <option value="year">年</option>
-                        <option value="all">全部</option>
-                      </select>
-                      <input
-                        type="number"
+                        onChange={v => v && updateQuickRange(range.id, { unit: v as QuickRangeUnit })}
+                        allowDeselect={false}
+                        data={[
+                          { value: 'month', label: '月' },
+                          { value: 'year', label: '年' },
+                          { value: 'all', label: '全部' },
+                        ]}
+                      />
+                      <NumberInput
+                        size="xs"
+                        hideControls
                         min={limits?.min}
                         max={limits?.max}
                         disabled={range.unit === 'all'}
                         value={range.unit === 'all' ? '' : range.value}
-                        onChange={e => updateQuickRange(range.id, { value: Number(e.target.value) })}
+                        onChange={v => updateQuickRange(range.id, { value: Number(v) })}
                         placeholder="—"
-                        className={`${INPUT_CLS} ${range.unit === 'all' ? 'opacity-50' : ''}`}
                       />
                     </div>
                   )
@@ -1615,24 +1570,32 @@ export function StrategyBacktest() {
               <label className="text-xs font-medium text-secondary">建仓口径</label>
               <FillRuleHint />
             </div>
-            <select value={entryFill} onChange={e => setEntryFill(e.target.value as 'close_t' | 'open_t+1')} className={INPUT_CLS}>
-              <option value="open_t+1">次日开盘（推荐）</option>
-              <option value="close_t">信号日收盘</option>
-            </select>
+            <Select
+              size="xs"
+              value={entryFill}
+              onChange={v => v && setEntryFill(v as 'close_t' | 'open_t+1')}
+              allowDeselect={false}
+              data={[
+                { value: 'open_t+1', label: '次日开盘（推荐）' },
+                { value: 'close_t', label: '信号日收盘' },
+              ]}
+            />
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-medium text-secondary">清仓口径</label>
-            <select
+            <Select
+              size="xs"
               value={exitFill}
-              onChange={e => setExitFill(e.target.value as 'close_t' | 'open_t+1' | 'signal_next_minute')}
-              className={INPUT_CLS}
-            >
-              <option value="close_t">信号日收盘（推荐）</option>
-              <option value="open_t+1">次日开盘</option>
-              {highGranularity && minuteExitTriggerSupported && (
-                <option value="signal_next_minute">信号触发卖出 BETA</option>
-              )}
-            </select>
+              onChange={v => v && setExitFill(v as 'close_t' | 'open_t+1' | 'signal_next_minute')}
+              allowDeselect={false}
+              data={[
+                { value: 'close_t', label: '信号日收盘（推荐）' },
+                { value: 'open_t+1', label: '次日开盘' },
+                ...(highGranularity && minuteExitTriggerSupported
+                  ? [{ value: 'signal_next_minute', label: '信号触发卖出 BETA' }]
+                  : []),
+              ]}
+            />
           </div>
           {(entryFill === 'close_t' || exitFill === 'close_t') && (
             <div className="col-span-2 flex items-start gap-1 text-[10px] leading-4 text-warning">
@@ -1657,25 +1620,28 @@ export function StrategyBacktest() {
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">初始资金</label>
-            <input type="number" value={initialCapital} onChange={e => setInitialCapital(e.target.value)}
-              className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls value={initialCapital} onChange={v => setInitialCapital(String(v))} />
           </div>
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">买入权重</label>
-            <select value={positionSizing} onChange={e => setPositionSizing(e.target.value as any)} className={INPUT_CLS}>
-              <option value="equal">等权买入</option>
-              <option value="score_weight">评分加权</option>
-            </select>
+            <Select
+              size="xs"
+              value={positionSizing}
+              onChange={v => v && setPositionSizing(v as 'equal' | 'score_weight')}
+              allowDeselect={false}
+              data={[
+                { value: 'equal', label: '等权买入' },
+                { value: 'score_weight', label: '评分加权' },
+              ]}
+            />
           </div>
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">最大持仓数</label>
-            <input type="number" value={maxPositions} onChange={e => setMaxPositions(e.target.value)}
-              className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls value={maxPositions} onChange={v => setMaxPositions(String(v))} />
           </div>
           <div>
             <label className="text-xs font-medium text-secondary block mb-1.5">最大总仓位(%)</label>
-            <input type="number" min={0} max={100} value={maxExposure} onChange={e => setMaxExposure(e.target.value)}
-              className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls min={0} max={100} value={maxExposure} onChange={v => setMaxExposure(String(v))} />
           </div>
         </div>
         )}
@@ -1683,15 +1649,15 @@ export function StrategyBacktest() {
         <div className="grid grid-cols-3 gap-2">
           <div>
             <label className="text-[10px] font-medium text-secondary block mb-1">佣金 ‱</label>
-            <input type="number" min={0} value={fees} onChange={e => setFees(e.target.value)} className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls min={0} value={fees} onChange={v => setFees(String(v))} />
           </div>
           <div>
             <label className="text-[10px] font-medium text-secondary block mb-1">印花税 ‰</label>
-            <input type="number" min={0} value={stampTax} onChange={e => setStampTax(e.target.value)} className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls min={0} value={stampTax} onChange={v => setStampTax(String(v))} />
           </div>
           <div>
             <label className="text-[10px] font-medium text-secondary block mb-1">滑点 ‱</label>
-            <input type="number" min={0} value={slippage} onChange={e => setSlippage(e.target.value)} className={INPUT_CLS} />
+            <NumberInput size="xs" hideControls min={0} value={slippage} onChange={v => setSlippage(String(v))} />
           </div>
         </div>
         )}
@@ -1714,53 +1680,61 @@ export function StrategyBacktest() {
         )}
 
         {isPending ? (
-          <button
+          <Button
+            fullWidth
+            size="sm"
+            color="red"
+            variant="light"
             onClick={stopBacktest}
-            className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-btn
-              bg-danger/15 border border-danger/40 text-sm font-medium text-danger hover:bg-danger/25
-              transition-colors duration-150 ease-smooth"
+            leftSection={<Square className="h-3.5 w-3.5 fill-current" />}
           >
-            <Square className="h-3.5 w-3.5 fill-current" />
             停止回测
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
+            fullWidth
+            size="sm"
+            variant="gradient"
+            gradient={{ from: 'accent', to: 'blue', deg: 90 }}
             onClick={handleRun}
             disabled={!selectedStrategy || strategyDetail.isLoading || backtestDataUnavailable}
-            className="group w-full inline-flex items-center justify-center gap-2.5 rounded-btn border border-accent/40
-              bg-gradient-to-r from-accent to-blue-500 px-3 py-2.5 text-white shadow-[0_10px_24px_rgba(59,130,246,0.22)]
-              transition-all duration-150 ease-smooth hover:-translate-y-0.5 hover:shadow-[0_14px_28px_rgba(59,130,246,0.28)]
-              disabled:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+            leftSection={<Play className="h-3.5 w-3.5 fill-current" />}
+            className="shadow-[0_10px_24px_rgba(59,130,246,0.22)]"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/18 ring-1 ring-white/25 transition-transform group-hover:scale-105">
-              <Play className="h-3.5 w-3.5 translate-x-px fill-current" />
-            </span>
-            <span className="text-sm font-semibold tracking-wide">运行回测</span>
-          </button>
+            运行回测
+          </Button>
         )}
       </section>
 
       {/* 结果面板 */}
-      <section className="min-w-0 space-y-3 bg-base/15 px-3 py-3 xl:overflow-y-auto">
+      <section className="min-w-0 space-y-3 bg-base/15 px-3 py-3">
         {/* 模式切换: 仓位模拟 / 全量模拟 */}
         <div className="flex items-center justify-between gap-2">
-          <div className="inline-flex rounded-btn border border-border bg-surface/80 p-0.5 shadow-sm">
-            {([['position', '仓位模拟'], ['full', '全量模拟']] as const).map(([val, label]) => (
-              <button
-                key={val}
-                onClick={() => setSimMode(val)}
-                className={`inline-flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-                  simMode === val
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'text-secondary hover:bg-elevated hover:text-foreground'
-                }`}
-                title={val === 'position' ? '受仓位/资金约束的真实账户模拟' : '全部候选独立执行，不受资金和持仓数量约束'}
-              >
-                {val === 'position' ? <Play className="h-3.5 w-3.5" /> : <BarChart3 className="h-3.5 w-3.5" />}
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            size="xs"
+            value={simMode}
+            onChange={v => setSimMode(v as 'position' | 'full')}
+            data={[
+              {
+                value: 'position',
+                label: (
+                  <span className="inline-flex items-center gap-1.5" title="受仓位/资金约束的真实账户模拟">
+                    <Play className="h-3.5 w-3.5" />
+                    仓位模拟
+                  </span>
+                ),
+              },
+              {
+                value: 'full',
+                label: (
+                  <span className="inline-flex items-center gap-1.5" title="全部候选独立执行，不受资金和持仓数量约束">
+                    <BarChart3 className="h-3.5 w-3.5" />
+                    全量模拟
+                  </span>
+                ),
+              },
+            ]}
+          />
           {simMode === 'full' && (
             maxHoldDaysValue !== '' ? (
               <div className="rounded-btn border border-border bg-surface px-2 py-1 text-[11px] text-secondary">
@@ -1769,21 +1743,12 @@ export function StrategyBacktest() {
             ) : (
               <div className="flex items-center gap-1.5 text-[11px] text-secondary">
                 <span>兜底上限</span>
-                <div className="flex rounded-btn border border-border overflow-hidden">
-                  {(['1', '5', '10', '20'] as const).map(d => (
-                    <button
-                      key={d}
-                      onClick={() => setHoldingDays(d)}
-                      className={`px-2 py-1 text-[11px] font-medium transition-colors cursor-pointer ${
-                        holdingDays === d
-                          ? 'bg-accent/10 text-accent'
-                          : 'text-muted hover:text-secondary hover:bg-elevated'
-                      }`}
-                    >
-                      {d}天
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  size="xs"
+                  value={holdingDays}
+                  onChange={setHoldingDays}
+                  data={(['1', '5', '10', '20'] as const).map(d => ({ value: d, label: `${d}天` }))}
+                />
               </div>
             )
           )}
@@ -1797,9 +1762,15 @@ export function StrategyBacktest() {
             <span className="text-[10px] text-muted">仅在前一日环境满足时入场(防未来函数)</span>
             <div className="ml-auto flex items-center gap-1">
               <span className="text-[10px] text-muted">最低分</span>
-              <input type="number" min={0} max={100} value={regimeMinScore} placeholder="不限"
-                onChange={e => setRegimeMinScore(e.target.value ? Number(e.target.value) : '')}
-                className="w-14 h-6 px-1 rounded border border-border bg-base text-[11px] text-foreground text-center focus:outline-none focus:border-accent/50" />
+              <NumberField
+                value={regimeMinScore === '' ? null : regimeMinScore}
+                min={0}
+                max={100}
+                step={1}
+                placeholder="不限"
+                onChange={n => setRegimeMinScore(n ?? '')}
+                className="w-16"
+              />
             </div>
           </div>
           <div className="flex flex-wrap gap-1">
@@ -1817,8 +1788,14 @@ export function StrategyBacktest() {
               )
             })}
             {(regimeStates.length > 0 || regimeMinScore !== '') && (
-              <button onClick={() => { setRegimeStates([]); setRegimeMinScore('') }}
-                className="text-[10px] text-muted hover:text-danger px-1">清除</button>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="red"
+                onClick={() => { setRegimeStates([]); setRegimeMinScore('') }}
+              >
+                清除
+              </Button>
             )}
           </div>
         </div>
@@ -1876,14 +1853,16 @@ export function StrategyBacktest() {
                   {((backtestTask.progress.day / backtestTask.progress.total) * 100).toFixed(0)}%
                 </span>
               )}
-              <button
-                type="button"
+              <Button
+                size="compact-xs"
+                color="red"
+                variant="light"
                 onClick={stopBacktest}
-                className="inline-flex shrink-0 items-center gap-1 rounded-btn border border-danger/40 bg-danger/10 px-2 py-1 text-[11px] text-danger transition-colors hover:bg-danger/20"
+                leftSection={<Square className="h-3 w-3 fill-current" />}
+                className="shrink-0"
               >
-                <Square className="h-3 w-3 fill-current" />
                 停止
-              </button>
+              </Button>
             </div>
             {backtestTask?.progress && (
               <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-base/60">
@@ -2035,11 +2014,11 @@ export function StrategyBacktest() {
                 <Stat label={<MetricLabel label="夏普" metric="sharpe" />} value={pick('sharpe') != null ? Number(pick('sharpe')).toFixed(2) : '—'} />
                 <Stat label={<MetricLabel label="索提诺" metric="sortino" />} value={pick('sortino') != null ? Number(pick('sortino')).toFixed(2) : '—'} />
                 <Stat label={<MetricLabel label="最大回撤" metric="maxDrawdown" />} value={pick('max_drawdown') != null ? fmtPct(pick('max_drawdown') as number) : '—'}
-                  color="#34d399" />
+                  color={BEAR_COLOR} />
                 <Stat label={<MetricLabel label="蒙卡回撤(中位)" metric="mcDrawdownMedian" />} value={pick('mc_maxdd_p50') != null ? fmtPct(pick('mc_maxdd_p50') as number) : '—'}
-                  color="#34d399" />
+                  color={BEAR_COLOR} />
                 <Stat label={<MetricLabel label="蒙卡回撤(95%边界)" metric="mcDrawdown95" />} value={pick('mc_maxdd_p95') != null ? fmtPct(pick('mc_maxdd_p95') as number) : '—'}
-                  color="#34d399" />
+                  color={BEAR_COLOR} />
                 <Stat label={<MetricLabel label="胜率" metric="winRate" />} value={pick('win_rate') != null ? fmtPct(pick('win_rate') as number) : '—'} />
                 <Stat label={<MetricLabel label="交易数" metric="tradeCount" />} value={pick('n_trades') != null ? String(pick('n_trades')) : '—'} />
                 {result.stats.full_kind === 'candidate_execution' ? (
@@ -2093,83 +2072,85 @@ export function StrategyBacktest() {
               </div>
             )}
 
-            {/* Tab: 按日期 / 交易明细 / 选股分析 */}
-            {(result.trades.length > 0 || result.per_symbol_stats.length > 0) && (
+            <div className="text-[11px] text-muted">
+              run_id: {result.run_id}
+            </div>
+          </motion.div>
+        )}
+      </section>
+      </div>
+
+      {/* Tab 全宽区: 每日交易 / 交易明细 / 选股分析 — 占据配置栏下方空间, 一页看全 */}
+      {result && (result.trades.length > 0 || result.per_symbol_stats.length > 0) && (
+        <div className="border-t border-border px-3 py-3">
               <div className="rounded-card border border-border overflow-hidden">
-                <div className="flex items-center gap-1 border-b border-border px-4 pt-2">
-                  {(['daily', 'trades', 'picks'] as const).map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setResultTab(t)}
-                      className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
-                        resultTab === t
-                          ? 'border-accent text-accent'
-                          : 'border-transparent text-secondary hover:text-foreground'
-                      }`}
-                    >
-                      {t === 'daily'
-                        ? `每日交易 (${dailyTradeRows.length})`
-                        : t === 'trades'
-                          ? `交易明细 (${sortedTrades.length})`
-                          : `选股分析 (${result.per_symbol_stats.length})`}
-                    </button>
-                  ))}
+                <div className="border-b border-border px-3 py-2">
+                  <SegmentedControl
+                    size="xs"
+                    value={resultTab}
+                    onChange={v => setResultTab(v as 'daily' | 'trades' | 'picks')}
+                    data={[
+                      { value: 'daily', label: `每日交易 (${dailyTradeRows.length})` },
+                      { value: 'trades', label: `交易明细 (${sortedTrades.length})` },
+                      { value: 'picks', label: `选股分析 (${result.per_symbol_stats.length})` },
+                    ]}
+                  />
                 </div>
 
                 {resultTab === 'daily' && (
                   <div>
                     <div className="overflow-x-auto">
-                    <table className="w-full min-w-[960px] text-sm text-foreground">
-                      <thead className="bg-elevated">
-                        <tr className="text-left text-secondary">
-                          <th className="px-3 py-2.5 font-medium w-[8.5rem]">日期</th>
-                          <th className="px-3 py-2.5 font-medium">买入</th>
-                          <th className="px-3 py-2.5 font-medium">卖出</th>
-                          <th className="px-3 py-2.5 font-medium text-right w-[8rem]">当日收益</th>
-                          <th className="px-3 py-2.5 font-medium text-right w-[8rem]">累计收益</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <Table miw={860} horizontalSpacing={8} verticalSpacing={6} className="text-[13px] text-foreground">
+                      <Table.Thead className="bg-elevated">
+                        <Table.Tr className="text-left text-secondary">
+                          <Table.Th className="font-medium w-[6.5rem]">日期</Table.Th>
+                          <Table.Th className="font-medium">买入</Table.Th>
+                          <Table.Th className="font-medium">卖出</Table.Th>
+                          <Table.Th className="font-medium text-right w-[7rem]">当日收益</Table.Th>
+                          <Table.Th className="font-medium text-right w-[7rem]">累计收益</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
                         {visibleDailyRows.map(row => (
-                          <tr key={row.date} className="border-t border-border hover:bg-elevated/50 transition-colors">
-                            <td className="px-3 py-2.5 whitespace-nowrap">
+                          <Table.Tr key={row.date} className="border-t border-border hover:bg-elevated/50 transition-colors">
+                            <Table.Td className="whitespace-nowrap">
                               <div className="font-mono text-foreground">{row.date}</div>
-                              <div className="mt-0.5 text-[11px] text-muted">
+                              <div className="text-[10px] text-muted">
                                 买 {row.buys.length} / 卖 {row.sells.length}
                               </div>
-                            </td>
-                            <td className="px-3 py-2.5">
+                            </Table.Td>
+                            <Table.Td>
                               {row.buys.length === 0 ? (
                                 <span className="text-muted">—</span>
                               ) : (
-                                <div className="flex flex-wrap gap-1.5">
+                                <div className="flex flex-wrap gap-1">
                                   {row.buys.map((t, i) => (
                                     <DailyTradeChip key={`buy-${t.symbol}-${t.entry_date}-${t.exit_date}-${i}`} trade={t} side="buy" strategyName={result?.strategy_info?.name ?? selectedStrategyName} onClick={() => setSelectedTrade(t)} signalNames={signalNames} />
                                   ))}
                                 </div>
                               )}
-                            </td>
-                            <td className="px-3 py-2.5">
+                            </Table.Td>
+                            <Table.Td>
                               {row.sells.length === 0 ? (
                                 <span className="text-muted">—</span>
                               ) : (
-                                <div className="flex flex-wrap gap-1.5">
+                                <div className="flex flex-wrap gap-1">
                                   {row.sells.map((t, i) => (
                                     <DailyTradeChip key={`sell-${t.symbol}-${t.entry_date}-${t.exit_date}-${i}`} trade={t} side="sell" onClick={() => setSelectedTrade(t)} signalNames={signalNames} />
                                   ))}
                                 </div>
                               )}
-                            </td>
-                            <td className={`px-3 py-2.5 text-right num font-semibold whitespace-nowrap ${priceColorClass(row.realizedPnl)}`}>
+                            </Table.Td>
+                            <Table.Td className={`text-right num font-semibold whitespace-nowrap ${priceColorClass(row.realizedPnl)}`}>
                               {fmtSignedMoney(row.realizedPnl)}
-                            </td>
-                            <td className={`px-3 py-2.5 text-right num font-semibold whitespace-nowrap ${priceColorClass(row.cumulativePnl)}`}>
+                            </Table.Td>
+                            <Table.Td className={`text-right num font-semibold whitespace-nowrap ${priceColorClass(row.cumulativePnl)}`}>
                               {fmtSignedMoney(row.cumulativePnl)}
-                            </td>
-                          </tr>
+                            </Table.Td>
+                          </Table.Tr>
                         ))}
-                      </tbody>
-                    </table>
+                      </Table.Tbody>
+                    </Table>
                     </div>
                     {dailyTradeRows.length > 0 && (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2 text-xs text-muted">
@@ -2177,25 +2158,25 @@ export function StrategyBacktest() {
                           显示 {dailyStart + 1}-{dailyEnd} 天 / 共 {dailyTradeRows.length} 天，每页 10 天
                         </span>
                         <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
+                          <Button
+                            size="xs"
+                            variant="default"
                             onClick={() => setDailyPage(p => Math.max(0, p - 1))}
                             disabled={safeDailyPage <= 0}
-                            className="rounded-btn border border-border bg-surface px-2.5 py-1 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             上一页
-                          </button>
+                          </Button>
                           <span className="num text-secondary">
                             {safeDailyPage + 1} / {dailyPageCount}
                           </span>
-                          <button
-                            type="button"
+                          <Button
+                            size="xs"
+                            variant="default"
                             onClick={() => setDailyPage(p => Math.min(dailyPageCount - 1, p + 1))}
                             disabled={safeDailyPage >= dailyPageCount - 1}
-                            className="rounded-btn border border-border bg-surface px-2.5 py-1 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             下一页
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -2204,53 +2185,53 @@ export function StrategyBacktest() {
 
                 {resultTab === 'trades' && (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[960px] text-sm text-foreground">
-                      <thead className="bg-elevated">
-                        <tr className="text-left text-secondary">
-                          <th className="px-4 py-2.5 font-medium">标的</th>
-                          <th className="px-4 py-2.5 font-medium">买入</th>
-                          <th className="px-4 py-2.5 font-medium">卖出</th>
-                          <th className="px-4 py-2.5 font-medium text-right">仓位 / 手数</th>
-                          <th className="px-4 py-2.5 font-medium text-right">单票盈亏</th>
-                          <th className="px-4 py-2.5 font-medium text-right">持仓</th>
-                          <th className="px-4 py-2.5 font-medium">原因</th>
-                        </tr>
-                      </thead>
-                      <tbody>
+                    <Table miw={960} horizontalSpacing={16} verticalSpacing={10} className="text-sm text-foreground">
+                      <Table.Thead className="bg-elevated">
+                        <Table.Tr className="text-left text-secondary">
+                          <Table.Th className="font-medium">标的</Table.Th>
+                          <Table.Th className="font-medium">买入</Table.Th>
+                          <Table.Th className="font-medium">卖出</Table.Th>
+                          <Table.Th className="font-medium text-right">仓位 / 手数</Table.Th>
+                          <Table.Th className="font-medium text-right">单票盈亏</Table.Th>
+                          <Table.Th className="font-medium text-right">持仓</Table.Th>
+                          <Table.Th className="font-medium">原因</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
                         {visibleTrades.map((t: StrategyBacktestTrade, i: number) => (
-                          <tr key={`${t.symbol}-${t.entry_date}-${tradeStart + i}`} className="border-t border-border hover:bg-elevated/50 transition-colors group">
-                            <td className="px-4 py-2.5">
+                          <Table.Tr key={`${t.symbol}-${t.entry_date}-${tradeStart + i}`} className="border-t border-border hover:bg-elevated/50 transition-colors group">
+                            <Table.Td>
                               <div className="font-medium text-foreground group-hover:text-accent transition-colors">
                                 {t.name || t.symbol}
                               </div>
                               <div className="mt-0.5 font-mono text-[11px] text-muted">{t.symbol}</div>
-                            </td>
-                            <td className="px-4 py-2.5">
+                            </Table.Td>
+                            <Table.Td>
                               <TradeLegCell trade={t} side="buy" signalNames={signalNames} />
-                            </td>
-                            <td className="px-4 py-2.5">
+                            </Table.Td>
+                            <Table.Td>
                               <TradeLegCell trade={t} side="sell" signalNames={signalNames} />
-                            </td>
-                            <td className="px-4 py-2.5 text-right">
+                            </Table.Td>
+                            <Table.Td className="text-right">
                               <div className="num text-foreground">{fmtPct(t.position_pct, 2)}</div>
                               <div className="mt-0.5 text-[11px] text-muted">
                                 <span className="num">{fmtLots(t.lots)}</span> 手
                                 <span className="ml-1 num">{fmtShares(t.shares)}</span> 股
                               </div>
-                            </td>
-                            <td className={`px-4 py-2.5 text-right num ${priceColorClass(t.pnl_amount ?? t.pnl_pct)}`}>
+                            </Table.Td>
+                            <Table.Td className={`text-right num ${priceColorClass(t.pnl_amount ?? t.pnl_pct)}`}>
                               <div>{fmtSignedMoney(t.pnl_amount)}</div>
                               <div className="mt-0.5 text-[11px]">{fmtPct(t.pnl_pct)}</div>
-                            </td>
-                            <td className="px-4 py-2.5 text-right num text-secondary">
+                            </Table.Td>
+                            <Table.Td className="text-right num text-secondary">
                               <div>{t.duration} 天</div>
                               {!!t.blocked_exit_days && <div className="mt-0.5 text-[11px] text-amber-400">阻塞 {t.blocked_exit_days} 天</div>}
-                            </td>
-                            <td className="px-4 py-2.5"><ExitReasonBadge reason={t.exit_reason} signalId={t.exit_signal_id} signalNames={signalNames} /></td>
-                          </tr>
+                            </Table.Td>
+                            <Table.Td><ExitReasonBadge reason={t.exit_reason} signalId={t.exit_signal_id} signalNames={signalNames} /></Table.Td>
+                          </Table.Tr>
                         ))}
-                      </tbody>
-                    </table>
+                      </Table.Tbody>
+                    </Table>
                     {sortedTrades.length > 0 && (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-4 py-2 text-xs text-muted">
                         <span>
@@ -2259,39 +2240,38 @@ export function StrategyBacktest() {
                         <div className="flex flex-wrap items-center gap-2">
                           <label className="flex items-center gap-1.5">
                             <span>每页</span>
-                            <select
-                              value={tradePageSize}
-                              onChange={e => {
-                                setTradePageSize(Number(e.target.value))
+                            <Select
+                              size="xs"
+                              w={64}
+                              value={String(tradePageSize)}
+                              onChange={v => {
+                                setTradePageSize(Number(v ?? TRADE_PAGE_SIZE_OPTIONS[0]))
                                 setTradePage(0)
                               }}
-                              className="rounded-btn border border-border bg-surface px-2 py-1 text-xs text-secondary focus:outline-none focus:border-accent"
-                            >
-                              {TRADE_PAGE_SIZE_OPTIONS.map(size => (
-                                <option key={size} value={size}>{size}</option>
-                              ))}
-                            </select>
+                              allowDeselect={false}
+                              data={TRADE_PAGE_SIZE_OPTIONS.map(size => String(size))}
+                            />
                             <span>条</span>
                           </label>
-                          <button
-                            type="button"
+                          <Button
+                            size="xs"
+                            variant="default"
                             onClick={() => setTradePage(p => Math.max(0, p - 1))}
                             disabled={safeTradePage <= 0}
-                            className="rounded-btn border border-border bg-surface px-2.5 py-1 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             上一页
-                          </button>
+                          </Button>
                           <span className="num text-secondary">
                             {safeTradePage + 1} / {tradePageCount}
                           </span>
-                          <button
-                            type="button"
+                          <Button
+                            size="xs"
+                            variant="default"
                             onClick={() => setTradePage(p => Math.min(tradePageCount - 1, p + 1))}
                             disabled={safeTradePage >= tradePageCount - 1}
-                            className="rounded-btn border border-border bg-surface px-2.5 py-1 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             下一页
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -2299,64 +2279,59 @@ export function StrategyBacktest() {
                 )}
 
                 {resultTab === 'picks' && (
-                  <table className="w-full text-sm">
-                    <thead className="bg-elevated">
-                      <tr className="text-left text-secondary">
-                        <th className="px-4 py-2.5 font-medium">标的</th>
-                        <th className="px-4 py-2.5 font-medium text-right">选股次数</th>
-                        <th className="px-4 py-2.5 font-medium text-right">总收益</th>
-                        <th className="px-4 py-2.5 font-medium text-right">胜率</th>
-                        <th className="px-4 py-2.5 font-medium text-right">最佳</th>
-                        <th className="px-4 py-2.5 font-medium text-right">最差</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table horizontalSpacing={16} verticalSpacing={8} className="text-sm">
+                    <Table.Thead className="bg-elevated">
+                      <Table.Tr className="text-left text-secondary">
+                        <Table.Th className="font-medium">标的</Table.Th>
+                        <Table.Th className="font-medium text-right">选股次数</Table.Th>
+                        <Table.Th className="font-medium text-right">总收益</Table.Th>
+                        <Table.Th className="font-medium text-right">胜率</Table.Th>
+                        <Table.Th className="font-medium text-right">最佳</Table.Th>
+                        <Table.Th className="font-medium text-right">最差</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
                       {result.per_symbol_stats.map((r) => (
-                        <tr key={r.symbol} className="border-t border-border hover:bg-elevated/50 transition-colors group">
-                          <td className="px-4 py-2">
+                        <Table.Tr key={r.symbol} className="border-t border-border hover:bg-elevated/50 transition-colors group">
+                          <Table.Td>
                             <div className="font-medium text-foreground group-hover:text-accent transition-colors">
                               {symbolNames[r.symbol] || r.symbol}
                             </div>
                             <div className="mt-0.5 font-mono text-[11px] text-muted">{r.symbol}</div>
-                          </td>
-                          <td className="px-4 py-2 text-right num">{r.n_trades}</td>
-                          <td className={`px-4 py-2 text-right num ${priceColorClass(r.total_return)}`}>
+                          </Table.Td>
+                          <Table.Td className="text-right num">{r.n_trades}</Table.Td>
+                          <Table.Td className={`text-right num ${priceColorClass(r.total_return)}`}>
                             {fmtPct(r.total_return)}
-                          </td>
-                          <td className="px-4 py-2 text-right num">{fmtPct(r.win_rate)}</td>
-                          <td className="px-4 py-2 text-right num text-bull">{fmtPct(r.best)}</td>
-                          <td className="px-4 py-2 text-right num text-bear">{fmtPct(r.worst)}</td>
-                        </tr>
+                          </Table.Td>
+                          <Table.Td className="text-right num">{fmtPct(r.win_rate)}</Table.Td>
+                          <Table.Td className="text-right num text-bull">{fmtPct(r.best)}</Table.Td>
+                          <Table.Td className="text-right num text-bear">{fmtPct(r.worst)}</Table.Td>
+                        </Table.Tr>
                       ))}
-                    </tbody>
-                  </table>
+                    </Table.Tbody>
+                  </Table>
                 )}
               </div>
-            )}
+        </div>
+      )}
 
-            <div className="text-[11px] text-muted">
-              run_id: {result.run_id}
-            </div>
-          </motion.div>
-        )}
-      </section>
-
+      {/* 高级策略设置抽屉 (Mantine Drawer 接管遮罩/ESC/焦点; 768px = 原 max-w-3xl) */}
       {settingsOpen && detail && (
-        <>
-          <motion.button
-            type="button"
-            aria-label="关闭高级策略设置"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            onClick={() => setSettingsOpen(false)}
-            className="fixed inset-0 z-50 bg-black/45 backdrop-blur-[1px]"
-          />
-          <motion.aside
-            initial={{ x: 32, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="fixed inset-y-0 right-0 z-[60] flex w-full max-w-3xl flex-col border-l border-border bg-base shadow-2xl"
-          >
+        <Drawer
+          opened
+          onClose={() => setSettingsOpen(false)}
+          position="right"
+          size={768}
+          withCloseButton={false}
+          padding={0}
+          transitionProps={{ duration: 200 }}
+          overlayProps={{ backgroundOpacity: 0.45, blur: 1 }}
+          classNames={{
+            content: 'flex flex-col border-l border-border bg-base shadow-2xl',
+            body: 'flex min-h-0 flex-1 flex-col',
+          }}
+          styles={{ content: { maxWidth: '100vw' } }}
+        >
             <div className="border-b border-border px-4 py-3">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
@@ -2369,28 +2344,23 @@ export function StrategyBacktest() {
                   <div className="mt-1 truncate text-xs text-secondary">{detail.name}</div>
                   <div className="mt-0.5 text-[10px] leading-4 text-muted">{advancedSummary}</div>
                 </div>
-                <button
-                  type="button"
+                <ActionIcon
+                  variant="default"
+                  size="md"
                   onClick={() => setSettingsOpen(false)}
-                  className="rounded-btn border border-border bg-surface p-1.5 text-muted transition-colors hover:border-accent/40 hover:text-foreground"
+                  aria-label="关闭高级策略设置"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </ActionIcon>
               </div>
-              <div className="mt-3 flex gap-1 overflow-x-auto">
-                {visibleAdvancedTabs.map(tab => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setSettingsTab(tab.id)}
-                    className={`shrink-0 rounded-btn border px-3 py-1.5 text-xs transition-colors ${settingsTab === tab.id
-                      ? 'border-accent/50 bg-accent/10 text-accent'
-                      : 'border-border bg-surface text-secondary hover:border-accent/40 hover:text-foreground'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
+              <div className="mt-3">
+                <SegmentedControl
+                  fullWidth
+                  size="xs"
+                  value={settingsTab}
+                  onChange={v => setSettingsTab(v as AdvancedSettingsTab)}
+                  data={visibleAdvancedTabs.map(tab => ({ value: tab.id, label: tab.label }))}
+                />
               </div>
             </div>
 
@@ -2408,19 +2378,15 @@ export function StrategyBacktest() {
                 <ConfigSection title="回测范围">
                   <div className="flex items-center gap-2">
                     <span className="text-[11px] text-muted">资产类型</span>
-                    <div className="inline-flex h-8 rounded-btn border border-border overflow-hidden">
-                      {(['stock', 'etf'] as const).map(t => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => { setAssetType(t); setSelectedStrategy(null); setSymbols('') }}
-                          className={`h-full px-3 text-xs font-medium transition-colors cursor-pointer
-                            ${assetType === t ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
-                        >
-                          {t === 'stock' ? '股票' : 'ETF'}
-                        </button>
-                      ))}
-                    </div>
+                    <SegmentedControl
+                      size="xs"
+                      value={assetType}
+                      onChange={v => { setAssetType(v as 'stock' | 'etf'); setSelectedStrategy(null); setSymbols('') }}
+                      data={[
+                        { value: 'stock', label: '股票' },
+                        { value: 'etf', label: 'ETF' },
+                      ]}
+                    />
                     <span className="text-[11px] text-muted/70">ETF 仅技术类策略,读 ETF enriched</span>
                   </div>
                   <StockPoolPicker value={symbols} onChange={setSymbols} assetType={assetType} />
@@ -2449,14 +2415,12 @@ export function StrategyBacktest() {
 
               {settingsTab === 'filter' && (
                 <ConfigSection title="基础过滤" hint="用于候选池">
-                  <label className="flex items-center gap-2 text-xs text-secondary">
-                    <input
-                      type="checkbox"
-                      checked={basicFilter.enabled !== false}
-                      onChange={e => updateBasicFilter('enabled', e.target.checked)}
-                    />
-                    启用基础过滤
-                  </label>
+                  <Checkbox
+                    size="xs"
+                    checked={basicFilter.enabled !== false}
+                    onChange={e => updateBasicFilter('enabled', e.currentTarget.checked)}
+                    label="启用基础过滤"
+                  />
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {BASIC_FILTER_FIELDS.map(field => {
                       const scale = field.scale ?? 1
@@ -2469,20 +2433,17 @@ export function StrategyBacktest() {
                             min={0}
                             step={field.unit === '%' ? 0.1 : 0.01}
                             onChange={n => updateBasicFilter(field.key, n == null ? null : n * scale)}
-                            className={INPUT_CLS}
                           />
                         </label>
                       )
                     })}
                   </div>
-                  <label className="flex items-center gap-2 text-xs text-secondary">
-                    <input
-                      type="checkbox"
-                      checked={!!basicFilter.exclude_st}
-                      onChange={e => updateBasicFilter('exclude_st', e.target.checked)}
-                    />
-                    排除 ST / 退市
-                  </label>
+                  <Checkbox
+                    size="xs"
+                    checked={!!basicFilter.exclude_st}
+                    onChange={e => updateBasicFilter('exclude_st', e.currentTarget.checked)}
+                    label="排除 ST / 退市"
+                  />
                   <div className="flex flex-wrap gap-1.5">
                     {BOARD_OPTIONS.map(board => {
                       const boards = Array.isArray(basicFilter.boards) ? basicFilter.boards : []
@@ -2556,21 +2517,22 @@ export function StrategyBacktest() {
                           </div>
                           <div className="flex items-center gap-2">
                             {editingScoring && (
-                              <button
-                                type="button"
+                              <Button
+                                size="compact-xs"
+                                variant="default"
                                 onClick={cancelScoringEdit}
-                                className="rounded-btn border border-border bg-base px-2.5 py-1 text-[11px] text-secondary transition-colors hover:border-accent/40 hover:text-foreground"
                               >
                                 取消
-                              </button>
+                              </Button>
                             )}
-                            <button
-                              type="button"
+                            <Button
+                              size="compact-xs"
+                              variant="light"
+                              color="yellow"
                               onClick={editingScoring ? saveScoringDraft : startScoringEdit}
-                              className="rounded-btn border border-amber-400/40 bg-amber-400/10 px-2.5 py-1 text-[11px] text-amber-400 transition-colors hover:bg-amber-400/15"
                             >
                               {editingScoring ? '保存归权' : '调整权重'}
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -2590,7 +2552,6 @@ export function StrategyBacktest() {
                           value={overrides.score_min == null ? null : Number(overrides.score_min)}
                           min={0} max={100} step={1} placeholder="不限"
                           onChange={n => updateOverride('score_min', n)}
-                          className={INPUT_CLS}
                         />
                       </label>
                       <label className="block">
@@ -2599,7 +2560,6 @@ export function StrategyBacktest() {
                           value={overrides.score_max == null ? null : Number(overrides.score_max)}
                           min={0} max={100} step={1} placeholder="不限"
                           onChange={n => updateOverride('score_max', n)}
-                          className={INPUT_CLS}
                         />
                       </label>
                     </div>
@@ -2617,7 +2577,6 @@ export function StrategyBacktest() {
                         value={numOrNull(stopLossPct)}
                         min={0} max={99} step={0.5}
                         onChange={n => updateOverride('stop_loss', n == null ? null : -Math.abs(n) / 100)}
-                        className={INPUT_CLS}
                       />
                     </label>
                     <label className="block">
@@ -2626,7 +2585,6 @@ export function StrategyBacktest() {
                         value={numOrNull(takeProfitPct)}
                         min={1} max={500} step={0.5}
                         onChange={n => updateOverride('take_profit', n == null ? null : Math.abs(n) / 100)}
-                        className={INPUT_CLS}
                       />
                     </label>
                     <label className="block">
@@ -2635,7 +2593,6 @@ export function StrategyBacktest() {
                         value={numOrNull(trailingStopPct)}
                         min={0.5} max={50} step={0.5}
                         onChange={n => updateOverride('trailing_stop', n == null ? null : -Math.abs(n) / 100)}
-                        className={INPUT_CLS}
                       />
                     </label>
                     <label className="block">
@@ -2652,7 +2609,6 @@ export function StrategyBacktest() {
                             updateOverride('trailing_take_profit_drawdown', next)
                           }
                         }}
-                        className={INPUT_CLS}
                       />
                     </label>
                     <label className="block">
@@ -2661,7 +2617,6 @@ export function StrategyBacktest() {
                         value={numOrNull(trailingTakeProfitDrawdownPct)}
                         min={0.5} max={50} step={0.5}
                         onChange={n => updateOverride('trailing_take_profit_drawdown', n == null ? null : Math.abs(n) / 100)}
-                        className={INPUT_CLS}
                       />
                     </label>
                     <label className="block">
@@ -2670,7 +2625,6 @@ export function StrategyBacktest() {
                         value={numOrNull(maxHoldDaysValue)}
                         min={1} step={1}
                         onChange={n => updateOverride('max_hold_days', n == null ? null : Math.round(n))}
-                        className={INPUT_CLS}
                       />
                     </label>
                   </div>
@@ -2679,34 +2633,35 @@ export function StrategyBacktest() {
             </div>
 
             <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-              <button
-                type="button"
+              <Button
+                size="xs"
+                variant="default"
                 onClick={() => resetConfigFromDetail(detail)}
-                className="rounded-btn border border-border bg-surface px-3 py-1.5 text-xs text-secondary transition-colors hover:border-accent/40 hover:text-accent"
               >
                 恢复默认
-              </button>
+              </Button>
               {/* 应用到策略: 把当前配置持久化为策略定义(仅用户自有策略可改) */}
               {(detail.source === 'custom' || detail.source === 'ai' || detail.source === 'composite') && (
-                <button
-                  type="button"
+                <Button
+                  size="xs"
+                  variant="light"
+                  color="teal"
+                  className="ml-auto"
                   onClick={handleApplyToStrategy}
                   disabled={applying}
-                  className="ml-auto rounded-btn border border-emerald-500/30 bg-emerald-500/8 px-3 py-1.5 text-xs font-medium text-emerald-500 transition-colors hover:bg-emerald-500/15 disabled:opacity-50"
+                  loading={applying}
                 >
                   {applying ? '应用中…' : '应用到策略'}
-                </button>
+                </Button>
               )}
-              <button
-                type="button"
+              <Button
+                size="xs"
                 onClick={() => setSettingsOpen(false)}
-                className="rounded-btn bg-accent px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90"
               >
                 完成
-              </button>
+              </Button>
             </div>
-          </motion.aside>
-        </>
+        </Drawer>
       )}
 
       <TradeKlineModal trade={selectedTrade} onClose={() => setSelectedTrade(null)} />

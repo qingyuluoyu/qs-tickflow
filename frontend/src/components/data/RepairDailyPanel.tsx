@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Badge, Button } from '@mantine/core'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { DatePicker } from '@/components/DatePicker'
@@ -82,25 +82,20 @@ export function RepairDailyPanel({ caps, isRunning, latestDate, onStart }: {
         {' → '}<span className="font-mono text-secondary">{today}</span>(今天) 的 A股日K · 除权 · 指数并重算指标
       </div>
 
-      <button
+      <Button
+        fullWidth
+        size="xs"
         onClick={() => repair.mutate()}
         disabled={!canSubmit}
-        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium hover:bg-accent disabled:opacity-40 disabled:pointer-events-none transition-colors duration-150"
+        loading={repair.isPending}
       >
-        {repair.isPending ? (
-          <>
-            <Loader2 className="h-3 w-3 animate-spin" />
-            请求中…
-          </>
-        ) : (
-          <>开始修正</>
-        )}
-      </button>
+        {repair.isPending ? '请求中…' : '开始修正'}
+      </Button>
 
       {!hasBatchCap && (
-        <span className="block text-[10px] text-warning/80 bg-warning/8 rounded px-1.5 py-px font-medium text-center">
+        <Badge size="xs" variant="light" fullWidth className="h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-warning/8 text-warning/80">
           需 Pro+ 权限
-        </span>
+        </Badge>
       )}
     </div>
   )

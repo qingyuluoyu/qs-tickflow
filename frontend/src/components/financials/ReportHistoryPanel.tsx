@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
-import { History, Trash2, FileText, Clock, Sparkles, Loader2 } from 'lucide-react'
+import { ActionIcon, Badge, Loader, Tooltip } from '@mantine/core'
+import { History, Trash2, FileText, Clock, Sparkles } from 'lucide-react'
 import { useHistoryReports, openHistoryReport, deleteReport, loadHistory } from '@/lib/aiReportStore'
 import { useActiveTasks } from '@/lib/aiReportStore'
 
@@ -23,8 +24,8 @@ export function ReportHistoryPanel() {
 
   if (!loaded) {
     return (
-      <div className="rounded-card border border-border/40 bg-surface px-4 py-6 text-center">
-        <Loader2 />
+      <div className="rounded-card border border-border/40 bg-surface px-4 py-6 flex items-center justify-center">
+        <Loader size="sm" color="gray" />
       </div>
     )
   }
@@ -78,9 +79,9 @@ export function ReportHistoryPanel() {
                   <span className="text-xs font-medium text-foreground truncate">{r.name || r.symbol}</span>
                   <span className="text-[10px] font-mono text-muted shrink-0">{r.symbol}</span>
                   {r.focus && (
-                    <span className="hidden sm:inline-block px-1.5 py-px rounded bg-purple-400/10 text-purple-300 text-[9px] shrink-0">
+                    <Badge variant="light" color="grape" size="xs" radius="sm" visibleFrom="sm" className="shrink-0">
                       {r.focus}
-                    </span>
+                    </Badge>
                   )}
                 </div>
                 {/* 摘要 */}
@@ -96,13 +97,19 @@ export function ReportHistoryPanel() {
               </div>
 
               {/* 删除按钮 */}
-              <button
-                onClick={e => { e.stopPropagation(); deleteReport(r.id) }}
-                className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-danger/10 text-muted hover:text-danger transition-all shrink-0"
-                title="删除"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip label="删除" withArrow position="top">
+                <ActionIcon
+                  variant="subtle"
+                  color="red"
+                  size="md"
+                  radius="md"
+                  aria-label="删除"
+                  onClick={e => { e.stopPropagation(); deleteReport(r.id) }}
+                  className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </ActionIcon>
+              </Tooltip>
             </div>
           )
         })}

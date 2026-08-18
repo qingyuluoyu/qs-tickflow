@@ -9,19 +9,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   BookOpenCheck, RefreshCw, Sparkles, Trash2, History, ChevronRight, AlertTriangle,
-  Database, Wand2, Copy, Download, Clock, X, Check,
+  Database, Wand2, Copy, Download, Clock, X,
 } from 'lucide-react'
+import { ActionIcon, Button, Checkbox, Chip, NumberInput, Switch, TextInput, Tooltip } from '@mantine/core'
 
 import { api, type OverviewMarket, type AiReviewReport } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { fmtBigNum } from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
+import { Modal } from '@/components/Modal'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { usePreferences } from '@/lib/useSharedQueries'
 import { useReviewState } from '@/lib/useReviewStore'
 import {
@@ -66,13 +69,26 @@ function fmtArchivedAt(iso: string): string {
 
 // Phase 类型复用 store 的定义(单一来源)
 
+// 可勾选的数据板块 —— 与后端 market_recap.ALL_SECTIONS 一一对应,
+// 生成复盘时提示词只保留勾选的板块。
+const REVIEW_SECTIONS: { key: string; label: string }[] = [
+  { key: 'indices', label: '主要指数' },
+  { key: 'breadth', label: '盘面数据' },
+  { key: 'emotion', label: '市场情绪' },
+  { key: 'concept', label: '概念板块' },
+  { key: 'industry', label: '行业板块' },
+  { key: 'news', label: '近期新闻' },
+]
+
 export function Review() {
   const qc = useQueryClient()
   // 复盘日期:当前固定取最新交易日(后续如需日期选择可改回 useState)
   const asOf: string | undefined = undefined
   const [focus, setFocus] = useState('')
+  // 数据板块勾选:默认全选,生成时提示词只截取选中的板块
+  const [sections, setSections] = useState<string[]>(REVIEW_SECTIONS.map(s => s.key))
   // 生成状态走全局 store:切走页面流不中断,回来可恢复
-  const { phase, content, error, meta } = useReviewState()
+  const { phase, content, reasoning, error, meta, complete, truncated, continuing } = useReviewState()
   const [viewing, setViewing] = useState<AiReviewReport | null>(null)  // 查看历史报告
   const reportEndRef = useRef<HTMLDivElement>(null)
 
@@ -157,7 +173,7 @@ export function Review() {
   }, [phase, viewing])
 
   // 自动归档(生成完成后台静默保存)—— 通过回调注入 store,避免 store 直接依赖 qc/marketQuery
-  const onGenerationDone = useCallback(async (fullContent: string, doneMeta: { as_of?: string; summary?: string; emotion_score?: number; emotion_label?: string } | null) => {
+  const onGenerationDone = useCallback(async (fullContent: string, doneMeta: { as_of?: string; summary?: string; emotion_score?: number; emotion_label?: string } | null, doneReasoning: string) => {
     const reportAsOf = doneMeta?.as_of ?? marketQuery.data?.as_of ?? asOf ?? new Date().toISOString().slice(0, 10)
     try {
       await api.reviewReportSave({
@@ -167,6 +183,9 @@ export function Review() {
         summary: doneMeta?.summary,
         emotion_score: doneMeta?.emotion_score ?? null,
         emotion_label: doneMeta?.emotion_label ?? '',
+        reasoning: doneReasoning,
+        complete: true,
+        truncated: false,
       })
       qc.invalidateQueries({ queryKey: QK.reviewReports })
     } catch { /* 静默 */ }
@@ -175,12 +194,16 @@ export function Review() {
   // 主流程:生成复盘(委托给全局 store,流在后台独立运行)
   const generate = useCallback(() => {
     if (isReviewGenerating()) return
+    if (sections.length === 0) {
+      toast('请至少勾选一个数据板块', 'error')
+      return
+    }
     setViewing(null)
     resetReview()
-    startReviewGeneration(asOf, focus, (full, doneMeta) => {
-      onGenerationDone(full, doneMeta).catch(() => { /* 静默 */ })
-    })
-  }, [asOf, focus, onGenerationDone])
+    startReviewGeneration(asOf, focus, (full, doneMeta, doneReasoning) => {
+      onGenerationDone(full, doneMeta, doneReasoning).catch(() => { /* 静默 */ })
+    }, sections)
+  }, [asOf, focus, sections, onGenerationDone])
 
   // 复制全文到剪贴板(viewing 优先,与主区域显示一致)
   const copyContent = useCallback(async () => {
@@ -229,48 +252,50 @@ export function Review() {
         subtitle={`${displayDate}${data?.emotion ? ` · 情绪 ${data.emotion.label}` : ''}`}
         right={
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => { marketQuery.refetch() }}
-              disabled={marketQuery.isFetching}
-              className="inline-flex items-center gap-1 rounded-btn border border-border bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground disabled:opacity-50"
-              title="刷新市场数据"
+            <Tooltip label="刷新市场数据" position="bottom">
+              <Button
+                size="compact-xs"
+                variant="default"
+                disabled={marketQuery.isFetching}
+                onClick={() => { marketQuery.refetch() }}
+                leftSection={<RefreshCw className={cn('h-3 w-3', marketQuery.isFetching && 'animate-spin')} />}
+                className="border-border bg-elevated font-normal text-secondary hover:text-foreground"
+                classNames={{ label: 'text-[11px]' }}
+              >
+                刷新
+              </Button>
+            </Tooltip>
+            <Tooltip
+              label={reviewSched.enabled ? `定时复盘已开启 · 每日 ${String(reviewSched.hour).padStart(2,'0')}:${String(reviewSched.minute).padStart(2,'0')}` : '定时复盘'}
+              position="bottom"
             >
-              <RefreshCw className={cn('h-3 w-3', marketQuery.isFetching && 'animate-spin')} />刷新
-            </button>
-            <button
-              onClick={openSchedule}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-btn border px-2 py-1 text-[11px] transition-colors',
-                reviewSched.enabled
-                  ? 'border-accent/40 bg-accent/10 text-accent hover:bg-accent/20'
-                  : 'border-border bg-elevated text-secondary hover:text-foreground',
-              )}
-              title={reviewSched.enabled ? `定时复盘已开启 · 每日 ${String(reviewSched.hour).padStart(2,'0')}:${String(reviewSched.minute).padStart(2,'0')}` : '定时复盘'}
-            >
-              <Clock className="h-3 w-3" />定时
-            </button>
-            <button
+              <Button
+                size="compact-xs"
+                variant={reviewSched.enabled ? 'light' : 'default'}
+                onClick={openSchedule}
+                leftSection={<Clock className="h-3 w-3" />}
+                className={cn('font-normal', !reviewSched.enabled && 'border-border bg-elevated text-secondary hover:text-foreground')}
+                classNames={{ label: 'text-[11px]' }}
+              >
+                定时
+              </Button>
+            </Tooltip>
+            <Button
+              size="xs"
+              color="accent"
+              loading={isGenerating}
               onClick={generate}
-              disabled={isGenerating}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-btn px-3.5 py-1.5 text-xs font-medium transition-all',
-                isGenerating
-                  ? 'border border-accent/40 bg-accent/10 text-accent cursor-not-allowed'
-                  : 'bg-accent text-white shadow-sm shadow-accent/25 hover:bg-accent/90 hover:shadow hover:shadow-accent/30',
-              )}
+              leftSection={isGenerating ? undefined : <Sparkles className="h-3.5 w-3.5" />}
+              className="shadow-sm shadow-accent/25"
             >
-              {isGenerating ? (
-                <><RefreshCw className="h-3.5 w-3.5 animate-spin" />生成中…</>
-              ) : (
-                <><Sparkles className="h-3.5 w-3.5" />生成复盘</>
-              )}
-            </button>
+              {isGenerating ? '生成中…' : '生成复盘'}
+            </Button>
           </div>
         }
       />
 
-      <div className="min-h-full bg-[radial-gradient(circle_at_15%_-5%,rgba(59,130,246,0.10),transparent_30%),radial-gradient(circle_at_85%_5%,rgba(139,92,246,0.08),transparent_30%)] px-4 py-4 sm:px-6">
-        <div className="mx-auto max-w-[1280px] space-y-3">
+      <div className="min-h-full bg-[radial-gradient(circle_at_15%_-5%,rgba(59,130,246,0.10),transparent_30%),radial-gradient(circle_at_85%_5%,rgba(139,92,246,0.08),transparent_30%)]">
+        <PageContainer narrow className="space-y-3">
 
           {marketQuery.isLoading && !data ? (
             <div className="flex h-40 items-center justify-center">
@@ -289,13 +314,17 @@ export function Review() {
                 <div className="text-sm font-medium text-foreground">暂无市场数据</div>
                 <p className="mt-1 text-xs text-muted">复盘需要日 K 与指数,请先前往「数据」页同步</p>
               </div>
-              <Link
+              <Button
+                component={Link}
                 to="/data"
-                className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-4 py-2 text-xs font-medium text-white shadow-sm transition-all hover:bg-accent/90 hover:shadow"
+                size="xs"
+                color="accent"
+                leftSection={<Database className="h-3.5 w-3.5" />}
+                rightSection={<ChevronRight className="h-3.5 w-3.5" />}
+                className="shadow-sm shadow-accent/25"
               >
-                <Database className="h-3.5 w-3.5" />前往数据页同步
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Link>
+                前往数据页同步
+              </Button>
             </div>
           ) : (
             <>
@@ -303,25 +332,44 @@ export function Review() {
               <MarketSummaryBar data={data} />
 
               {/* ===== 关注点输入 ===== */}
-              <div className="flex items-center gap-2 rounded-card border border-border bg-surface/80 px-3.5 py-2.5 transition-colors focus-within:border-accent/40">
-                <Wand2 className="h-3.5 w-3.5 shrink-0 text-accent" />
-                <input
-                  value={focus}
-                  onChange={(e) => setFocus(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !isGenerating) generate() }}
-                  placeholder="可选:补充复盘关注点,如「半导体板块持续性如何」「量能是否持续」"
-                  className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted/60"
-                />
-                {focus && (
-                  <button onClick={() => setFocus('')} className="text-xs text-muted transition-colors hover:text-foreground">清除</button>
-                )}
+              <TextInput
+                value={focus}
+                onChange={(e) => setFocus(e.currentTarget.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !isGenerating) generate() }}
+                placeholder="可选:补充复盘关注点,如「半导体板块持续性如何」「量能是否持续」"
+                size="sm"
+                leftSection={<Wand2 className="h-3.5 w-3.5 text-accent" />}
+                rightSection={focus ? (
+                  <Button size="compact-xs" variant="subtle" color="gray" onClick={() => setFocus('')}>清除</Button>
+                ) : null}
+                rightSectionPointerEvents="all"
+                classNames={{ input: 'rounded-card border-border bg-surface/80 text-foreground placeholder:text-muted/60' }}
+              />
+
+              {/* ===== 数据板块勾选:提示词只截取选中的板块 ===== */}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card border border-border bg-surface/80 px-3.5 py-2">
+                <span className="text-[11px] text-muted">数据范围</span>
+                <Chip.Group multiple value={sections} onChange={(v) => setSections(v)}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {REVIEW_SECTIONS.map(s => (
+                      <Chip key={s.key} value={s.key} size="xs" variant="outline" disabled={isGenerating}>
+                        {s.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </Chip.Group>
+                <span className="ml-auto text-[10px] text-muted/70">提示词仅包含勾选板块</span>
               </div>
 
-              {/* ===== 报告 + 历史 双栏(报告为主体)===== */}
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1fr_18rem]">
+              {/* ===== 报告 + 历史 双栏(报告为主体,窄屏单列堆叠)===== */}
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
                 <ReportPanel
                   phase={phase}
                   content={displayContent}
+                  reasoning={viewing?.reasoning ?? reasoning}
+                  complete={viewing ? viewing.complete !== false : complete}
+                  truncated={viewing ? viewing.truncated === true : truncated}
+                  continuing={continuing}
                   error={error}
                   isGenerating={isGenerating}
                   viewing={viewing}
@@ -342,37 +390,31 @@ export function Review() {
               </div>
             </>
           )}
-        </div>
+        </PageContainer>
       </div>
 
-      {/* ===== 定时复盘设置弹窗 ===== */}
-      <AnimatePresence>
-        {showSchedule && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => setShowSchedule(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.96, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.96, opacity: 0 }}
-              className="w-full max-w-md rounded-card border border-border bg-surface p-5 shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
+      {/* ===== 定时复盘设置弹窗 (Mantine Modal) ===== */}
+      {showSchedule && (
+        <Modal
+          onClose={() => setShowSchedule(false)}
+          ariaLabel="定时复盘"
+          panelClassName="w-full max-w-md rounded-card border border-border bg-surface p-5 shadow-2xl"
+          overlayClassName="bg-black/50"
+        >
               <div className="mb-4 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-accent" />
                   <h3 className="text-sm font-medium text-foreground">定时复盘</h3>
                 </div>
-                <button
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="sm"
                   onClick={() => setShowSchedule(false)}
-                  className="rounded p-1 text-muted transition-colors hover:bg-elevated hover:text-foreground"
+                  aria-label="关闭"
                 >
                   <X className="h-4 w-4" />
-                </button>
+                </ActionIcon>
               </div>
 
               <p className="mb-4 text-[11px] leading-relaxed text-muted">
@@ -383,34 +425,34 @@ export function Review() {
               {/* 开关(只改本地草稿, 不提交) */}
               <label className="flex items-center justify-between rounded-btn bg-elevated/40 px-3 py-2.5">
                 <span className="text-xs text-foreground">启用定时复盘</span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={draft.enabled}
-                  onClick={() => setDraft(d => ({ ...d, enabled: !d.enabled }))}
-                  className={cn(
-                    'relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors',
-                    draft.enabled ? 'bg-accent' : 'bg-border',
-                  )}
-                >
-                  <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', draft.enabled ? 'translate-x-[18px]' : 'translate-x-1')} />
-                </button>
+                <Switch
+                  size="sm"
+                  checked={draft.enabled}
+                  onChange={(e) => setDraft(d => ({ ...d, enabled: e.currentTarget.checked }))}
+                  aria-label="启用定时复盘"
+                />
               </label>
 
               {/* 时间设置(仅开启时可编辑, 本地草稿) */}
               {draft.enabled && (
                 <div className="mt-3 flex items-center gap-2 rounded-btn bg-elevated/40 px-3 py-2.5">
                   <span className="text-[11px] text-muted">每日</span>
-                  <input
-                    type="number" min={0} max={23} value={draft.hour}
-                    onChange={e => setDraft(d => ({ ...d, hour: Math.max(0, Math.min(23, Number(e.target.value))) }))}
-                    className="w-12 px-1.5 py-1 rounded-btn bg-base border border-border text-xs font-mono text-foreground text-center focus:outline-none focus:border-accent/50"
+                  <NumberInput
+                    size="xs" w={52} hideControls
+                    min={0} max={23} clampBehavior="strict"
+                    value={draft.hour}
+                    onChange={(v) => setDraft(d => ({ ...d, hour: Math.max(0, Math.min(23, Number(v) || 0)) }))}
+                    aria-label="小时"
+                    classNames={{ input: 'rounded-btn border-border bg-base text-center font-mono text-xs text-foreground' }}
                   />
                   <span className="text-xs text-muted">:</span>
-                  <input
-                    type="number" min={0} max={59} value={draft.minute}
-                    onChange={e => setDraft(d => ({ ...d, minute: Math.max(0, Math.min(59, Number(e.target.value))) }))}
-                    className="w-12 px-1.5 py-1 rounded-btn bg-base border border-border text-xs font-mono text-foreground text-center focus:outline-none focus:border-accent/50"
+                  <NumberInput
+                    size="xs" w={52} hideControls
+                    min={0} max={59} clampBehavior="strict"
+                    value={draft.minute}
+                    onChange={(v) => setDraft(d => ({ ...d, minute: Math.max(0, Math.min(59, Number(v) || 0)) }))}
+                    aria-label="分钟"
+                    classNames={{ input: 'rounded-btn border-border bg-base text-center font-mono text-xs text-foreground' }}
                   />
                   <span className="text-[10px] text-muted/70">不早于 15:00 · 工作日执行</span>
                 </div>
@@ -424,47 +466,49 @@ export function Review() {
                 </div>
                 <div className="mt-2 space-y-1.5">
                   {/* 飞书(可用, 多选) */}
-                  <button
-                    type="button"
-                    disabled={pushMut.isPending}
-                    onClick={() => togglePushChannel('feishu')}
+                  <label
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-btn border px-2.5 py-1.5 text-left transition-colors disabled:opacity-50',
+                      'flex w-full cursor-pointer items-center gap-2 rounded-btn border px-2.5 py-1.5 transition-colors',
                       reviewPushChannels.includes('feishu')
                         ? 'border-accent/40 bg-accent/10'
                         : 'border-border/60 bg-base/40 hover:bg-base/60',
+                      pushMut.isPending && 'pointer-events-none opacity-50',
                     )}
                   >
-                    <span className={cn('flex h-3 w-3 shrink-0 items-center justify-center rounded border', reviewPushChannels.includes('feishu') ? 'border-accent bg-accent text-white' : 'border-border')}>
-                      {reviewPushChannels.includes('feishu') && <Check className="h-2.5 w-2.5" />}
-                    </span>
+                    <Checkbox
+                      size="xs"
+                      checked={reviewPushChannels.includes('feishu')}
+                      onChange={() => togglePushChannel('feishu')}
+                      disabled={pushMut.isPending}
+                    />
                     <span className="text-[11px] text-foreground">飞书</span>
                     <span className="text-[9px] text-muted">群推送 Webhook</span>
                     <span className={cn('ml-auto text-[9px]', feishuConfigured ? 'text-emerald-500' : 'text-warning')}>
                       {feishuConfigured ? '已配置' : '未配置'}
                     </span>
-                  </button>
+                  </label>
                   {/* 企业微信(可用, 多选) */}
-                  <button
-                    type="button"
-                    disabled={pushMut.isPending}
-                    onClick={() => togglePushChannel('wecom')}
+                  <label
                     className={cn(
-                      'flex w-full items-center gap-2 rounded-btn border px-2.5 py-1.5 text-left transition-colors disabled:opacity-50',
+                      'flex w-full cursor-pointer items-center gap-2 rounded-btn border px-2.5 py-1.5 transition-colors',
                       reviewPushChannels.includes('wecom')
                         ? 'border-accent/40 bg-accent/10'
                         : 'border-border/60 bg-base/40 hover:bg-base/60',
+                      pushMut.isPending && 'pointer-events-none opacity-50',
                     )}
                   >
-                    <span className={cn('flex h-3 w-3 shrink-0 items-center justify-center rounded border', reviewPushChannels.includes('wecom') ? 'border-accent bg-accent text-white' : 'border-border')}>
-                      {reviewPushChannels.includes('wecom') && <Check className="h-2.5 w-2.5" />}
-                    </span>
+                    <Checkbox
+                      size="xs"
+                      checked={reviewPushChannels.includes('wecom')}
+                      onChange={() => togglePushChannel('wecom')}
+                      disabled={pushMut.isPending}
+                    />
                     <span className="text-[11px] text-foreground">企业微信</span>
                     <span className="text-[9px] text-muted">群推送 Webhook</span>
                     <span className={cn('ml-auto text-[9px]', wecomConfigured ? 'text-emerald-500' : 'text-warning')}>
                       {wecomConfigured ? '已配置' : '未配置'}
                     </span>
-                  </button>
+                  </label>
                 </div>
                 <p className="mt-1.5 text-[10px] leading-relaxed text-muted/70">
                   手动或定时生成的复盘都会推送完整报告。复用「设置 → 实时监控」的 Webhook 配置。
@@ -484,24 +528,25 @@ export function Review() {
 
               {/* 操作区: 取消 + 保存(统一提交开关+时间) */}
               <div className="mt-5 flex justify-end gap-2">
-                <button
+                <Button
+                  size="xs"
+                  variant="default"
                   onClick={() => setShowSchedule(false)}
-                  className="rounded-btn bg-elevated px-4 py-1.5 text-xs text-secondary transition-colors hover:text-foreground"
+                  className="border-border bg-elevated font-normal text-secondary hover:text-foreground"
                 >
                   取消
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
+                  color="accent"
+                  loading={reviewMut.isPending}
                   onClick={() => reviewMut.mutate({ enabled: draft.enabled, hour: draft.hour, minute: draft.minute })}
-                  disabled={reviewMut.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/90 disabled:opacity-50"
                 >
-                  {reviewMut.isPending ? '保存中…' : '保存'}
-                </button>
+                  保存
+                </Button>
               </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </Modal>
+      )}
     </>
   )
 }
@@ -603,18 +648,30 @@ function MarketSummaryBar({ data }: { data: OverviewMarket }) {
 // 报告面板(流式 + 错误 + 历史/完成态)
 // ================================================================
 function ReportPanel({
-  phase, content, error, isGenerating, viewing, onCopy, onDownload, onRegenerate, reportEndRef,
+  phase, content, reasoning, complete, truncated, continuing, error, isGenerating, viewing, onCopy, onDownload, onRegenerate, reportEndRef,
 }: {
   phase: ReviewPhase
   content: string
+  reasoning: string
+  complete: boolean
+  truncated: boolean
+  continuing: boolean
   error: string
   isGenerating: boolean
   viewing: AiReviewReport | null
   onCopy: () => void
   onDownload: () => void
   onRegenerate: () => void
-  reportEndRef: React.RefObject<HTMLDivElement>
+  reportEndRef: React.RefObject<HTMLDivElement | null>
 }) {
+  const [reasoningOpen, setReasoningOpen] = useState(false)
+  useEffect(() => {
+    if (!content) setReasoningOpen(false)
+  }, [content.length === 0])
+  useEffect(() => {
+    setReasoningOpen(false)
+  }, [viewing?.id])
+
   if (phase === 'error') {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-card border border-border bg-surface/80 px-6 py-14">
@@ -623,12 +680,16 @@ function ReportPanel({
         </div>
         <div className="text-sm font-medium text-foreground">复盘失败</div>
         <div className="max-w-md text-center text-xs text-secondary">{error || '请检查 AI 配置后重试'}</div>
-        <button
+        <Button
+          size="xs"
+          variant="light"
+          color="accent"
           onClick={onRegenerate}
-          className="mt-1 inline-flex items-center gap-1.5 rounded-btn bg-accent/15 px-3 py-1.5 text-xs text-accent transition-colors hover:bg-accent/20"
+          leftSection={<RefreshCw className="h-3.5 w-3.5" />}
+          className="mt-1"
         >
-          <RefreshCw className="h-3.5 w-3.5" />重新生成
-        </button>
+          重新生成
+        </Button>
       </div>
     )
   }
@@ -696,12 +757,30 @@ function ReportPanel({
         </div>
         {showActions && (
           <div className="flex items-center gap-1">
-            <button onClick={onCopy} className="inline-flex items-center gap-1 rounded-btn bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground hover:bg-elevated/70" title="复制全文">
-              <Copy className="h-3 w-3" />复制
-            </button>
-            <button onClick={onDownload} className="inline-flex items-center gap-1 rounded-btn bg-elevated px-2 py-1 text-[11px] text-secondary transition-colors hover:text-foreground hover:bg-elevated/70" title="下载为 Markdown">
-              <Download className="h-3 w-3" />下载
-            </button>
+            <Tooltip label="复制全文" position="bottom">
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={onCopy}
+                leftSection={<Copy className="h-3 w-3" />}
+                className="border-transparent bg-elevated font-normal text-secondary hover:bg-elevated/70 hover:text-foreground"
+                classNames={{ label: 'text-[11px]' }}
+              >
+                复制
+              </Button>
+            </Tooltip>
+            <Tooltip label="下载为 Markdown" position="bottom">
+              <Button
+                size="compact-xs"
+                variant="default"
+                onClick={onDownload}
+                leftSection={<Download className="h-3 w-3" />}
+                className="border-transparent bg-elevated font-normal text-secondary hover:bg-elevated/70 hover:text-foreground"
+                classNames={{ label: 'text-[11px]' }}
+              >
+                下载
+              </Button>
+            </Tooltip>
           </div>
         )}
       </div>
@@ -719,10 +798,35 @@ function ReportPanel({
           </div>
         ) : (
           <div className="prose prose-invert max-w-none">
+            {reasoning && (
+              <div className="mb-4 rounded-lg border border-border/60 bg-elevated/40 not-prose">
+                <button
+                  type="button"
+                  aria-expanded={reasoningOpen}
+                  onClick={() => setReasoningOpen(open => !open)}
+                  className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] text-secondary transition-colors hover:text-foreground"
+                >
+                  <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', reasoningOpen && 'rotate-90')} />
+                  <span>思考过程（模型草稿）</span>
+                  {continuing && <span className="text-accent">正在补齐回答…</span>}
+                </button>
+                {reasoningOpen && (
+                  <div className="border-t border-border/50 px-3 py-2 text-[11px] leading-relaxed text-muted whitespace-pre-wrap">
+                    {reasoning}
+                  </div>
+                )}
+              </div>
+            )}
+            {reasoning && <div className="mb-2 text-[11px] font-medium text-foreground/70 not-prose">回答</div>}
             <MarkdownRenderer content={content} />
             {showCursor && (
               <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent align-middle" />
             )}
+            {!complete || truncated ? (
+              <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning not-prose">
+                回答达到模型输出上限，当前内容可能未完整生成，请点击“重新生成”补齐。
+              </div>
+            ) : null}
           </div>
         )}
         <div ref={reportEndRef} />
@@ -824,13 +928,18 @@ function HistoryPanel({
                       <div className="mt-0.5 font-mono text-[9px] text-muted">{fmtArchivedAt(r.created_at)}</div>
                     )}
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onDelete(r.id) }}
-                    className="shrink-0 p-1 text-muted opacity-0 transition-all hover:text-bear group-hover:opacity-100"
-                    title="删除"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip label="删除" position="left">
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); onDelete(r.id) }}
+                      className="shrink-0 opacity-0 transition-opacity hover:text-bear group-hover:opacity-100"
+                      aria-label="删除"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </ActionIcon>
+                  </Tooltip>
                 </div>
               )
             })}

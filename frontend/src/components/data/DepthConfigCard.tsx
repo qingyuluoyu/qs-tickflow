@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { NumberInput } from '@mantine/core'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences, useCapabilities } from '@/lib/useSharedQueries'
@@ -55,7 +56,9 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
     )
   }
 
-  const inputCls = `w-16 h-7 bg-elevated border border-border rounded text-xs text-center px-1 focus:outline-none focus:border-accent/50 ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`
+  const inputCls = 'bg-elevated border-border text-center'
+  const inputW16 = 'w-16'
+  const inputW12 = 'w-12'
 
   return (
     <div className="space-y-3">
@@ -66,13 +69,14 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
           <div className="text-[10px] text-muted">范围 {range.lo}~{range.hi} 秒 · 涨跌停过多时系统自动放慢</div>
         </div>
         <div className="flex items-center gap-1">
-          <input
-            type="number"
+          <NumberInput
+            size="xs"
+            hideControls
             min={range.lo}
             max={range.hi}
             value={intervalInput}
             disabled={disabled}
-            onChange={e => setIntervalInput(e.target.value)}
+            onChange={v => setIntervalInput(String(v))}
             onBlur={() => {
               if (disabled) return
               let v = Number(intervalInput)
@@ -80,7 +84,8 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
               v = Math.max(range.lo, Math.min(range.hi, v))
               saveInterval.mutate(v)
             }}
-            className={inputCls}
+            className={inputW16}
+            classNames={{ input: inputCls }}
           />
           <span className="text-xs text-muted">秒</span>
         </div>
@@ -93,13 +98,14 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
           <div className="text-[10px] text-muted">范围 15:01~18:00 · 收盘后拉取最终盘口定版</div>
         </div>
         <div className="flex items-center gap-1">
-          <input
-            type="number"
+          <NumberInput
+            size="xs"
+            hideControls
             min={15}
             max={18}
             value={finalizeHour}
             disabled={disabled}
-            onChange={e => setFinalizeHour(e.target.value)}
+            onChange={v => setFinalizeHour(String(v))}
             onBlur={() => {
               if (disabled) return
               let h = Number(finalizeHour)
@@ -112,16 +118,18 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
               if (h * 60 + m > 18 * 60) { h = 18; m = 0 }
               saveFinalize.mutate({ hour: h, minute: m })
             }}
-            className={`w-12 h-7 bg-elevated border border-border rounded text-xs text-center px-1 focus:outline-none focus:border-accent/50 ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+            className={inputW12}
+            classNames={{ input: inputCls }}
           />
           <span className="text-xs text-muted">:</span>
-          <input
-            type="number"
+          <NumberInput
+            size="xs"
+            hideControls
             min={0}
             max={59}
             value={finalizeMinute}
             disabled={disabled}
-            onChange={e => setFinalizeMinute(e.target.value)}
+            onChange={v => setFinalizeMinute(String(v))}
             onBlur={() => {
               if (disabled) return
               let h = Number(finalizeHour)
@@ -134,7 +142,8 @@ export function DepthConfigContent({ disabled }: { disabled?: boolean }) {
               if (h * 60 + m > 18 * 60) { h = 18; m = 0 }
               saveFinalize.mutate({ hour: h, minute: m })
             }}
-            className={`w-12 h-7 bg-elevated border border-border rounded text-xs text-center px-1 focus:outline-none focus:border-accent/50 ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+            className={inputW12}
+            classNames={{ input: inputCls }}
           />
         </div>
       </div>

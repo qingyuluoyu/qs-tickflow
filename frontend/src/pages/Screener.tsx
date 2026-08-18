@@ -4,13 +4,16 @@ import { motion } from 'framer-motion'
 import { ScanSearch, Clock, TrendingUp, Star, Filter, Layers, Network, Sparkles, RefreshCw, Settings2, Store, RotateCcw, X } from 'lucide-react'
 import { api, genRuleId, type ScreenerStrategy, type ScreenerResult } from '@/lib/api'
 import { DEFAULT_STRATEGY_NOTIFY_EVENTS } from '@/lib/strategyMonitorEvents'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { useDataStatus, usePreferences, useCapabilities, useQuoteStatus } from '@/lib/useSharedQueries'
+import { useAuth } from '@/lib/auth'
 import { useWatchlistBatchAdd } from '@/lib/useSharedMutations'
 import { isExpertOrAbove } from '@/lib/capability-labels'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
+import { ActionIcon, Button, Group, SegmentedControl, Tooltip } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { EmptyState } from '@/components/EmptyState'
 import { DatePicker } from '@/components/DatePicker'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
@@ -21,7 +24,7 @@ import { ScreenerFilter as ScreenerFilterType, defaultFilter, filterActive, coun
 import { StrategySettingsDialog } from '@/components/screener/StrategySettingsDialog'
 import { StrategyPoolDialog } from '@/components/screener/StrategyPoolDialog'
 import { StrategyBuilderDialog } from '@/components/screener/StrategyBuilderDialog'
-import { StrategyStoreDialog } from '@/components/screener/StrategyStoreDialog'
+import { StrategyManagementDialog } from '@/components/screener/StrategyStoreDialog'
 import { CompositeStrategyDialog } from '@/components/screener/CompositeStrategyDialog'
 import { ListColumnCustomizer } from '@/components/ListColumnCustomizer'
 import { useTableSort } from '@/components/stock-table/useTableSort'
@@ -35,7 +38,19 @@ import {
   type ColumnConfig,
 } from '@/lib/screener-columns'
 
+// 页头/工具栏控件统一 28px 高 (对齐 DatePicker 的 h-7 密度)
+const CONTROL_STYLES = { root: { height: 28 } } as const
+// SegmentedControl root 默认 padding 4px 偏高, 收到 2px; 底色/边框走设计 token
+const SEGMENTED_STYLES = {
+  root: {
+    padding: 2,
+    backgroundColor: 'transparent',
+    border: '1px solid hsl(var(--border))',
+  },
+} as const
+
 export function Screener() {
+  const { user } = useAuth()
   const [assetType, setAssetType] = useState<'stock' | 'etf'>('stock')
   const [activeStrategy, setActiveStrategy] = useState<string | null>(null)
   const [result, setResult] = useState<ScreenerResult | null>(null)
@@ -50,7 +65,7 @@ export function Screener() {
   const [builderMode, setBuilderMode] = useState<'create' | 'modify'>('create')
   const [showStore, setShowStore] = useState(false)
   const [showComposite, setShowComposite] = useState(false)
-  const { pool, addToPool, removeFromPool, reorderPool, prune } = useStrategyPool()
+  const { pool, addToPool, removeFromPool, reorderPool, prune } = useStrategyPool(user.id)
   const [cardSize, setCardSize] = useState<CardSize>(loadCardSize)
   // 日k蜡烛图显示开关（仅当 candle 列可见时才有意义；持久化）
   const [dailyKChartVisible, setDailyKChartVisible] = useState<boolean>(() => storage.screenerCandle.get(true))
@@ -499,7 +514,7 @@ export function Screener() {
 
   // 自选股列表 (用于判断是否在自选中)
   const watchlist = useQuery({
-    queryKey: QK.watchlist,
+    queryKey: QK.watchlistFor(user.id),
     queryFn: api.watchlistList,
   })
   const watchlistSet = useMemo(() => {
@@ -512,8 +527,8 @@ export function Screener() {
     mutationFn: ({ symbol, inList }: { symbol: string; inList: boolean }) =>
       inList ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
     },
   })
 
@@ -589,36 +604,34 @@ export function Screener() {
         title="策略"
         subtitle="基于本地 enriched 表 · 毫秒级 SQL"
         right={
-          <div className="flex items-center gap-2">
+          <Group gap={8} wrap="wrap" justify="flex-end">
             {/* 资产类型切换: 股票 / ETF */}
-            <div className="flex items-center h-7 rounded-btn border border-border overflow-hidden">
-              {(['stock', 'etf'] as const).map(t => (
-                <button
-                  key={t}
-                  onClick={() => { setAssetType(t); setActiveStrategy(null); setResult(null); setShowAll(false) }}
-                  className={`h-full px-2.5 text-xs font-medium transition-colors cursor-pointer
-                    ${assetType === t
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-muted hover:text-secondary hover:bg-elevated'
-                    }`}
-                >
-                  {t === 'stock' ? '股票' : 'ETF'}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              size="xs"
+              value={assetType}
+              onChange={(v) => {
+                setAssetType(v as 'stock' | 'etf')
+                setActiveStrategy(null); setResult(null); setShowAll(false)
+              }}
+              data={[
+                { label: '股票', value: 'stock' },
+                { label: 'ETF', value: 'etf' },
+              ]}
+              styles={SEGMENTED_STYLES}
+            />
             {/* 重新运行策略：重载策略文件并重跑全部策略，更新命中个股 */}
-            <button
-              onClick={() => reloadStrategies.mutate()}
-              disabled={reloadStrategies.isPending}
-              title="重新加载策略并运行全部策略，刷新当前符合条件的个股"
-              className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-btn
-                border border-border bg-surface text-xs font-medium text-muted
-                hover:text-accent hover:border-accent/50 transition-colors cursor-pointer
-                disabled:opacity-50 disabled:cursor-wait"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${reloadStrategies.isPending ? 'animate-spin' : ''}`} />
-              重载
-            </button>
+            <Tooltip label="重新加载策略并运行全部策略，刷新当前符合条件的个股">
+              <Button
+                size="xs"
+                variant="default"
+                styles={CONTROL_STYLES}
+                leftSection={<RefreshCw className={`h-3.5 w-3.5 ${reloadStrategies.isPending ? 'animate-spin' : ''}`} />}
+                disabled={reloadStrategies.isPending}
+                onClick={() => reloadStrategies.mutate()}
+              >
+                重载
+              </Button>
+            </Tooltip>
             {asOf && (
               <DatePicker
                 value={asOf}
@@ -628,81 +641,79 @@ export function Screener() {
               />
             )}
             {/* 全部切换 */}
-            <button
-              onClick={() => setShowAll(v => { if (!v) setActiveStrategy(null); return !v })}
-              title="显示全部策略个股"
-              className={`inline-flex items-center justify-center h-7 w-7 rounded-btn border transition-colors cursor-pointer
-                ${showAll
-                  ? 'border-accent/50 bg-accent/10 text-accent'
-                  : 'border-border bg-surface text-muted hover:text-secondary hover:border-accent/40'
-                }`}
-            >
-              <Network className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip label="显示全部策略个股">
+              <ActionIcon
+                size={28}
+                variant={showAll ? 'light' : 'default'}
+                onClick={() => setShowAll(v => { if (!v) setActiveStrategy(null); return !v })}
+                aria-label="显示全部策略个股"
+              >
+                <Network className="h-3.5 w-3.5" />
+              </ActionIcon>
+            </Tooltip>
             {/* 卡片尺寸切换 */}
-            <div className="flex items-center h-7 rounded-btn border border-border overflow-hidden">
-              {(['hidden', 'mini', 'normal', 'large'] as const).map(sz => (
-                <button
-                  key={sz}
-                  onClick={() => { setCardSize(sz); storage.screenerCardSize.set(sz) }}
-                  className={`h-full px-2 text-[10px] font-medium transition-colors cursor-pointer
-                    ${cardSize === sz
-                      ? 'bg-accent/10 text-accent'
-                      : 'text-muted hover:text-secondary hover:bg-elevated'
-                    }`}
-                >
-                  {sz === 'hidden' ? '隐藏' : sz === 'mini' ? '紧凑' : sz === 'normal' ? '标准' : '详细'}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              size="xs"
+              value={cardSize}
+              onChange={(v) => { const sz = v as CardSize; setCardSize(sz); storage.screenerCardSize.set(sz) }}
+              data={[
+                { label: '隐藏', value: 'hidden' },
+                { label: '紧凑', value: 'mini' },
+                { label: '标准', value: 'normal' },
+                { label: '详细', value: 'large' },
+              ]}
+              styles={SEGMENTED_STYLES}
+            />
             {/* 策略池按钮 */}
-            <button
+            <Button
+              size="xs"
+              variant="default"
+              styles={CONTROL_STYLES}
+              leftSection={<Layers className="h-3.5 w-3.5" />}
               onClick={() => setShowPoolDialog(true)}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                border border-border bg-surface text-xs font-medium text-secondary
-                hover:text-accent hover:border-accent/50 transition-colors cursor-pointer"
             >
-              <Layers className="h-3.5 w-3.5" />
               策略池
-              <span className="ml-0.5 min-w-[28px] h-4 flex items-center justify-center rounded-full bg-accent/15 text-accent text-[10px] font-bold">
+              <span className="ml-1 min-w-[28px] h-4 inline-flex items-center justify-center rounded-full bg-accent/15 text-accent text-[10px] font-bold">
                 {visiblePool.length}/{strategyPresets.length}
               </span>
-            </button>
+            </Button>
             {/* 创建叠加策略 */}
-            <button
+            <Button
+              size="xs"
+              variant="light"
+              color="teal"
+              styles={CONTROL_STYLES}
+              leftSection={<Layers className="h-3.5 w-3.5" />}
               onClick={() => setShowComposite(true)}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                text-xs font-medium text-teal-400 border border-teal-500/20 bg-teal-500/5
-                hover:bg-teal-500/15 transition-colors cursor-pointer"
             >
-              <Layers className="h-3.5 w-3.5" />
               叠加策略
-            </button>
+            </Button>
             {/* 创建策略 */}
-            <button
+            <Button
+              size="xs"
+              variant="light"
+              color="yellow"
+              styles={CONTROL_STYLES}
+              leftSection={<Sparkles className="h-3.5 w-3.5" />}
               onClick={() => { setBuilderMode('create'); setShowBuilder(true) }}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                text-xs font-medium text-amber-400 border border-amber-400/20 bg-amber-400/5
-                hover:bg-amber-400/15 transition-colors cursor-pointer"
             >
-              <Sparkles className="h-3.5 w-3.5" />
               创建策略 · AI
-            </button>
-            {/* 获取策略（占位，敬请期待） */}
-            <button
+            </Button>
+            {/* 策略管理 */}
+            <Button
+              size="xs"
+              variant="default"
+              styles={CONTROL_STYLES}
+              leftSection={<Store className="h-3.5 w-3.5" />}
               onClick={() => setShowStore(true)}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn
-                border border-border bg-surface text-xs font-medium text-secondary
-                hover:text-accent hover:border-accent/50 transition-colors cursor-pointer"
             >
-              <Store className="h-3.5 w-3.5" />
-              获取策略
-            </button>
-          </div>
+              管理策略
+            </Button>
+          </Group>
         }
       />
 
-      <div className="px-8 py-4 space-y-3">
+      <PageContainer className="space-y-3">
         {/* 策略卡片 */}
         {cardSize !== 'hidden' && (
         <section>
@@ -755,7 +766,7 @@ export function Screener() {
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
               className="space-y-3"
             >
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-medium text-foreground flex items-center gap-2">
                   {!showAll && activeStrategy && (
                     <span className="text-secondary">{strategyIdToName[activeStrategy] ?? ''}</span>
@@ -775,68 +786,63 @@ export function Screener() {
                     <span className="text-[11px] text-muted animate-pulse">扫描中…</span>
                   )}
                 </h2>
-                <div className="flex items-center gap-3">
+                <Group gap={12} wrap="wrap" justify="flex-end">
                   {(showAll ? allRows.length > 0 : !!result?.rows.length) && (
-                    <div className="inline-flex items-stretch h-7 rounded-btn border border-border bg-surface overflow-hidden">
-                      <button
+                    <Group gap={4} wrap="nowrap">
+                      <Button
+                        size="xs"
+                        variant={filterActive(filter) || showFilter ? 'light' : 'default'}
+                        styles={CONTROL_STYLES}
+                        leftSection={<Filter className="h-3 w-3" />}
                         onClick={() => setShowFilter(v => !v)}
-                        className={`inline-flex items-center gap-1.5 px-2.5 text-xs font-medium transition-colors duration-150 cursor-pointer
-                          ${filterActive(filter)
-                            ? 'bg-accent/15 text-accent'
-                            : showFilter
-                              ? 'bg-accent/8 text-accent'
-                              : 'text-secondary hover:bg-elevated hover:text-foreground'
-                          }`}
                       >
-                        <Filter className="h-3 w-3" />
                         筛选
                         {filterActive(filter) && (
-                          <span className="bg-accent text-base rounded-full min-w-4 h-4 px-1 flex items-center justify-center text-[10px] font-bold leading-none">
+                          <span className="ml-1 bg-accent text-base rounded-full min-w-4 h-4 px-1 inline-flex items-center justify-center text-[10px] font-bold leading-none">
                             {countActiveFilters(filter)}
                           </span>
                         )}
-                      </button>
+                      </Button>
                       {filterActive(filter) && (
-                        <>
-                          <span className="w-px self-stretch my-1 bg-border" />
-                          <button
+                        <Tooltip label="清空筛选条件">
+                          <ActionIcon
+                            size={28}
+                            variant="subtle"
+                            className="text-muted hover:bg-danger/10 hover:text-danger"
                             onClick={() => {
                               setFilter(defaultFilter)
                               if (activeStrategy) filterMap.current.delete(activeStrategy)
                             }}
-                            title="清空筛选条件"
-                            className="inline-flex items-center gap-1 px-2 text-muted
-                              hover:bg-danger/10 hover:text-danger transition-colors duration-150 cursor-pointer"
+                            aria-label="清空筛选条件"
                           >
                             <RotateCcw className="h-3 w-3" />
-                          </button>
-                        </>
+                          </ActionIcon>
+                        </Tooltip>
                       )}
-                    </div>
+                    </Group>
                   )}
                   {displayRows.length > 0 && (
-                    <button
-                      onClick={handleBatchAdd}
+                    <Button
+                      size="xs"
+                      variant="light"
+                      styles={CONTROL_STYLES}
+                      leftSection={<Star className="h-3 w-3" />}
                       disabled={batchAdd.isPending}
-                      className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-btn
-                        border border-accent/40 bg-accent/10 text-accent text-xs font-medium
-                        hover:bg-accent/20 disabled:opacity-50 transition-colors duration-150 cursor-pointer"
+                      onClick={handleBatchAdd}
                     >
-                      <Star className="h-3 w-3" />
                       {batchAdd.isPending ? '添加中…' : '批量加自选'}
-                    </button>
+                    </Button>
                   )}
-                  <button
-                    onClick={() => setCustomizerOpen(true)}
-                    title="列表配置"
-                    className={`inline-flex items-center justify-center h-7 w-7 rounded-btn border text-xs font-medium transition-colors cursor-pointer
-                      ${customizerOpen
-                        ? 'border-accent/50 bg-accent/10 text-accent'
-                        : 'border-border bg-surface text-secondary hover:text-accent hover:border-accent/50'
-                      }`}
-                  >
-                    <Settings2 className="h-3 w-3" />
-                  </button>
+                  <Tooltip label="列表配置">
+                    <ActionIcon
+                      size={28}
+                      variant={customizerOpen ? 'light' : 'default'}
+                      onClick={() => setCustomizerOpen(true)}
+                      aria-label="列表配置"
+                    >
+                      <Settings2 className="h-3 w-3" />
+                    </ActionIcon>
+                  </Tooltip>
                   {batchMsg && (
                     <span className="text-xs text-accent animate-pulse">{batchMsg}</span>
                   )}
@@ -851,17 +857,18 @@ export function Screener() {
                     <span className="inline-flex items-center gap-1 text-xs text-warning/90">
                       分时仅前 {minuteBatchCap}/{allIntradaySymbols.length}
                       {!isMaxTier && ', 可升级'}
-                      <button
-                        type="button"
+                      <ActionIcon
+                        size="xs"
+                        variant="subtle"
+                        className="text-warning/50 hover:text-warning"
                         onClick={() => setIntradayCapDismissed(true)}
-                        className="text-warning/50 hover:text-warning transition-colors"
-                        title="关闭提示"
+                        aria-label="关闭提示"
                       >
                         <X className="h-3 w-3" />
-                      </button>
+                      </ActionIcon>
                     </span>
                   )}
-                </div>
+                </Group>
               </div>
 
               {/* 筛选面板: 只要原始结果有数据就显示 (哪怕筛完后为空, 用户才能改条件) */}
@@ -926,7 +933,7 @@ export function Screener() {
             </div>
           )}
         </section>
-      </div>
+      </PageContainer>
 
       <ListColumnCustomizer
         columns={columns}
@@ -1018,9 +1025,26 @@ export function Screener() {
         }}
       />
 
-      <StrategyStoreDialog
+      <StrategyManagementDialog
         open={showStore}
         onClose={() => setShowStore(false)}
+        onDeleted={(strategyId) => {
+          removeFromPool(strategyId)
+          if (activeStrategy === strategyId) {
+            setActiveStrategy(null)
+            setResult(null)
+          }
+          qc.invalidateQueries({ queryKey: QK.screenerStrategies('all') })
+          qc.invalidateQueries({ queryKey: ['strategies'] })
+        }}
+        onRestored={(builtinStrategyIds) => {
+          reorderPool(builtinStrategyIds)
+          qc.invalidateQueries({ queryKey: QK.screenerStrategies('all') })
+          qc.invalidateQueries({ queryKey: ['strategies'] })
+          qc.invalidateQueries({ queryKey: ['screener-cached'] })
+          setActiveStrategy(null)
+          setShowAll(false)
+        }}
       />
     </>
   )

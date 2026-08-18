@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
-import { AnimatePresence, motion } from 'framer-motion'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Modal as MantineModal } from '@mantine/core'
 import { ArrowRight, Plus, Save, Search, X } from 'lucide-react'
 import { api, type CustomSignal, type CustomSignalCondition, type CustomSignalFieldGroup } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 interface Props {
   open: boolean
@@ -22,7 +20,6 @@ const emptySignal = (kind: CustomSignal['kind'] = 'exit'): CustomSignal => ({
 
 export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose, onSaved }: Props) {
   const qc = useQueryClient()
-  const backdrop = useDialogBackdrop(onClose)
   const options = useQuery({ queryKey: QK.customSignalsOptions, queryFn: api.customSignalsOptions, enabled: open })
 
   const [draft, setDraft] = useState<CustomSignal>(() => emptySignal(defaultKind))
@@ -66,25 +63,20 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
   const removeCond = (idx: number) => setDraft(d => ({ ...d, conditions: d.conditions.filter((_, i) => i !== idx) }))
 
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-          {...backdrop}
-        >
-          <motion.div
-            role="dialog"
-            aria-modal="true"
-            initial={{ opacity: 0, scale: 0.95, y: 10 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 10 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="w-full max-w-3xl max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-            onClick={e => e.stopPropagation()}
-          >
+    <MantineModal
+      opened={open}
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.4, blur: 4 }}
+      classNames={{
+        content: 'w-full max-w-3xl max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
             <div className="flex items-center justify-between gap-3 border-b border-border/50 px-5 py-4">
               <div>
                 <h3 className="text-sm font-semibold text-foreground">{editing ? '编辑自定义信号' : '新建自定义信号'}</h3>
@@ -169,10 +161,7 @@ export function CustomSignalDialog({ open, signal, defaultKind = 'exit', onClose
                 <Save className="h-3.5 w-3.5" />保存
               </button>
             </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+    </MantineModal>
   )
 }
 
@@ -186,7 +175,6 @@ function FieldPicker({ value, fields, groups, onChange }: {
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const backdrop = useDialogBackdrop(() => setOpen(false))
   const selectedLabel = fields.find(f => f.key === value)?.label ?? value
 
   const filteredGroups = useMemo(() => {
@@ -212,24 +200,20 @@ function FieldPicker({ value, fields, groups, onChange }: {
       >
         {selectedLabel}
       </button>
-      {createPortal(
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-              {...backdrop}
-            >
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 10 }}
-                transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-                className="w-full max-w-sm bg-surface border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]"
-                onClick={e => e.stopPropagation()}
-              >
+      <MantineModal
+        opened={open}
+        onClose={() => setOpen(false)}
+        withCloseButton={false}
+        centered
+        padding={0}
+        transitionProps={{ duration: 150 }}
+        overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+        classNames={{
+          content: 'w-full max-w-sm bg-surface border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[70vh]',
+          body: 'flex min-h-0 flex-1 flex-col',
+        }}
+        styles={{ content: { flex: '0 1 auto' } }}
+      >
                 {/* 标题 + 搜索 */}
                 <div className="p-3 border-b border-border/50 space-y-2.5">
                   <div className="flex items-center justify-between">
@@ -285,12 +269,7 @@ function FieldPicker({ value, fields, groups, onChange }: {
                     ))
                   )}
                 </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>,
-        document.body,
-      )}
+      </MantineModal>
     </>
   )
 }
