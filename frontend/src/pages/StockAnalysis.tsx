@@ -192,7 +192,7 @@ export function StockAnalysis() {
           <HistorySidebar />
         </div>
 
-        {/* 数据子板块:估值 / 财务 / 研报 / 公告 / 新闻 / 资金面 / 龙虎榜(折叠,展开才请求) */}
+        {/* 数据子板块:横向 tab 切换,只请求当前选中的估值/财务/研报/公告/新闻/资金面/龙虎榜 */}
         {symbol && <StockInsightPanels key={symbol} symbol={symbol} />}
       </PageContainer>
 

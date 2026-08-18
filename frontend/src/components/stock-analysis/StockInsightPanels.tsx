@@ -20,18 +20,50 @@ import { cn } from '@/lib/cn'
  * - 数据接口: /api/stock-insight/*, symbol 形如 000001.SZ
  */
 export function StockInsightPanels({ symbol }: { symbol: string }) {
+  const [active, setActive] = useState<InsightPanelKey>('valuation')
+  const tabs: Array<{ key: InsightPanelKey; label: string; icon: LucideIcon }> = [
+    { key: 'valuation', label: '估值分位', icon: Gauge },
+    { key: 'financials', label: '财务指标', icon: BarChart3 },
+    { key: 'reports', label: '近期研报', icon: FileText },
+    { key: 'announcements', label: '近期公告', icon: Megaphone },
+    { key: 'news', label: '个股新闻', icon: Newspaper },
+    { key: 'fund-flow', label: '资金面', icon: Wallet },
+    { key: 'dragon-tiger', label: '龙虎榜', icon: Trophy },
+  ]
   return (
     <div className="space-y-3">
-      <ValuationPanel symbol={symbol} />
-      <FinancialsPanel symbol={symbol} />
-      <ReportsPanel symbol={symbol} />
-      <AnnouncementsPanel symbol={symbol} />
-      <NewsPanel symbol={symbol} />
-      <FundFlowPanel symbol={symbol} />
-      <DragonTigerPanel symbol={symbol} />
+      <div role="tablist" aria-label="个股分析模块" className="flex min-w-0 gap-1 overflow-x-auto rounded-card border border-border/60 bg-surface/40 p-1">
+        {tabs.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={active === key}
+            onClick={() => setActive(key)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs transition-colors',
+              active === key
+                ? 'bg-accent/15 font-medium text-accent shadow-sm'
+                : 'text-muted hover:bg-elevated/30 hover:text-foreground',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+      {active === 'valuation' && <ValuationPanel symbol={symbol} />}
+      {active === 'financials' && <FinancialsPanel symbol={symbol} />}
+      {active === 'reports' && <ReportsPanel symbol={symbol} />}
+      {active === 'announcements' && <AnnouncementsPanel symbol={symbol} />}
+      {active === 'news' && <NewsPanel symbol={symbol} />}
+      {active === 'fund-flow' && <FundFlowPanel symbol={symbol} />}
+      {active === 'dragon-tiger' && <DragonTigerPanel symbol={symbol} />}
     </div>
   )
 }
+
+type InsightPanelKey = 'valuation' | 'financials' | 'reports' | 'announcements' | 'news' | 'fund-flow' | 'dragon-tiger'
 
 // ===== 通用:折叠卡片外壳 =====
 function PanelShell({ icon: Icon, title, open, onToggle, children }: {
@@ -120,7 +152,7 @@ function fmtWan(v: number | null | undefined): string {
 
 // ===== 估值分位 =====
 function ValuationPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightValuation(symbol),
     queryFn: () => api.stockInsightValuation(symbol),
@@ -188,7 +220,7 @@ function ValBand({ label, m }: { label: string; m: ValPercentileMetric }) {
 
 // ===== 财务指标 =====
 function FinancialsPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightFinancials(symbol),
     queryFn: () => api.stockInsightFinancials(symbol),
@@ -238,7 +270,7 @@ function FinancialsPanel({ symbol }: { symbol: string }) {
 
 // ===== 近期研报 =====
 function ReportsPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightReports(symbol),
     queryFn: () => api.stockInsightReports(symbol, 2),
@@ -275,7 +307,7 @@ function ReportsPanel({ symbol }: { symbol: string }) {
 
 // ===== 近期公告 =====
 function AnnouncementsPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightAnnouncements(symbol),
     queryFn: () => api.stockInsightAnnouncements(symbol),
@@ -309,7 +341,7 @@ function AnnouncementsPanel({ symbol }: { symbol: string }) {
 
 // ===== 个股新闻 =====
 function NewsPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightNews(symbol),
     queryFn: () => api.stockInsightNews(symbol, 20),
@@ -343,7 +375,7 @@ function NewsPanel({ symbol }: { symbol: string }) {
 
 // ===== 资金面 =====
 function FundFlowPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightFundFlow(symbol),
     queryFn: () => api.stockInsightFundFlow(symbol),
@@ -399,7 +431,7 @@ function FundFlowPanel({ symbol }: { symbol: string }) {
 
 // ===== 龙虎榜 =====
 function DragonTigerPanel({ symbol }: { symbol: string }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(true)
   const q = useQuery({
     queryKey: QK.stockInsightDragonTiger(symbol),
     queryFn: () => api.stockInsightDragonTiger(symbol),
