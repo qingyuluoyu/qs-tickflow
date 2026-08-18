@@ -167,7 +167,7 @@ def current_account(request: Request) -> dict:
 
 @router.post("/entry")
 def account_entry(req: AccountEntryIn, request: Request, response: Response) -> dict:
-    """创建账户或登录已有电话，作为站点唯一入口。"""
+    """创建账户或登录已有账户(电话或用户名),作为站点唯一入口。"""
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -195,7 +195,7 @@ def account_entry(req: AccountEntryIn, request: Request, response: Response) -> 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         _record_login_fail(store, ip)
-        raise HTTPException(status_code=401, detail="电话或密码错误")
+        raise HTTPException(status_code=401, detail="用户名/电话或密码错误")
     _clear_login_fails(store, ip)
     directory = getattr(request.app.state, "account_directory", None)
     if directory is not None:

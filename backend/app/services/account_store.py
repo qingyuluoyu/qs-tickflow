@@ -216,7 +216,12 @@ class AccountStore:
         *,
         registration_key: str | None = None,
     ) -> AccountResult | None:
-        """Create a new account or log in an existing phone number.
+        """Create a new account or log in by phone number or username.
+
+        Login (empty ``name``) accepts either the phone number or the username
+        as the identifier. Usernames are not unique, so every name match is
+        password-verified and the first match wins. Registration requires all
+        three fields and is still keyed by phone.
 
         Input is intentionally not normalized: names/phones/passwords may use
         arbitrary Unicode and punctuation. Empty strings are rejected by the
@@ -230,9 +235,27 @@ class AccountStore:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 row = conn.execute("SELECT * FROM users WHERE phone = ?", (phone,)).fetchone()
+                verified = False
+                if row is None and not name:
+                    # 登录模式: 标识符按用户名再匹配一次。姓名不唯一,
+                    # 逐个校验密码, 第一个通过的就是目标账户。
+                    candidates = conn.execute(
+                        "SELECT * FROM users WHERE name = ? ORDER BY created_at, id",
+                        (phone,),
+                    ).fetchall()
+                    for candidate in candidates:
+                        if self._verify_password(
+                            password, candidate["password_salt"], candidate["password_hash"],
+                        ):
+                            row = candidate
+                            verified = True
+                            break
+                    if row is None:
+                        conn.execute("ROLLBACK")
+                        return None
                 created = row is None
                 if row is not None:
-                    if not self._verify_password(password, row["password_salt"], row["password_hash"]):
+                    if not verified and not self._verify_password(password, row["password_salt"], row["password_hash"]):
                         conn.execute("ROLLBACK")
                         return None
                     user = self._identity(row)

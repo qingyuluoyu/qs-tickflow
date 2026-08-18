@@ -84,6 +84,32 @@ def test_account_migration_and_create_login_are_transactional(tmp_path: Path):
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
 
 
+def test_login_accepts_username_as_identifier(tmp_path: Path):
+    store = AccountStore(tmp_path)
+    created = store.enter("张三", "电话/001", "任意密码🙂")
+    assert created is not None and created.created is True
+
+    # 登录模式 (name 为空) 可以用用户名代替电话定位账户。
+    by_name = store.enter("", "张三", "任意密码🙂")
+    assert by_name is not None
+    assert by_name.created is False
+    assert by_name.user.id == created.user.id
+    assert by_name.user.phone == "电话/001"
+
+    # 同名不同人: 逐个校验密码, 密码对上的那个账户登录。
+    other = store.enter("张三", "电话/002", "另一个密码")
+    assert other is not None and other.created is True
+    by_name_second = store.enter("", "张三", "另一个密码")
+    assert by_name_second is not None
+    assert by_name_second.user.id == other.user.id
+
+    # 密码都不对 / 标识符不存在 → 登录失败, 不会误建账户。
+    assert store.enter("", "张三", "错误密码") is None
+    assert store.enter("", "不存在的人", "任意密码🙂") is None
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
+
+
 def test_first_new_account_does_not_copy_server_seed_or_cache_data(tmp_path: Path):
     legacy = tmp_path / "user_data"
     legacy.mkdir()

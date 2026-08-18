@@ -22,13 +22,13 @@ export function AccountEntry({ onAuthenticated, hasExistingAccounts }: AccountEn
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if ((mode === 'register' && !name) || !phone || !password) {
-      setError(mode === 'register' ? '请填写姓名、电话和密码' : '请填写电话和密码')
+      setError(mode === 'register' ? '请填写姓名、电话和密码' : '请填写用户名或电话和密码')
       return
     }
     setError('')
     setPending(true)
     try {
-      // 登录模式不要求姓名；服务端只用电话和密码定位已有账户。
+      // 登录模式不要求姓名；服务端用电话或用户名定位已有账户。
       const result = await api.authEntry(mode === 'register' ? name : '', phone, password)
       onAuthenticated(result.user)
     } catch (cause: any) {
@@ -90,7 +90,7 @@ export function AccountEntry({ onAuthenticated, hasExistingAccounts }: AccountEn
             <input
               value={phone}
               onChange={event => setPhone(event.target.value)}
-              placeholder="电话"
+              placeholder={mode === 'login' ? '用户名或电话' : '电话'}
               autoComplete="off"
               className="h-10 w-full rounded-btn border border-border bg-base px-3 text-sm text-foreground outline-none transition-colors focus:border-accent/50"
             />
@@ -130,7 +130,7 @@ export function AccountEntry({ onAuthenticated, hasExistingAccounts }: AccountEn
             </button>
           </form>
           <p className="mt-3 text-[10px] leading-relaxed text-muted/70">
-            {mode === 'register' ? '姓名、电话和密码按原样保存（密码仅保存不可逆哈希）。' : '登录只需要电话和密码；已保存的自选、策略和偏好仅属于当前账户。'}
+            {mode === 'register' ? '姓名、电话和密码按原样保存（密码仅保存不可逆哈希）。' : '登录用用户名或电话加密码；已保存的自选、策略和偏好仅属于当前账户。'}
             {' '}每个账户的个人数据相互隔离。
           </p>
         </div>
