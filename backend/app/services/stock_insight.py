@@ -303,25 +303,47 @@ def eastmoney_reports(code: str, max_pages: int = 3) -> list[dict]:
 # 4. 近期公告（东财 np-anotice，纯 requests 直接移植）
 # ---------------------------------------------------------------------------
 
-def announcements(code: str, limit: int = 15) -> list[dict]:
-    """个股近期公告（东财公开接口）。返回 日期/标题/类型/详情链接。"""
-    r = em_get(
-        "https://np-anotice-stock.eastmoney.com/api/security/ann",
-        params={"sr": -1, "page_size": limit, "page_index": 1, "ann_type": "A",
-                "client_source": "web", "stock_list": code, "f_node": 0, "s_node": 0},
-        headers={"User-Agent": UA}, timeout=20,
-    )
-    lst = (r.json().get("data") or {}).get("list") or []
-    out = []
-    for a in lst:
-        cols = [c.get("column_name") for c in (a.get("columns") or []) if c.get("column_name")]
-        art = a.get("art_code", "")
-        out.append({
-            "date": (a.get("notice_date", "") or "")[:10],
-            "title": a.get("title", ""),
-            "type": cols[0] if cols else "",
-            "url": f"https://data.eastmoney.com/notices/detail/{code}/{art}.html" if art else "",
-        })
+def announcements(code: str, limit: int = 100, max_pages: int = 3) -> list[dict]:
+    """个股近期公告（东财公开接口）。返回 日期/标题/类型/详情链接。
+
+    东财接口每页最多 50 条，旧实现只读第一页，导致公告数量明显偏少。
+    这里使用有界分页（最多 3 页/150 条），按 ``art_code`` 去重，并在
+    达到调用方上限或遇到短页时停止，避免对公开接口造成无界请求。
+    """
+    target = min(max(int(limit), 1), 150)
+    page_size = 50
+    pages = min(max(int(max_pages), 1), 3)
+    out: list[dict] = []
+    seen: set[str] = set()
+    for page in range(1, pages + 1):
+        r = em_get(
+            "https://np-anotice-stock.eastmoney.com/api/security/ann",
+            params={"sr": -1, "page_size": page_size, "page_index": page, "ann_type": "A",
+                    "client_source": "web", "stock_list": code, "f_node": 0, "s_node": 0},
+            headers={"User-Agent": UA}, timeout=20,
+        )
+        lst = (r.json().get("data") or {}).get("list") or []
+        if not lst:
+            break
+        for a in lst:
+            cols = [c.get("column_name") for c in (a.get("columns") or []) if c.get("column_name")]
+            art = str(a.get("art_code", "") or "").strip()
+            title = str(a.get("title", "") or "").strip()
+            identity = art or f"{(a.get('notice_date', '') or '')[:10]}|{title}"
+            if not title or identity in seen:
+                continue
+            seen.add(identity)
+            out.append({
+                "date": (a.get("notice_date", "") or "")[:10],
+                "title": title,
+                "type": cols[0] if cols else "",
+                "url": f"https://data.eastmoney.com/notices/detail/{code}/{art}.html" if art else "",
+            })
+            if len(out) >= target:
+                return out
+        if len(lst) < page_size:
+            break
+        time.sleep(0.2)
     return out
 
 
@@ -369,7 +391,15 @@ def stock_news(code: str, limit: int = 20) -> list[dict]:
 
 # push2his 是本机唯一有完整 120 日历史的 fflow 域名;push2/push2delay 只回当日 1 行,
 # emhsmarketwg 无此接口——无可用镜像,只能靠 em_get 重试 + API 层陈旧缓存兜底
-_FFLOW_HOSTS = ("push2his.eastmoney.com",)
+_FFLOW_HOSTS = ("push2his.eastmoney.com", "push2.eastmoney.com")
+
+
+def _normalize_trade_date(value) -> str:
+    """统一东财资金流日期，避免时间戳/斜杠日期让前端误判为空。"""
+    text = str(value or "").strip().replace("/", "-")
+    if len(text) >= 8 and text[:8].isdigit() and "-" not in text[:8]:
+        text = f"{text[:4]}-{text[4:6]}-{text[6:8]}"
+    return text[:10]
 
 
 def stock_fund_flow_120d(code: str) -> list[dict]:
@@ -382,30 +412,44 @@ def stock_fund_flow_120d(code: str) -> list[dict]:
     }
     headers = {"User-Agent": UA, "Referer": "https://quote.eastmoney.com/", "Origin": "https://quote.eastmoney.com"}
     d: dict = {}
+    parsed_rows: list[dict] = []
+    source_replied = False
     last_exc: Exception | None = None
     for host in _FFLOW_HOSTS:
         try:
             d = em_get(f"https://{host}/api/qt/stock/fflow/daykline/get",
                        params=params, headers=headers, timeout=15).json()
-            break
+            source_replied = True
+            parsed_rows = []
+            for line in (d.get("data") or {}).get("klines", []):
+                p = str(line).split(",")
+                if len(p) < 6:
+                    continue
+
+                def _f(x):
+                    try:
+                        return float(x) if x not in ("-", "") else 0.0
+                    except (TypeError, ValueError):
+                        return 0.0
+
+                day = _normalize_trade_date(p[0])
+                if not day:
+                    continue
+                parsed_rows.append({
+                    "date": day, "main_net": _f(p[1]), "small_net": _f(p[2]),
+                    "mid_net": _f(p[3]), "large_net": _f(p[4]), "super_net": _f(p[5]),
+                })
+            if parsed_rows:
+                break
         except Exception as e:  # noqa: BLE001
             last_exc = e
     else:
+        if source_replied:
+            return []
         raise last_exc if last_exc else RuntimeError("资金流接口不可用")
-    rows = []
-    for line in (d.get("data") or {}).get("klines", []):
-        p = line.split(",")
-        if len(p) >= 6:
-            def _f(x):
-                try:
-                    return float(x) if x not in ("-", "") else 0.0
-                except ValueError:
-                    return 0.0
-            rows.append({
-                "date": p[0], "main_net": _f(p[1]), "small_net": _f(p[2]),
-                "mid_net": _f(p[3]), "large_net": _f(p[4]), "super_net": _f(p[5]),
-            })
-    return rows
+    # 保持日期升序、同日去重；push2 fallback 可能只返回当天一行。
+    unique = {row["date"]: row for row in parsed_rows}
+    return [unique[key] for key in sorted(unique)]
 
 
 # ---------------------------------------------------------------------------

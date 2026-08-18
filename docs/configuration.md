@@ -37,9 +37,9 @@ TICKFLOW_API_KEY=              # 留空 = None 模式(历史日K免费);填 Key 
 
 ```ini
 AI_PROVIDER=openai_compat              # openai_compat | ollama
-AI_BASE_URL=https://api.deepseek.com/v1
+AI_BASE_URL=https://api.deepseek.com
 AI_API_KEY=                            # 留空 = 关闭 AI
-AI_MODEL=deepseek-chat
+AI_MODEL=deepseek-v4-flash
 AI_DAILY_TOKEN_BUDGET=500000           # 每日 token 预算上限
 USER_SECRETS_MASTER_KEY=               # 生产环境：加密用户个人 AI Key 的服务端主密钥
 ```
@@ -47,9 +47,9 @@ USER_SECRETS_MASTER_KEY=               # 生产环境：加密用户个人 AI Ke
 | 配置项 | 说明 |
 | :--- | :--- |
 | `AI_PROVIDER` | `openai_compat`(OpenAI 兼容,支持 DeepSeek / 通义 / OpenAI 等)或 `ollama`(本地模型) |
-| `AI_BASE_URL` | 接口地址,如 DeepSeek `https://api.deepseek.com/v1` |
+| `AI_BASE_URL` | 接口地址,如 DeepSeek `https://api.deepseek.com` |
 | `AI_API_KEY` | 留空则关闭 AI 功能 |
-| `AI_MODEL` | 模型名,如 `deepseek-chat` |
+| `AI_MODEL` | 模型名,平台默认 `deepseek-v4-flash` |
 | `AI_DAILY_TOKEN_BUDGET` | 每日 token 预算,超限后当日不再调用 |
 | `USER_SECRETS_MASTER_KEY` | 生产环境必须设置的稳定 Fernet 主密钥；仅用于加密用户自行填写的 API Key，不会返回前端 |
 

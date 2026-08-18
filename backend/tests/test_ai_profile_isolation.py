@@ -24,6 +24,16 @@ def _bind(user, data_dir: Path):
     return set_current_user(user, get_account_store(data_dir).workspace(user.id))
 
 
+def test_platform_default_is_deepseek_flash_without_requiring_a_key_in_source():
+    from app.config import Settings
+
+    defaults = Settings(_env_file=None)
+    assert defaults.ai_provider == "openai_compat"
+    assert defaults.ai_base_url == "https://api.deepseek.com"
+    assert defaults.ai_model == "deepseek-v4-flash"
+    assert defaults.ai_api_key == ""
+
+
 def test_each_user_resolves_only_its_own_ai_override(monkeypatch, tmp_path: Path):
     from app.services import ai_profiles
 

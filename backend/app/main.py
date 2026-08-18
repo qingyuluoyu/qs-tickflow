@@ -122,12 +122,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("server preferences migration failed: %s", e)
 
-    # 看板使用独立的盘中快照预加载器: 开盘后从新浪读取当天快照并只保存在
-    # 内存中,不写入日K分区; 收盘后由 daily_pipeline 接管当天日K。这样没有
-    # TickFlow Key 时看板也能从开盘起显示真实盘中广度,且不会污染历史数据。
+    # 看板使用独立的快照预加载器: 盘中读取已配置 provider 的当日实时快照,
+    # 收盘/休市读取 provider 的最近完整日线; 只有没有可用自定义行情能力时
+    # 才回退新浪盘中快照。所有快照只保存在内存,不污染历史日K分区。
     try:
+        from app.data_providers import custom as custom_sources
+        from app.services import preferences
         from app.services.market_overview_preloader import (
             MarketOverviewPreloader,
+            make_dashboard_snapshot_fetcher,
             make_sina_intraday_snapshot_fetcher,
         )
 
@@ -137,13 +140,32 @@ async def lifespan(app: FastAPI):
                 return []
             return instruments.get_column("symbol").drop_nulls().unique().to_list()
 
-        intraday_fetcher = make_sina_intraday_snapshot_fetcher(
+        provider_fetcher = make_dashboard_snapshot_fetcher(daily_refresh_s=30.0)
+        sina_fetcher = make_sina_intraday_snapshot_fetcher(
             _dashboard_stock_symbols,
             lambda: list(QuoteService.CORE_INDEX_SYMBOLS),
             repo,
             interval_s=30.0,
         )
-        market_preloader = MarketOverviewPreloader(intraday_fetcher, interval_s=30.0)
+
+        def dashboard_fetcher():
+            # Re-evaluate server-scoped provider settings on each cycle so a
+            # provider change takes effect without restarting the process.
+            realtime_provider = preferences.get_realtime_data_provider()
+            daily_provider = preferences.get_daily_data_provider()
+            custom_dashboard_data = (
+                (
+                    realtime_provider != "tickflow"
+                    and custom_sources.provider_has_dataset(realtime_provider, "realtime")
+                )
+                or (
+                    daily_provider != "tickflow"
+                    and custom_sources.provider_has_dataset(daily_provider, "daily")
+                )
+            )
+            return provider_fetcher() if custom_dashboard_data else sina_fetcher()
+
+        market_preloader = MarketOverviewPreloader(dashboard_fetcher, interval_s=30.0)
         app.state.market_overview_preloader = market_preloader
         market_preloader.start()
     except Exception as e:  # noqa: BLE001

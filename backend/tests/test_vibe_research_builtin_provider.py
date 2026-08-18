@@ -56,3 +56,22 @@ def test_builtin_provider_reports_partial_upstream_failure(monkeypatch):
     assert result.source_status == "invalid"
     assert len(result.items) == 1
     assert "000001.SZ" in (result.source_message or "")
+
+
+def test_builtin_provider_refetches_announcements_when_larger_limit_needs_more_rows(monkeypatch):
+    calls = []
+
+    def fetch(code, limit=15):
+        calls.append(limit)
+        return [
+            {"date": "2026-08-15", "title": f"公告-{i}", "type": "其他", "url": f"u-{i}"}
+            for i in range(min(limit, 3))
+        ]
+
+    monkeypatch.setattr("app.services.stock_insight.announcements", fetch)
+    provider = VibeResearchProvider(clock=lambda: datetime(2026, 8, 18, tzinfo=UTC))
+
+    provider.get_news("announcement", ["600519.SH"], limit=20)
+    provider.get_news("announcement", ["600519.SH"], limit=100)
+
+    assert calls == [20, 100]

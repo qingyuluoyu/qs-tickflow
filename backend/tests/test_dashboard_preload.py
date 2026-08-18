@@ -341,6 +341,35 @@ def test_sina_intraday_fetcher_does_not_fetch_before_open_or_after_close(monkeyp
     assert fetch_calls == []
 
 
+def test_sina_intraday_fetcher_does_not_fetch_during_lunch(monkeypatch):
+    lunch = MarketAsOf(
+        current_date=date(2026, 8, 18),
+        daily_date=date(2026, 8, 17),
+        intraday_date=date(2026, 8, 18),
+        session=MarketSession.LUNCH,
+        cutoff_time="11:30:00",
+        is_partial=True,
+        observed_at=datetime(2026, 8, 18, 12, 0),
+    )
+    monkeypatch.setattr(
+        "app.services.market_overview_preloader.resolve_market_as_of",
+        lambda: lunch,
+    )
+    fetch_calls = []
+    from app.services import sina_snapshot
+    monkeypatch.setattr(
+        sina_snapshot,
+        "fetch_market_spot",
+        lambda *args, **kwargs: fetch_calls.append((args, kwargs)) or pl.DataFrame(),
+    )
+
+    result = make_sina_intraday_snapshot_fetcher(lambda: ["000001.SZ"], lambda: [], object())()
+
+    assert result.status == "lunch"
+    assert result.frame.is_empty()
+    assert fetch_calls == []
+
+
 def _morning_asof(trade_date: date) -> MarketAsOf:
     return MarketAsOf(
         current_date=trade_date,
@@ -463,3 +492,122 @@ def test_sina_intraday_fetcher_empty_snapshot_falls_back(monkeypatch):
     assert result.provider == "sina"
     assert result.status == "empty"
     assert result.frame.is_empty()
+
+
+def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
+    trade_date = date(2026, 8, 18)
+    monkeypatch.setattr(
+        "app.services.market_overview_preloader.resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=trade_date,
+            daily_date=trade_date,
+            intraday_date=trade_date,
+            session=MarketSession.POST_CLOSE,
+            cutoff_time="15:00:00",
+            is_partial=False,
+            observed_at=datetime(2026, 8, 18, 15, 5),
+        ),
+    )
+    monkeypatch.setattr("app.services.preferences.get_realtime_data_provider", lambda: "teajoin")
+    monkeypatch.setattr("app.services.preferences.get_daily_data_provider", lambda: "teajoin")
+    monkeypatch.setattr(
+        "app.data_providers.custom.provider_has_dataset",
+        lambda _name, dataset: dataset in {"realtime", "daily"},
+    )
+
+    class _Provider:
+        def __init__(self):
+            self.realtime_calls = 0
+
+        def get_realtime(self):
+            self.realtime_calls += 1
+            return [{"symbol": "000001.SZ", "last_price": 99.0}]
+
+        def get_latest_daily_snapshot(self, asset_type="stock", as_of=None):
+            assert asset_type == "stock"
+            assert as_of == datetime(2026, 8, 18)
+            return pl.DataFrame([{
+                "symbol": "000001.SZ",
+                "date": trade_date,
+                "close": 12.3,
+                "prev_close": 12.0,
+                "volume": 100.0,
+            }])
+
+        def get_daily(self, symbols, start_time, end_time, asset_type="index"):
+            assert asset_type == "index"
+            return pl.DataFrame([
+                {"symbol": "000001.SH", "date": trade_date, "close": 3001.0},
+                {"symbol": "000001.SH", "date": date(2026, 8, 17), "close": 2990.0},
+            ])
+
+    provider = _Provider()
+    monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: provider)
+
+    result = make_dashboard_snapshot_fetcher()()
+
+    assert result.kind == "teajoin.daily"
+    assert result.status == "post_close"
+    assert result.snapshot_date == trade_date
+    assert result.market_as_of["session"] == "post_close"
+    assert provider.realtime_calls == 0
+
+
+def test_dashboard_fetcher_uses_completed_daily_snapshot_during_lunch(monkeypatch):
+    trade_date = date(2026, 8, 18)
+    completed_date = date(2026, 8, 17)
+    monkeypatch.setattr(
+        "app.services.market_overview_preloader.resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=trade_date,
+            daily_date=completed_date,
+            intraday_date=trade_date,
+            session=MarketSession.LUNCH,
+            cutoff_time="11:30:00",
+            is_partial=True,
+            observed_at=datetime(2026, 8, 18, 12, 0),
+        ),
+    )
+    monkeypatch.setattr("app.services.preferences.get_realtime_data_provider", lambda: "teajoin")
+    monkeypatch.setattr("app.services.preferences.get_daily_data_provider", lambda: "teajoin")
+    monkeypatch.setattr(
+        "app.data_providers.custom.provider_has_dataset",
+        lambda _name, dataset: dataset in {"realtime", "daily"},
+    )
+
+    class _Provider:
+        def __init__(self):
+            self.realtime_calls = 0
+
+        def get_realtime(self):
+            self.realtime_calls += 1
+            return [{"symbol": "000001.SZ", "last_price": 99.0}]
+
+        def get_latest_daily_snapshot(self, asset_type="stock", as_of=None):
+            assert asset_type == "stock"
+            assert as_of == datetime(2026, 8, 17)
+            return pl.DataFrame([{
+                "symbol": "000001.SZ",
+                "date": completed_date,
+                "close": 12.3,
+                "prev_close": 12.0,
+                "volume": 100.0,
+            }])
+
+        def get_daily(self, symbols, start_time, end_time, asset_type="index"):
+            assert asset_type == "index"
+            return pl.DataFrame([{
+                "symbol": "000001.SH",
+                "date": completed_date,
+                "close": 3001.0,
+            }])
+
+    provider = _Provider()
+    monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: provider)
+
+    result = make_dashboard_snapshot_fetcher()()
+
+    assert result.kind == "teajoin.daily"
+    assert result.snapshot_date == completed_date
+    assert result.market_as_of["session"] == "lunch"
+    assert provider.realtime_calls == 0

@@ -149,6 +149,19 @@ def test_dashboard_uses_warmed_realtime_snapshot_without_provider_call(monkeypat
     monkeypatch.setattr(builder, "ScreenerService", _FakeScreener)
     monkeypatch.setattr(builder, "cn_today", lambda: date(2026, 8, 17))
     monkeypatch.setattr(
+        builder,
+        "resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=date(2026, 8, 17),
+            daily_date=date(2026, 8, 14),
+            intraday_date=date(2026, 8, 17),
+            session=MarketSession.MORNING,
+            cutoff_time="10:00:00",
+            is_partial=True,
+            observed_at=datetime(2026, 8, 17, 10, 0),
+        ),
+    )
+    monkeypatch.setattr(
         "app.services.preferences.get_daily_data_provider",
         lambda: "teajoin",
     )
@@ -309,6 +322,19 @@ def test_dashboard_derives_turnover_and_extends_live_limit_ladder(monkeypatch, t
         ]),
     )
     monkeypatch.setattr(builder, "cn_today", lambda: date(2026, 8, 14))
+    monkeypatch.setattr(
+        builder,
+        "resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=date(2026, 8, 14),
+            daily_date=date(2026, 8, 13),
+            intraday_date=date(2026, 8, 14),
+            session=MarketSession.AFTERNOON,
+            cutoff_time="14:00:00",
+            is_partial=True,
+            observed_at=datetime(2026, 8, 14, 14, 0),
+        ),
+    )
     monkeypatch.setattr(
         "app.services.preferences.get_daily_data_provider",
         lambda: "teajoin",
@@ -499,6 +525,19 @@ def test_dashboard_uses_sina_intraday_snapshot_as_live(monkeypatch, tmp_path):
     monkeypatch.setattr(builder, "ScreenerService", _FakeScreener)
     monkeypatch.setattr(builder, "cn_today", lambda: date(2026, 8, 17))
     monkeypatch.setattr(
+        builder,
+        "resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=date(2026, 8, 17),
+            daily_date=date(2026, 8, 16),
+            intraday_date=date(2026, 8, 17),
+            session=MarketSession.MORNING,
+            cutoff_time="10:00:00",
+            is_partial=True,
+            observed_at=datetime(2026, 8, 17, 10, 0),
+        ),
+    )
+    monkeypatch.setattr(
         "app.services.preferences.get_daily_data_provider",
         lambda: "teajoin",
     )
@@ -577,3 +616,63 @@ def test_dashboard_rejects_sina_snapshot_after_close(monkeypatch, tmp_path):
     assert result["as_of"] == "2026-08-13"
     assert result["top_gainers"][0]["close"] == 11.25
     assert result["data_freshness"]["snapshot_kind"] == "persisted.enriched"
+
+
+def test_dashboard_uses_current_daily_snapshot_after_close(monkeypatch, tmp_path):
+    trade_date = date(2026, 8, 18)
+    monkeypatch.setattr(builder, "ScreenerService", _FakeScreener)
+    monkeypatch.setattr(builder, "cn_today", lambda: trade_date)
+    monkeypatch.setattr(
+        builder,
+        "resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=trade_date,
+            daily_date=trade_date,
+            intraday_date=trade_date,
+            session=MarketSession.POST_CLOSE,
+            cutoff_time="15:00:00",
+            is_partial=False,
+            observed_at=datetime(2026, 8, 18, 15, 5),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.preferences.get_daily_data_provider",
+        lambda: "teajoin",
+    )
+    snapshot = DashboardSnapshot(
+        provider="teajoin",
+        kind="teajoin.daily",
+        status="closed",
+        snapshot_date=trade_date,
+        frame=pl.DataFrame([{
+            "symbol": "000001.SZ",
+            "name": "平安银行",
+            "date": trade_date,
+            "close": 13.2,
+            "prev_close": 12.0,
+            "change_pct": 0.1,
+            "volume": 100.0,
+            "amount": 3000.0,
+        }]),
+        fetched_at_ms=1.0,
+        error=None,
+        realtime_rows=0,
+        market_as_of={
+            "trade_date": trade_date.isoformat(),
+            "session": "post_close",
+            "is_partial": False,
+            "date_verified": True,
+        },
+    )
+
+    result = builder.build_market_overview(
+        _FakeRepo(tmp_path),
+        quote_service=_FakeQuote(),
+        dashboard_live=True,
+        dashboard_snapshot=snapshot,
+    )
+
+    assert result["as_of"] == trade_date.isoformat()
+    assert result["top_gainers"][0]["close"] == 13.2
+    assert result["data_freshness"]["snapshot_kind"] == "teajoin.daily"
+    assert result["data_freshness"]["is_stale"] is False

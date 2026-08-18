@@ -9,7 +9,7 @@ from typing import Any
 
 from app.services import watchlist
 from app.services.user_context import reset_current_user, set_current_user
-from app.services.watchlist_news import WatchlistNewsService
+from app.services.watchlist_news import NEWS_LOOKBACK_DAYS, WatchlistNewsService
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class WatchlistNewsPreloader:
             result = self.service.get_news(
                 category=category,
                 symbols=sorted(union),
-                start_time=now - timedelta(days=7),
+                start_time=now - timedelta(days=NEWS_LOOKBACK_DAYS),
                 end_time=now,
                 limit=100,
             )

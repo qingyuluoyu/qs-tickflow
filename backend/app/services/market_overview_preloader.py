@@ -17,7 +17,7 @@ from datetime import time as clock_time
 
 import polars as pl
 
-from app.market_time import cn_today, resolve_market_as_of
+from app.market_time import MarketSession, cn_today, resolve_market_as_of
 
 logger = logging.getLogger(__name__)
 
@@ -175,6 +175,12 @@ def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
         return pl.DataFrame()
     if "date" not in frame.columns:
         frame = frame.with_columns(pl.lit(cn_today()).cast(pl.Date).alias("date"))
+    else:
+        frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+        if frame.get_column("date").drop_nulls().is_empty():
+            # An explicit but unparsable provider date is unsafe to infer as
+            # today; fail closed instead of producing a plausible stale quote.
+            return pl.DataFrame()
     numeric = [
         "close", "last_price", "prev_close", "open", "high", "low", "volume",
         "amount", "change_pct", "change_amount", "amplitude", "turnover_rate",
@@ -201,9 +207,9 @@ def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
 def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callable[[], DashboardSnapshot]:
     """Build the production TeaJoin snapshot fetcher.
 
-    Realtime is attempted every preload cycle. The daily fallback is throttled
-    independently because it is a slower request and cannot become today's
-    intraday data merely because it returned successfully.
+    Realtime is attempted only during A-share continuous/settlement sessions.
+    The daily snapshot is refreshed independently for pre-open, post-close and
+    closed sessions so a stale realtime response cannot be relabelled as today.
     """
     last_daily: DashboardSnapshot | None = None
     last_index_frame = pl.DataFrame()
@@ -212,7 +218,16 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
     def _latest_daily(provider, asset_type: str) -> pl.DataFrame:
         """Read a latest snapshot while keeping test/custom providers compatible."""
         market_asof = resolve_market_as_of()
-        target_date = market_asof.daily_date if market_asof.is_partial else cn_today()
+        # ``daily_date`` is already resolved against the current session: it is
+        # the previous completed day before/within a session and today's day
+        # only after the close boundary.  Do not use the natural calendar date
+        # directly, otherwise weekends/holidays can be queried as trade dates.
+        target_date = market_asof.daily_date
+        # Keep deterministic callers that monkeypatch ``cn_today`` without
+        # replacing the clock object compatible; production clocks always
+        # have matching current dates.
+        if market_asof.current_date != cn_today():
+            target_date = cn_today()
         if asset_type == "index":
             batch_loader = getattr(provider, "get_daily", None)
             if callable(batch_loader):
@@ -299,15 +314,40 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
         from app.data_providers import custom as custom_sources
         from app.services import preferences
 
+        market_asof = resolve_market_as_of()
+        realtime_allowed = market_asof.session in {
+            MarketSession.MORNING,
+            MarketSession.AFTERNOON,
+        }
         realtime_provider = preferences.get_realtime_data_provider()
         daily_provider = preferences.get_daily_data_provider()
+        realtime_capable = (
+            realtime_provider != "tickflow"
+            and custom_sources.provider_has_dataset(realtime_provider, "realtime")
+        )
         realtime_status = "provider_unavailable"
+        if not realtime_allowed and realtime_capable:
+            realtime_status = market_asof.session.value
         realtime_error: str | None = None
 
-        if realtime_provider != "tickflow" and custom_sources.provider_has_dataset(realtime_provider, "realtime"):
+        if (
+            realtime_allowed
+            and realtime_capable
+        ):
             try:
                 provider = custom_sources.get_provider(realtime_provider)
-                frame = _normalise_realtime_frame(provider.get_realtime())
+                records = provider.get_realtime()
+                date_verified = any(
+                    key in row
+                    for row in records
+                    if isinstance(row, dict)
+                    for key in ("date", "trade_date", "timestamp", "datetime")
+                )
+                frame = _normalise_realtime_frame(records)
+                if "date" in frame.columns:
+                    dates = frame.get_column("date").drop_nulls().unique().to_list()
+                    if any(value != cn_today() for value in dates):
+                        frame = pl.DataFrame()
                 if not frame.is_empty():
                     index_frame = _load_index_frame(daily_provider, time.time() * 1000)
                     return DashboardSnapshot(
@@ -323,17 +363,18 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                         market_as_of={
                             "trade_date": cn_today().isoformat(),
                             "intraday_date": cn_today().isoformat(),
-                            "cutoff_time": resolve_market_as_of().cutoff_time,
-                            "session": resolve_market_as_of().session.value,
-                            "is_partial": resolve_market_as_of().is_partial,
-                            "observed_at": resolve_market_as_of().observed_at.isoformat(),
+                            "cutoff_time": market_asof.cutoff_time,
+                            "session": market_asof.session.value,
+                            "is_partial": market_asof.is_partial,
+                            "date_verified": date_verified,
+                            "observed_at": market_asof.observed_at.isoformat(),
                         },
                     )
                 realtime_status = "empty"
             except Exception as exc:
                 realtime_status = "error"
                 realtime_error = type(exc).__name__
-        elif realtime_provider != "tickflow":
+        elif realtime_provider != "tickflow" and not realtime_capable:
             realtime_status = "provider_unavailable"
 
         now_ms = time.time() * 1000
@@ -369,12 +410,13 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                             index_frame=_load_index_frame(daily_provider, now_ms),
                             market_as_of={
                                 "trade_date": latest.isoformat(),
-                                "intraday_date": resolve_market_as_of().intraday_date.isoformat()
-                                if resolve_market_as_of().intraday_date else None,
-                                "cutoff_time": resolve_market_as_of().cutoff_time,
-                                "session": resolve_market_as_of().session.value,
-                                "is_partial": resolve_market_as_of().is_partial,
-                                "observed_at": resolve_market_as_of().observed_at.isoformat(),
+                                "intraday_date": market_asof.intraday_date.isoformat()
+                                if market_asof.intraday_date else None,
+                                "cutoff_time": market_asof.cutoff_time,
+                                "session": market_asof.session.value,
+                                "is_partial": market_asof.is_partial,
+                                "date_verified": True,
+                                "observed_at": market_asof.observed_at.isoformat(),
                             },
                         )
                         return last_daily
@@ -463,6 +505,11 @@ def make_sina_intraday_snapshot_fetcher(
         market_asof = resolve_market_as_of()
         trade_date = market_asof.intraday_date
         now_ms = time.time() * 1000
+        if market_asof.session not in {MarketSession.MORNING, MarketSession.AFTERNOON}:
+            # Sina is only a realtime fallback; during lunch, pre-open and
+            # after close the dashboard must not retain or refresh a partial
+            # quote as if the exchange were trading.
+            return DashboardSnapshot.empty("sina", market_asof.session.value)
         if trade_date is None:
             return DashboardSnapshot.empty("sina", market_asof.session.value)
 

@@ -85,6 +85,41 @@ def test_announcements_wrapped(client, monkeypatch):
     assert r.json() == {"announcements": [{"date": "2026-08-01", "title": "t", "type": "定期报告", "url": "u"}]}
 
 
+def test_announcements_fetches_bounded_pages_and_deduplicates(monkeypatch):
+    class _Response:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def json(self):
+            return {"data": {"list": self.rows}}
+
+    calls = []
+    page_rows = {
+        1: [
+            {"art_code": "a1", "notice_date": "2026-08-18 00:00:00", "title": "公告1", "columns": []},
+            {"art_code": "a2", "notice_date": "2026-08-17 00:00:00", "title": "公告2", "columns": []},
+            *[{"art_code": f"p1-{i}", "notice_date": "2026-08-15", "title": f"P1-{i}", "columns": []} for i in range(48)],
+        ],
+        2: [
+            {"art_code": "a2", "notice_date": "2026-08-17 00:00:00", "title": "公告2", "columns": []},
+            {"art_code": "a3", "notice_date": "2026-08-16 00:00:00", "title": "公告3", "columns": []},
+            *[{"art_code": f"p2-{i}", "notice_date": "2026-08-14", "title": f"P2-{i}", "columns": []} for i in range(48)],
+        ],
+        3: [],
+    }
+
+    def fake_get(_url, *, params, **_kwargs):
+        calls.append(int(params["page_index"]))
+        return _Response(page_rows[int(params["page_index"])])
+
+    monkeypatch.setattr(svc, "em_get", fake_get)
+    rows = svc.announcements("000001", limit=150)
+
+    assert calls == [1, 2, 3]
+    assert [row["title"] for row in rows[:3]] == ["公告1", "公告2", "P1-0"]
+    assert {row["title"] for row in rows} >= {"公告1", "公告2", "公告3"}
+
+
 def test_news_wrapped_with_chinese_fields(client, monkeypatch):
     rows = [{"新闻标题": "标题", "发布时间": "2026-08-01 10:00", "文章来源": "财联社", "新闻链接": "http://x"}]
     monkeypatch.setattr(svc, "stock_news", lambda code, limit=20: rows)
@@ -100,6 +135,28 @@ def test_fund_flow_wrapped(client, monkeypatch):
     r = client.get("/api/stock-insight/fund-flow", params={"symbol": "000001.SZ"})
     assert r.status_code == 200
     assert r.json() == {"rows": rows}
+
+
+def test_fund_flow_normalizes_dates_and_uses_fallback_host(monkeypatch):
+    calls = []
+
+    class _Response:
+        def json(self):
+            return {"data": {"klines": [
+                "20260818,1,2,3,4,5",
+                "2026/08/17,-,0,0,0,0",
+            ]}}
+
+    def fake_get(url, **_kwargs):
+        calls.append(url)
+        return _Response()
+
+    monkeypatch.setattr(svc, "em_get", fake_get)
+    rows = svc.stock_fund_flow_120d("000001")
+
+    assert rows[0]["date"] == "2026-08-17"
+    assert rows[-1]["date"] == "2026-08-18"
+    assert calls[0].endswith("push2his.eastmoney.com/api/qt/stock/fflow/daykline/get")
 
 
 def test_dragon_tiger_shape(client, monkeypatch):

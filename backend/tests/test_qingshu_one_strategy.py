@@ -21,9 +21,12 @@ def test_qingshu_one_is_the_nineteenth_builtin_strategy():
     assert strategy.execution_backend == "python_history_legacy"
     assert strategy.lookback_days >= 380
     assert engine.required_history_bars(["qingshu_one"]) == 380
+    assert {param["id"] for param in strategy.meta["params"]}.isdisjoint({
+        "roe_min_pct", "required_annual_roe_years", "institution_holder_min_count",
+    })
 
 
-def test_qingshu_one_fails_closed_when_fundamental_snapshot_is_missing():
+def test_qingshu_one_keeps_hitting_candidates_without_extreme_fundamental_filters():
     engine = StrategyEngine(strategy_dirs=[BUILTIN_DIR])
     as_of = date(2026, 8, 17)
     rows = []
@@ -40,7 +43,7 @@ def test_qingshu_one_fails_closed_when_fundamental_snapshot_is_missing():
                 "raw_close": 10.1,
                 "raw_high": 10.2,
                 "raw_low": 9.8,
-                "volume": 1000.0,
+                "volume": 300.0 if offset >= 357 else 100.0,
                 "amount": 100000.0,
                 "total_shares": 20_000_000_000.0,
                 "signal_limit_up": True,
@@ -58,8 +61,8 @@ def test_qingshu_one_fails_closed_when_fundamental_snapshot_is_missing():
         ),
     )
 
-    assert result.rows == []
-    assert result.total == 0
+    assert result.total == 1
+    assert result.rows[0]["symbol"] == "000001.SZ"
 
 
 def test_qingshu_one_returns_candidate_with_complete_point_in_time_inputs():

@@ -1192,9 +1192,6 @@ class StrategyBacktestService:
                 exit_time_mask[start_id:stop_id],
             )
             timing_ms["signals_score"] = round((time.perf_counter() - t_signal) * 1000, 1)
-            if not sim_signal_matrix.entry.any():
-                return _err("在指定区间内未产生买入信号")
-
             raw_candidates = int(sim_signal_matrix.entry.sum())
             selection_stats = {
                 "strategy_matches": raw_candidates,
@@ -1305,9 +1302,6 @@ class StrategyBacktestService:
                 exit_time_mask[start_id:stop_id],
             )
             timing_ms["signals_score"] = round((time.perf_counter() - t_signal) * 1000, 1)
-            if not sim_signal_matrix.entry.any():
-                return _err("在指定区间内未产生买入信号")
-
             raw_candidates = int(sim_signal_matrix.entry.sum())
             selection_stats = {
                 "strategy_matches": raw_candidates,
@@ -1352,9 +1346,6 @@ class StrategyBacktestService:
             exit_range = self._date_range_mask(panel, config.start, load_end) if config.mode == "full" else formal_range
             exit_mask = raw_exit_mask & exit_range
             timing_ms["signals_score"] = round((time.perf_counter() - t_signal) * 1000, 1)
-            if not entry_mask.any():
-                return _err("在指定区间内未产生买入信号")
-
             sim_range = self._date_range_mask(panel, config.start, sim_end)
             sim_columns = [column for column in feature_plan.matrix_columns if column in panel.columns]
             sim_panel = panel.filter(sim_range).select(sorted(sim_columns))

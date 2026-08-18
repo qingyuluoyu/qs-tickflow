@@ -70,7 +70,7 @@ class VibeResearchProvider:
     def __init__(self, *, clock: Callable[[], datetime] | None = None) -> None:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._lock = threading.RLock()
-        self._cache: dict[tuple[NewsCategory, str], tuple[datetime, list[NewsItem]]] = {}
+        self._cache: dict[tuple[NewsCategory, str, int], tuple[datetime, list[NewsItem]]] = {}
 
     def close(self) -> None:
         return None
@@ -134,7 +134,8 @@ class VibeResearchProvider:
 
     def _get_symbol(self, category: NewsCategory, symbol: str, limit: int) -> tuple[list[NewsItem], bool]:
         now = self._clock()
-        key = (category, symbol)
+        capacity = min(max(limit, 1), 150 if category == "announcement" else 50)
+        key = (category, symbol, capacity)
         with self._lock:
             hit = self._cache.get(key)
             if hit and (now - hit[0]).total_seconds() < 900:
@@ -142,7 +143,9 @@ class VibeResearchProvider:
 
         code = _code(symbol)
         if category == "announcement":
-            raw_rows = stock_insight.announcements(code, limit=min(max(limit, 1), 50))
+            # 公告接口分页读取上限为 150 条；缓存层仍按请求方 limit 过滤，
+            # 这样不会因为只取第一页而漏掉近期公告。
+            raw_rows = stock_insight.announcements(code, limit=min(max(limit, 1), 150))
             rows = [self._announcement(symbol, row, now) for row in raw_rows]
         else:
             raw_rows = stock_insight.stock_news(code, limit=min(max(limit, 1), 50))

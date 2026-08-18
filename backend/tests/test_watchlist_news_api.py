@@ -61,6 +61,17 @@ def test_list_news_passes_only_current_watchlist_symbols(monkeypatch):
     assert response.items[0].symbol == "000001.SZ"
 
 
+def test_list_news_uses_thirty_day_source_window(monkeypatch):
+    service = _Service()
+    monkeypatch.setattr(api.watchlist, "list_symbols", lambda: [{"symbol": "000001.SZ"}])
+
+    api.list_news(_request(service), category="public_news", symbol=None, q=None, limit=20, cursor=None)
+
+    start = service.calls[0]["start_time"]
+    end = service.calls[0]["end_time"]
+    assert 29 <= (end - start).days <= 30
+
+
 def test_list_news_rejects_a_symbol_outside_current_watchlist(monkeypatch):
     service = _Service()
     monkeypatch.setattr(api.watchlist, "list_symbols", lambda: [{"symbol": "000001.SZ"}])

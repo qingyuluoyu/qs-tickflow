@@ -162,6 +162,44 @@ def test_basic_filter_only_limits_entries_not_panel_rows():
     }
 
 
+def test_position_backtest_with_no_candidates_returns_successful_zero_trade_result():
+    start = date(2024, 1, 1)
+    panel = pl.DataFrame([
+        {
+            "symbol": "A",
+            "name": "A",
+            "date": start + timedelta(days=i),
+            "open": 10.0,
+            "high": 10.0,
+            "low": 10.0,
+            "close": 10.0,
+            "volume": 100_000,
+            "amount": 1000.0,
+            "signal_limit_up": False,
+            "signal_limit_down": False,
+        }
+        for i in range(3)
+    ])
+    engine = _EngineStub(panel)
+    service = StrategyBacktestService(
+        engine=engine,
+        strategy_engine=_StrategyEngineStub(_strategy(filter_fn=lambda _df, _params: pl.lit(False))),
+    )
+
+    result = service.run(StrategyBacktestConfig(
+        strategy_id="test",
+        symbols=None,
+        start=start,
+        end=start + timedelta(days=2),
+        matching="close_t",
+        mode="position",
+    ))
+
+    assert result.error is None
+    assert result.trades == []
+    assert result.stats["selection"]["entry_candidates"] == 0
+
+
 def test_selection_stats_explain_entry_trigger_filtering():
     start = date(2024, 1, 1)
     panel = pl.DataFrame([

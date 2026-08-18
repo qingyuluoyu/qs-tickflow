@@ -49,8 +49,18 @@
 - [x] Ensure a provider snapshot is used for breadth, rankings, turnover, limit ladder and index values, while persisted enriched data is only a dated fallback.
 - [x] Derive daily turnover from TeaJoin volume plus same-date float shares and extend live board counts with the prior trading-day run length.
 - [x] Route the shared index sidebar to the selected custom provider so it cannot display a different cached TickFlow snapshot beside the TeaJoin dashboard.
+- [x] Include the core index daily frame in the same preloaded snapshot and reuse it in `/api/intraday/indices`, preventing duplicate provider calls and cross-request date drift.
 
-### Task 4: Verify runtime and regressions
+### Task 4: Match the left navigation to the supplied icon sheet
 
-- [x] Run focused backend tests (`47 passed`), full backend suite (`743 passed, 1 pre-existing failure`), frontend tests (`4 passed`), production build, and `git diff --check`.
+**Files:**
+- Modify: `frontend/src/components/Layout.tsx`
+- Test: `frontend/tests/layout-navigation.test.mjs`
+
+- [x] Use the supplied 14-item color/tone mapping with code-native Lucide icons, preserving the existing menu routes and badges.
+- [x] Render each icon in a rounded, tinted tile so active state and text remain readable in both themes.
+
+### Task 5: Verify runtime and regressions
+
+- [x] Run focused backend tests (`52 passed`), full backend suite (`747 passed, 1 pre-existing failure`), frontend tests (`5 passed`), production build, and `git diff --check`.
 - [x] Query the running app and direct TeaJoin snapshot without printing credentials; dashboard totals match the TeaJoin frame for 2026-08-14.

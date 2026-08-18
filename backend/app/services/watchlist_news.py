@@ -21,6 +21,10 @@ from app.services.user_context import current_user
 
 _CACHE_LOCK = threading.RLock()
 
+# 公告分页已经提供最多 150 条，展示窗口不能固定为 7 天，否则周末和
+# 非交易日会让用户误以为源数据缺失。
+NEWS_LOOKBACK_DAYS = 30
+
 
 @contextlib.contextmanager
 def _exclusive_cache_lock(path: Path):

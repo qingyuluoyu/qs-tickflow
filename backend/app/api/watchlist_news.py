@@ -102,7 +102,7 @@ def list_news(
         result = _service(request).get_news(
             category=category,
             symbols=scoped_symbols,
-            start_time=now - timedelta(days=7),
+            start_time=now - timedelta(days=watchlist_news.NEWS_LOOKBACK_DAYS),
             end_time=now,
             query=q,
             limit=limit,

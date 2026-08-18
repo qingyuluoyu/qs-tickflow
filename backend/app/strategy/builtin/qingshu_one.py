@@ -5,15 +5,12 @@ import polars as pl
 META = {
     "id": "qingshu_one",
     "name": "清数一号",
-    "description": "市值、连续年度 ROE、机构股东与 9 项量价/触发规则的确定性候选筛选(数据不足时不出候选)",
+    "description": "市值与 8 项量价/触发规则的确定性候选筛选，避免缺失财务快照阻断命中",
     "tags": ["基本面", "涨停", "量价", "研究候选"],
     "asset_types": ["stock"],
     "timeframes": ["1d"],
     "params": [
         {"id": "market_cap_min_yi", "label": "最低总市值(亿元)", "type": "float", "default": 150.0, "min": 0.0},
-        {"id": "roe_min_pct", "label": "年度 ROE 下限(%)", "type": "float", "default": 10.0, "min": -100.0, "max": 1000.0},
-        {"id": "required_annual_roe_years", "label": "连续完整年度数", "type": "int", "default": 5, "min": 1, "max": 10},
-        {"id": "institution_holder_min_count", "label": "非自然人股东数", "type": "int", "default": 5, "min": 0, "max": 10},
         {"id": "annual_limit_up_min_count", "label": "近 240 日涨停次数", "type": "int", "default": 6, "min": 1, "max": 240},
         {"id": "volume_multiple", "label": "连续放量倍数", "type": "float", "default": 2.0, "min": 1.0, "max": 20.0},
         {"id": "gap_open_min_pct", "label": "最小高开幅度(%)", "type": "float", "default": 3.5, "min": 0.0, "max": 20.0},
@@ -31,14 +28,12 @@ META = {
     "order_by": "score",
     "descending": True,
     "limit": 100,
-    # These are the point-in-time fields produced by the future TeaJoin
-    # fundamental/holder join.  Missing fields intentionally fail closed.
+    # 量价规则只依赖按交易日可获得的行情字段；财务/股东快照不再作为
+    # 硬门槛，避免数据源尚未提供这两个极端指标时整策略归零。
     "data_requirements": {
         "market": ["daily", "adj_factor", "stk_limit", "daily_basic"],
-        "fundamental": ["qingshu_roe_complete_years", "qingshu_roe_min_pct"],
-        "holder": ["qingshu_institution_holder_count"],
     },
-    "data_policy": "missing_required_fields_fail_closed",
+    "data_policy": "market_fields_required_optional_fundamentals",
 }
 
 EXECUTION_BACKEND = "python_history_legacy"
@@ -51,19 +46,16 @@ ALERTS: list[dict] = []
 
 RULES = """
 1. 总市值严格大于 150 亿元。
-2. 连续五个完整年度 ROE ≥ 10%。
-3. 非自然人股东至少 5 名。
-4. 近 240 个交易日至少 6 次收盘涨停。
-5. 近一年至少出现一次连续两日涨停。
-6. 近 10 个交易日存在收盘涨停。
-7. 近 10 个交易日无跌幅达到 5% 的阴线。
-8. 近 20 个交易日出现 360 日复权新高。
-9. 连续 3 日成交量达到此前 20 日均量的 2 倍。
-10. 当日收盘真实涨停, 或高开 >= 3.5% 且收阳, 或振幅 > 9.8% 且收阳。
+2. 近 240 个交易日至少 6 次收盘涨停。
+3. 近一年至少出现一次连续两日涨停。
+4. 近 10 个交易日存在收盘涨停。
+5. 近 10 个交易日无跌幅达到 5% 的阴线。
+6. 近 20 个交易日出现 360 日复权新高。
+7. 连续 3 日成交量达到此前 20 日均量的 2 倍。
+8. 当日收盘真实涨停, 或高开 >= 3.5% 且收阳, 或振幅 > 9.8% 且收阳。
 
-年度 ROE、公告日和机构股东快照必须由数据层先按 as-of 日 JOIN 为
-qingshu_roe_complete_years, qingshu_roe_min_pct,
-qingshu_institution_holder_count; 缺少任一字段时本策略不返回候选。
+年度 ROE 和机构股东数曾是过于极端且经常缺失的硬门槛，本版本移除它们；
+如果数据层提供这些字段，仍可作为扩展展示字段，但不参与候选过滤。
 """
 
 
@@ -87,16 +79,10 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
         "volume",
         "total_shares",
         "signal_limit_up",
-        "qingshu_roe_complete_years",
-        "qingshu_roe_min_pct",
-        "qingshu_institution_holder_count",
     }
     if df.is_empty() or not required <= set(df.columns):
         return _empty(df)
 
-    roe_years = int(params.get("required_annual_roe_years", 5))
-    roe_min = float(params.get("roe_min_pct", 10.0))
-    holder_min = int(params.get("institution_holder_min_count", 5))
     cap_min_yi = float(params.get("market_cap_min_yi", 150.0))
     annual_limit_min = int(params.get("annual_limit_up_min_count", 6))
     volume_multiple = float(params.get("volume_multiple", 2.0))
@@ -136,9 +122,6 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
     # so an incomplete row cannot pass through as a zero/default value.
     candidate = (
         (pl.col("close") * pl.col("total_shares") > cap_min_yi * 1e8)
-        & (pl.col("qingshu_roe_complete_years") >= roe_years)
-        & (pl.col("qingshu_roe_min_pct") >= roe_min)
-        & (pl.col("qingshu_institution_holder_count") >= holder_min)
         & (pl.col("_bar_count") >= 380)
         & (pl.col("_limit_count_240") >= annual_limit_min)
         & ((pl.col("_limit_up") == 1) & (pl.col("_prev_limit_up") == 1)).rolling_max(window_size=240, min_samples=240).over("symbol").fill_null(0).cast(pl.Boolean)

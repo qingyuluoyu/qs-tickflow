@@ -18,7 +18,7 @@ from typing import Any
 
 import polars as pl
 
-from app.market_time import cn_today, is_market_snapshot_stale, resolve_market_as_of
+from app.market_time import MarketSession, cn_today, is_market_snapshot_stale, resolve_market_as_of
 from app.services.ext_data import ExtConfig, ExtConfigStore
 from app.services.screener import ScreenerService
 
@@ -908,27 +908,61 @@ def build_market_overview(
     live_date: date | None = None
     live_snapshot: pl.DataFrame | None = None
     live_kind: str | None = None
+    closed_daily_used = False
     if dashboard_live and not explicit_as_of and dashboard_snapshot is not None:
-        # The original dashboard is backed by the local enriched partition.
-        # Only a non-empty, successful realtime snapshot for the actual China
-        # trading date is allowed to override that path.  A daily provider
-        # fallback is deliberately ignored: during a trading session it is
-        # normally the previous completed date and must not replace the
-        # original dashboard with a different, potentially stale dataset.
+        snapshot_kind = str(getattr(dashboard_snapshot, "kind", "") or "")
+        snapshot_date = getattr(dashboard_snapshot, "snapshot_date", None)
+        snapshot_frame = getattr(dashboard_snapshot, "frame", None)
+        snapshot_meta = getattr(dashboard_snapshot, "market_as_of", None) or {}
+        snapshot_session = snapshot_meta.get("session")
+        current_session = resolve_market_as_of().session
+        realtime_sessions = {
+            MarketSession.MORNING.value,
+            MarketSession.AFTERNOON.value,
+        }
+        # A realtime frame is valid only for the current Beijing date and a
+        # successful active-session refresh.  The preloader already blocks
+        # requests outside the session; this second boundary keeps a cached
+        # frame from being relabelled as today's live market after close.
         realtime_is_current = (
-            dashboard_snapshot.kind.endswith(".realtime")
+            snapshot_kind.endswith(".realtime")
             and dashboard_snapshot.status == "success"
             and dashboard_snapshot.realtime_rows > 0
-            and dashboard_snapshot.snapshot_date == cn_today()
+            and snapshot_date == cn_today()
+            and current_session.value in realtime_sessions
+            and (
+                snapshot_session is None
+                or snapshot_session in realtime_sessions
+            )
         )
         if (
             realtime_is_current
-            and dashboard_snapshot.frame is not None
-            and not dashboard_snapshot.frame.is_empty()
+            and snapshot_frame is not None
+            and not snapshot_frame.is_empty()
         ):
-            live_date = dashboard_snapshot.snapshot_date
-            live_snapshot = _fill_live_snapshot_names(dashboard_snapshot.frame.clone(), repo)
-            live_kind = dashboard_snapshot.kind
+            live_date = snapshot_date
+            live_snapshot = _fill_live_snapshot_names(snapshot_frame.clone(), repo)
+            live_kind = snapshot_kind
+        # After close or on a closed day, a provider daily frame is the
+        # authoritative completed snapshot.  It may be an earlier date on a
+        # weekend/holiday; that is valid as long as it is not in the future and
+        # local enriched data is not newer.
+        daily_is_closed = (
+            snapshot_kind.endswith(".daily")
+            and snapshot_session in {
+                MarketSession.POST_CLOSE.value,
+                MarketSession.CLOSED.value,
+            }
+            and snapshot_date is not None
+            and snapshot_date <= cn_today()
+            and snapshot_frame is not None
+            and not snapshot_frame.is_empty()
+        )
+        if daily_is_closed and live_snapshot is None:
+            live_date = snapshot_date
+            live_snapshot = _fill_live_snapshot_names(snapshot_frame.clone(), repo)
+            live_kind = snapshot_kind
+            closed_daily_used = True
     # 本地管道(含收盘后快照补缺)可能比 provider 的 T+1 快照更新 —— 此时以本地为准,
     # 否则 provider 尚未发布当日数据时会把看板整体拖回旧交易日。
     local_latest = svc.latest_date()
@@ -959,9 +993,12 @@ def build_market_overview(
         # every prior weekday snapshot as confirmed would hide the exact stale
         # data problem the dashboard is meant to surface.
         provider_confirmed=(
-            live_snapshot is not None
-            and live_date is not None
-            and (live_date == cn_today() or cn_today().weekday() >= 5)
+            closed_daily_used
+            or (
+                live_snapshot is not None
+                and live_date is not None
+                and (live_date == cn_today() or cn_today().weekday() >= 5)
+            )
         ),
     )
     freshness["snapshot_kind"] = (
