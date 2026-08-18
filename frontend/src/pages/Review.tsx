@@ -12,7 +12,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import {
   BookOpenCheck, RefreshCw, Sparkles, Trash2, History, ChevronRight, AlertTriangle,
-  Database, Wand2, Copy, Download, Clock, X,
+  Database, Wand2, Copy, Download, Clock, X, Maximize2, Minimize2,
 } from 'lucide-react'
 import { ActionIcon, Button, Checkbox, Chip, NumberInput, Switch, TextInput, Tooltip } from '@mantine/core'
 
@@ -665,6 +665,13 @@ function ReportPanel({
   reportEndRef: React.RefObject<HTMLDivElement | null>
 }) {
   const [reasoningOpen, setReasoningOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  useEffect(() => {
+    if (!expanded) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setExpanded(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [expanded])
   useEffect(() => {
     if (!content) setReasoningOpen(false)
   }, [content.length === 0])
@@ -743,10 +750,20 @@ function ReportPanel({
   const isLoading = phase === 'loading' && !content
 
   return (
+    <>
+      {expanded && (
+        <div
+          className="fixed inset-0 z-[190] bg-black/50 backdrop-blur-sm"
+          onClick={() => setExpanded(false)}
+        />
+      )}
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="overflow-hidden rounded-card border border-border bg-surface/80"
+      className={cn(
+        'overflow-hidden rounded-card border border-border bg-surface/80',
+        expanded && 'fixed inset-3 z-[200] flex flex-col bg-surface shadow-2xl',
+      )}
     >
       <div className="flex items-center justify-between border-b border-border bg-gradient-to-r from-accent/5 to-transparent px-4 py-2.5">
         <div className="flex items-center gap-1.5">
@@ -755,8 +772,9 @@ function ReportPanel({
             {showViewingTag ? `历史复盘 · ${viewing!.as_of}` : isGenerating ? 'AI 正在复盘…' : '复盘报告'}
           </span>
         </div>
+        <div className="flex items-center gap-1">
         {showActions && (
-          <div className="flex items-center gap-1">
+          <>
             <Tooltip label="复制全文" position="bottom">
               <Button
                 size="compact-xs"
@@ -781,10 +799,25 @@ function ReportPanel({
                 下载
               </Button>
             </Tooltip>
-          </div>
+          </>
         )}
+        <Tooltip label={expanded ? '还原默认尺寸 (Esc)' : '放大至近全屏阅读'} position="bottom">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="md"
+            onClick={() => setExpanded(v => !v)}
+            aria-label={expanded ? '还原默认尺寸' : '放大至近全屏阅读'}
+          >
+            {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </ActionIcon>
+        </Tooltip>
+        </div>
       </div>
-      <div className="max-h-[calc(100vh-22rem)] overflow-y-auto px-5 py-4">
+      <div className={cn(
+        'overflow-y-auto',
+        expanded ? 'min-h-0 flex-1 px-8 py-6' : 'max-h-[calc(100vh-22rem)] px-5 py-4',
+      )}>
         {isLoading ? (
           <div className="flex flex-col items-center justify-center gap-3 py-16">
             <div className="relative">
@@ -832,6 +865,7 @@ function ReportPanel({
         <div ref={reportEndRef} />
       </div>
     </motion.div>
+    </>
   )
 }
 
