@@ -9,6 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -434,6 +435,10 @@ app = FastAPI(
 # The product uses HttpOnly cookies, so wildcard browser origins are unsafe and
 # cannot authenticate correctly. Same-origin needs no CORS headers; operators
 # may opt into a bounded list for a separately hosted trusted frontend.
+# 出口带宽是部署瓶颈: 文本资源 (JS/CSS/JSON) gzip 后体积降 60-80%。
+# minimum_size 避免小响应压缩开销; streaming/SSE 响应不受影响 (starlette 自动跳过)。
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 if settings.cors_origin_list:
     app.add_middleware(
         CORSMiddleware,
@@ -461,6 +466,9 @@ async def security_headers_middleware(request: Request, call_next):
         )
     if request.url.path.startswith(("/api/auth/", "/api/qingshu101/")):
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/assets/"):
+        # vite 产物文件名带内容 hash, 可永久缓存 — 带宽受限环境的关键优化
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     if auth_api._is_https(request):  # noqa: SLF001 - shared trusted-proxy policy
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -572,9 +580,14 @@ if _static.exists():
     def spa_fallback(full_path: str):  # noqa: ARG001
         """所有未匹配路径回退到 index.html — React Router 接管。
 
+        dist 根目录下的真实文件 (brand-icon.png / favicon.svg 等) 优先直接返回。
         index.html 禁止缓存 (Cache-Control: no-store), 确保浏览器每次拿到
         最新版本引用的 JS/CSS 文件名 (assets 带 hash, 可长缓存)。
         """
+        if full_path:
+            candidate = (_static / full_path).resolve()
+            if candidate.is_file() and candidate.is_relative_to(_static.resolve()):
+                return FileResponse(candidate)
         index = _static / "index.html"
         if index.exists():
             return FileResponse(
