@@ -5,31 +5,85 @@
  * - 类型安全，不再散落 try/catch。
  */
 
-function kv<T>(key: string) {
+// All values managed by this module are user-facing workspace state. Keep a
+// process-local account scope so a browser account switch cannot fall back to
+// another account's localStorage values while the backend is being refreshed.
+// The scope is deliberately not persisted separately: AuthGate is the source
+// of truth and clears it before mounting a different account.
+let activeUserScope = 'anonymous'
+
+export function setStorageUser(userId: string | null): void {
+  activeUserScope = userId ? encodeURIComponent(userId) : 'anonymous'
+}
+
+function scopedKey(key: string): string {
+  return `tf-user:${activeUserScope}:${key}`
+}
+
+/**
+ * Namespaced browser storage for small per-account preferences that predate
+ * the typed `storage` registry.  Keeping the namespace in one place prevents
+ * a direct localStorage call from leaking a previous account's UI state when
+ * the user switches accounts in the same tab.
+ */
+function scopedBrowserStorage(target: Storage | null) {
+  return {
+    getItem(key: string): string | null {
+      try { return target?.getItem(scopedKey(key)) ?? null } catch { return null }
+    },
+    setItem(key: string, value: string): void {
+      try { target?.setItem(scopedKey(key), value) } catch { /* ignore */ }
+    },
+    removeItem(key: string): void {
+      try { target?.removeItem(scopedKey(key)) } catch { /* ignore */ }
+    },
+  } as const
+}
+
+function browserStorage(name: 'localStorage' | 'sessionStorage'): Storage | null {
+  try {
+    if (typeof globalThis === 'undefined') return null
+    return (globalThis as typeof globalThis & Record<string, unknown>)[name] as Storage | undefined ?? null
+  } catch {
+    return null
+  }
+}
+
+const browserLocalStorage = browserStorage('localStorage')
+export const accountStorage = scopedBrowserStorage(browserLocalStorage)
+export const accountSessionStorage = scopedBrowserStorage(browserStorage('sessionStorage'))
+
+function kv<T>(key: string, options?: { explicitScope?: string }) {
+  const resolveKey = () => options?.explicitScope
+    ? `tf-user:${options.explicitScope}:${key}`
+    : scopedKey(key)
   return {
     get(fallback: T): T {
       try {
-        const raw = localStorage.getItem(key)
+        const raw = browserLocalStorage?.getItem(resolveKey()) ?? null
         if (raw !== null) return JSON.parse(raw) as T
       } catch { /* ignore */ }
       return fallback
     },
     set(val: T) {
-      try { localStorage.setItem(key, JSON.stringify(val)) } catch { /* ignore */ }
+      try {
+        browserLocalStorage?.setItem(resolveKey(), JSON.stringify(val))
+      } catch { /* ignore */ }
     },
   }
 }
 
 /** User-interface preferences that must not bleed between local accounts. */
 export function storageForUser(userId: string) {
-  const prefix = `tf-user:${encodeURIComponent(userId)}:`
+  const userKey = <T,>(key: string) => kv<T>(key, { explicitScope: encodeURIComponent(userId) })
   return {
-    watchlistColumns:     kv<unknown[]>(`${prefix}watchlist_columns`),
-    watchlistView:        kv<string>(`${prefix}watchlist_view`),
-    watchlistCandle:      kv<boolean>(`${prefix}watchlist_showCandle`),
-    watchlistIntraday:    kv<boolean>(`${prefix}watchlist_showIntraday`),
-    watchlistBoardFilter: kv<string[]>(`${prefix}watchlist_boardFilter`),
-    strategyPool:         kv<string[]>(`${prefix}strategy_pool`),
+    // Keep these names stable for existing account-scoped callers.
+    watchlistColumns:     userKey<unknown[]>('watchlist_columns'),
+    watchlistView:        userKey<string>('watchlist_view'),
+    watchlistCandle:      userKey<boolean>('watchlist_showCandle'),
+    watchlistIntraday:    userKey<boolean>('watchlist_showIntraday'),
+    watchlistBoardFilter: userKey<string[]>('watchlist_boardFilter'),
+    strategyPool:         userKey<string[]>('strategy_pool'),
   } as const
 }
 

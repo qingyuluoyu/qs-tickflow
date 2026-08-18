@@ -57,6 +57,7 @@ const MAX_ACTIVE = 3
 let activeTasks: ActiveTask[] = []
 let history: HistoryReport[] = []
 let historyLoaded = false
+let accountGeneration = 0
 const listeners = new Set<() => void>()
 
 let activeDialogTaskId: string | null = null
@@ -69,6 +70,18 @@ function normalizeAiError(msg: string) {
   return msg.includes('API Key') || msg.includes('api_key')
     ? 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
     : msg
+}
+
+/** Drop all in-memory private state before the authenticated account changes. */
+export function resetAccountState(): void {
+  accountGeneration += 1
+  activeTasks = []
+  history = []
+  historyLoaded = false
+  activeDialogTaskId = null
+  dialogMinimized = false
+  rebuildSnap()
+  emit()
 }
 
 let _activeSnap: ActiveTask[] = []
@@ -139,8 +152,10 @@ export function useDialogTask(): { task: ActiveTask | HistoryReport | null; mode
 // ===== 动作 =====
 
 export async function loadHistory(): Promise<void> {
+  const generation = accountGeneration
   try {
     const res = await api.stockAnalysisReportsList()
+    if (generation !== accountGeneration) return
     history = res.reports ?? []
     historyLoaded = true
     rebuildSnap()

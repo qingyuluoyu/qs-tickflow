@@ -18,6 +18,7 @@ export const QK = {
   quoteStatus:    ['quote-status'] as const,
   quoteInterval:  ['quote-interval'] as const,
   overviewMarket: (asOf?: string) => ['overview-market', asOf ?? 'latest'] as const,
+  overviewMarketLocal: (asOf?: string) => ['overview-market', 'local', asOf ?? 'latest'] as const,
   indexQuotes:    ['index-quotes'] as const,
   indexList:      ['index-list'] as const,
 
@@ -30,6 +31,10 @@ export const QK = {
   watchlistEnrichedFor: (userId: string, ext?: string) => ['watchlist-enriched', userId, ext] as const,
   watchlistKlineBatch:  (symbols: string) => ['watchlist-kline-batch', symbols] as const,
   watchlistKlineBatchFor: (userId: string, symbols: string) => ['watchlist-kline-batch', userId, symbols] as const,
+  watchlistNewsFor: (userId: string, category: string, symbol?: string | null, query?: string, cursor?: string | null) =>
+    ['watchlist-news', userId, category, symbol ?? '', query ?? '', cursor ?? ''] as const,
+  watchlistNewsDetailFor: (userId: string, category: string, itemId: string) =>
+    ['watchlist-news-detail', userId, category, itemId] as const,
   // 不用 watchlist- 前缀: 避免被 SSE quotes_updated 高频失效(expert 1s/pro 2s)
   // 导致每次都拉 TickFlow 触限流。分时图用固定 refetchInterval 刷新即可。
   minuteBatch:          (symbols: string) => ['minute-batch', symbols] as const,

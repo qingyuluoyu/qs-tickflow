@@ -4,7 +4,7 @@ import { ActionIcon, Button, Card, Slider, Switch, Tooltip } from '@mantine/core
 import { Activity, Settings } from 'lucide-react'
 import { Skeleton } from './Skeleton'
 
-export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange }: {
+export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange, isAdmin = true }: {
   enabled: boolean
   running: boolean
   isTrading: boolean
@@ -18,6 +18,8 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
   showIntervalEdit: boolean
   onShowIntervalEdit: () => void
   onIntervalChange: (v: number) => void
+  /** 开关与轮询间隔为服务器级写操作(管理员闸门),普通用户隐藏控件只保留状态展示 */
+  isAdmin?: boolean
 }) {
   const statusColor = running && isTrading
     ? 'bg-accent shadow-[0_0_6px_rgba(61,214,140,0.5)]'
@@ -44,6 +46,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
           <Activity className="h-4 w-4 text-secondary" />
           <h3 className="text-sm font-medium text-foreground">实时行情</h3>
         </div>
+        {isAdmin && (
         <Switch
           size="sm"
           checked={enabled}
@@ -51,6 +54,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
           disabled={toggling}
           aria-label="实时行情开关"
         />
+        )}
       </div>
 
       {loading ? (
@@ -76,6 +80,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
           <div className="flex items-center justify-between text-[11px]">
             <div className="flex items-center gap-1">
               <span className="text-muted">轮询间隔</span>
+              {isAdmin && (
               <Tooltip label="设置轮询间隔" position="top">
                 <ActionIcon
                   variant="subtle"
@@ -88,6 +93,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
                   <Settings className="h-3 w-3" />
                 </ActionIcon>
               </Tooltip>
+              )}
             </div>
             <span className="font-mono text-secondary">{intervalS}s</span>
           </div>

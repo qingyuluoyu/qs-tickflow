@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AppShell, Box, Burger, Group } from '@mantine/core'
@@ -21,6 +21,7 @@ import {
 } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
 import { tierRank } from '@/lib/capability-labels'
+import { accountStorage } from '@/lib/storage'
 import {
   Star,
   History,
@@ -53,7 +54,7 @@ import { api, type IndexQuote } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
-import { useAuth } from '@/lib/auth'
+import { useAuth, useIsAdmin } from '@/lib/auth'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
@@ -131,7 +132,7 @@ function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
   // 尊重用户设置: 可在菜单设置里关闭数字提示
   const badgeEnabled = (() => {
-    try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
+    return accountStorage.getItem('monitor_badge_enabled') !== '0'
   })()
   if (active || unread <= 0 || !badgeEnabled) return null
   return (
@@ -175,7 +176,7 @@ export function Layout() {
   const { user, logout } = useAuth()
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('sidebar-collapsed') === '1'
+      return accountStorage.getItem('sidebar-collapsed') === '1'
     } catch {
       return false
     }
@@ -187,7 +188,7 @@ export function Layout() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('sidebar-collapsed', sidebarCollapsed ? '1' : '0')
+      accountStorage.setItem('sidebar-collapsed', sidebarCollapsed ? '1' : '0')
     } catch {
       // 无法使用本地存储时仍允许当前会话切换侧栏
     }
@@ -235,6 +236,7 @@ export function Layout() {
   }, [isDataSyncing])
 
   const qc = useQueryClient()
+  const location = useLocation()
   const navigate = useNavigate()
   // 告警通知点击跳转监控中心 — 通知挂在 Router 之外, 在此注册 navigate
   useEffect(() => { registerAlertNavigator(navigate) }, [navigate])
@@ -248,8 +250,12 @@ export function Layout() {
   // 卡片数据：固定显示时也拉取（即使实时行情关闭）
   const showSidebarQuotes = indicesPinned || realtimeEnabled
   const { data: sidebarIndexQuotes } = useQuery({
-    queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(',')] as const,
-    queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol)),
+    queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol), {
+      // The dashboard shares the preloaded intraday snapshot with its main
+      // cards; other pages retain the existing provider-backed behaviour.
+      localOnly: location.pathname !== '/',
+    }),
+    queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(','), location.pathname === '/' ? 'dashboard' : 'provider'] as const,
     enabled: showSidebarQuotes && sidebarIndexes.length > 0,
     placeholderData: (prev) => prev,
   })
@@ -260,6 +266,8 @@ export function Layout() {
   const streamStatus = useQuoteStreamStatus()
 
   const toggleQuote = useToggleRealtimeQuotes()
+  // 实时行情开关(PUT realtime-quotes)为管理员操作,普通用户只看状态点
+  const isAdmin = useIsAdmin()
   const isRunning = quoteStatus?.running ?? false
   const isTrading = quoteStatus?.is_trading_hours ?? false
   // 管道/数据修正运行期间实时行情被临时暂停 — 此时禁止开启
@@ -485,6 +493,7 @@ export function Layout() {
                     <Settings className="h-3 w-3" />
                   </button>
                 </div>
+                {isAdmin && (
                 <button
                   onClick={() => handleToggle(!realtimeEnabled)}
                   disabled={toggleQuote.isPending || isPaused}
@@ -499,6 +508,7 @@ export function Layout() {
                     realtimeEnabled ? 'translate-x-[14px]' : 'translate-x-0.5'
                   }`} />
                 </button>
+                )}
             </div>
 
             {/* 状态提示 */}

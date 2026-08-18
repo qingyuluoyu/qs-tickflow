@@ -9,13 +9,13 @@ import {
   AlertCircle,
   RefreshCw,
   Activity,
-  ExternalLink,
   Loader2,
   Save,
   Check,
   HelpCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useIsAdmin } from '@/lib/auth'
 import { useCapabilities, useSettings } from '@/lib/useSharedQueries'
 import { QK } from '@/lib/queryKeys'
 import { CAP_LABELS, tierTextStyle, tierStyle, tierBaseName, ALL_TIERS, TierTag } from '@/lib/capability-labels'
@@ -25,6 +25,8 @@ import { Modal } from '@/components/Modal'
 
 export function SettingsKeysPanel() {
   const qc = useQueryClient()
+  // tickflow-key 增删为服务器级写操作(后端管理员闸门),普通用户只读状态
+  const isAdmin = useIsAdmin()
 
   const settings = useSettings()
   const caps = useCapabilities()
@@ -72,19 +74,9 @@ export function SettingsKeysPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6 max-w-5xl">
         {/* ========== 左列: Key 配置 ========== */}
         <div className="space-y-6">
-          <Card icon={Key} title="TickFlow API Key">
+          <Card icon={Key} title="数据接口密钥">
             <p className="text-sm text-secondary leading-relaxed mb-4">
-              在{' '}
-              <a
-                href="https://tickflow.org/auth/register?ref=V3KDKGXPEA"
-                target="_blank"
-                rel="noreferrer"
-                className="text-accent hover:underline inline-flex items-baseline gap-0.5"
-              >
-                tickflow.org
-                <ExternalLink className="h-3 w-3 self-center" />
-              </a>{' '}
-              注册获取。API Key 存放为本地文件,不会上传任何第三方,请妥善保管。
+              可选配置你自己的数据接口密钥。密钥仅保存在当前账户的加密配置中，不会在页面明文展示。
             </p>
 
             {/* 当前状态 */}
@@ -112,7 +104,7 @@ export function SettingsKeysPanel() {
                   )}
                 </div>
               </div>
-              {(mode === 'api_key' || mode === 'free') && (
+              {isAdmin && (mode === 'api_key' || mode === 'free') && (
                 <Button
                   size="xs" variant="subtle" color="red"
                   onClick={() => setConfirmClear(true)}
@@ -124,7 +116,8 @@ export function SettingsKeysPanel() {
               )}
             </div>
 
-            {/* 输入 */}
+            {/* 输入 (仅管理员可保存/替换密钥) */}
+            {isAdmin && (
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -133,7 +126,7 @@ export function SettingsKeysPanel() {
               className="space-y-2"
             >
               <PasswordInput
-                placeholder={mode === 'none' ? '粘贴 TickFlow API Key' : '粘贴新 Key 替换当前'}
+                placeholder={mode === 'none' ? '粘贴接口密钥' : '粘贴新密钥替换当前'}
                 value={keyInput}
                 onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
                 size="sm"
@@ -167,6 +160,7 @@ export function SettingsKeysPanel() {
                 </div>
               )}
             </form>
+            )}
 
             {save.isError && (
               <div className="mt-3 text-xs text-danger">
@@ -307,7 +301,7 @@ export function SettingsKeysPanel() {
         >
           <h3 className="text-sm font-medium text-foreground mb-2">清除 API Key</h3>
           <p className="text-xs text-secondary mb-5">
-            清除后将退回 None 档(仅历史日K),需要重新输入 Key 才能恢复。
+            清除后将关闭扩展接口能力，历史行情仍可继续使用。
           </p>
           <div className="flex items-center justify-end gap-2">
             <Button size="sm" variant="default" onClick={() => setConfirmClear(false)}>
@@ -371,7 +365,7 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
                   return (
                     <div key={t} className="flex items-center gap-2">
                       <span className="h-1.5 w-1.5 rounded-full shrink-0" style={s.dotStyle} />
-                      <span className="font-mono font-bold w-12 shrink-0" style={s.labelTextStyle}>{t === 'none' ? 'None' : t}</span>
+                      <span className="font-mono font-bold w-12 shrink-0" style={s.labelTextStyle}>{t === 'none' ? '未配置' : t}</span>
                       <span className="text-secondary">{s.desc}</span>
                     </div>
                   )
@@ -385,8 +379,8 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
               {/* 检测说明 */}
               <div className="text-secondary space-y-1.5">
                 <div className="font-medium text-foreground">档位检测说明</div>
-                <p>保存 Key 后系统会在付费端点逐一试探数据能力:连单只日K都拿不到则判为「None」(不存 Key);有日K但无复权因子则判为「Free」;有复权因子再按代表能力判定 Starter/Pro/Expert。</p>
-                <p className="text-muted">None 档与 Free 档运行时都走免费数据通道(仅历史日K),区别仅在于是否保存了 Key。付费档走付费端点,享有实时行情等完整能力。</p>
+                <p>保存密钥后系统会自动检测可用的数据能力，并只展示当前账户可使用的功能。</p>
+                <p className="text-muted">未配置密钥时仍可使用本地历史行情；扩展能力是否可用以检测结果为准。</p>
               </div>
       </Popover.Dropdown>
     </Popover>

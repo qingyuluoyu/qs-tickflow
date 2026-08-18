@@ -17,6 +17,7 @@ import { SettingsCustomSignalsPanel } from './settings/CustomSignals'
 import { SettingsDataSourcesPanel } from './settings/DataSources'
 import { PageHeader } from '@/components/PageHeader'
 import { PageContainer } from '@/components/PageContainer'
+import { useIsAdmin } from '@/lib/auth'
 import { cn } from '@/lib/cn'
 
 import type { ComponentType } from 'react'
@@ -32,10 +33,10 @@ type TabDef = {
 }
 
 const TABS: readonly TabDef[] = [
-  { key: 'account',    label: 'TickFlow',   icon: Key,       panel: SettingsKeysPanel },
+  { key: 'account',    label: '账户与接口', icon: Key,       panel: SettingsKeysPanel },
   { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
   { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel, badge: 'beta' },
+  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel },
   { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
   { key: 'signals',    label: '信号库',     icon: Zap,       panel: SettingsCustomSignalsPanel },
   { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
@@ -46,8 +47,12 @@ type TabKey = (typeof TABS)[number]['key']
 
 export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
+  // 数据源面板为纯服务器级管理功能(增删/重载/插件/切换 provider 均要求管理员),
+  // 普通用户隐藏整个入口,避免看到必然 403 的操作
+  const isAdmin = useIsAdmin()
+  const tabs = isAdmin ? TABS : TABS.filter((t) => t.key !== 'data-sources')
   const tabParam = searchParams.get('tab') as TabKey | null
-  const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
+  const activeTab = tabs.find((t) => t.key === tabParam) ?? tabs[0]
   const highlight = searchParams.get('highlight') ?? ''
 
   return (
@@ -62,7 +67,7 @@ export function Settings() {
           {/* ===== 竖向 Tab 侧栏（内容垂直居中; 窄屏横排堆叠到顶部） ===== */}
           <nav className="shrink-0 lg:w-36">
             <div className="flex flex-row flex-wrap gap-0.5 lg:min-h-[60vh] lg:flex-col lg:flex-nowrap lg:justify-center lg:sticky lg:top-6">
-              {TABS.map(({ key, label, icon: Icon, badge }) => (
+              {tabs.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}
                   onClick={() => setSearchParams({ tab: key }, { replace: true })}

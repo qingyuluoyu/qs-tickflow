@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { accountStorage } from './storage'
 
 /**
  * 监控中心未读触发记录徽标 — 全局 store + localStorage 持久化。
@@ -19,7 +20,7 @@ const listeners = new Set<() => void>()
 
 function readSeen(): number {
   try {
-    const v = localStorage.getItem(STORAGE_KEY)
+    const v = accountStorage.getItem(STORAGE_KEY)
     if (v === null) return -1  // 从未设置过 → 未初始化
     return parseInt(v, 10) || 0
   } catch {
@@ -28,7 +29,7 @@ function readSeen(): number {
 }
 
 function writeSeen(v: number) {
-  try { localStorage.setItem(STORAGE_KEY, String(v)) } catch { /* ignore */ }
+  accountStorage.setItem(STORAGE_KEY, String(v))
 }
 
 function syncSeen() {
@@ -49,6 +50,14 @@ function subscribe(fn: () => void) {
 
 function getSnapshot() {
   return Math.max(0, currentTotal - Math.max(0, lastSeenTotal))
+}
+
+/** Rebind the badge counters to the active account's namespace. */
+export function resetAccountState(): void {
+  currentTotal = 0
+  lastSeenTotal = readSeen()
+  pendingSeen = false
+  emit()
 }
 
 /** 轮询更新最新总数 (Layout 层调用)。 */

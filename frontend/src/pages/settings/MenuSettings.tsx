@@ -23,6 +23,7 @@ import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { accountStorage } from '@/lib/storage'
 
 interface NavEntry {
   id: string
@@ -246,13 +247,13 @@ export function SettingsMenuSettingsPanel() {
 
   // 监控中心徽标开关 (localStorage)
   const [badgeEnabled, setBadgeEnabled] = useState(() => {
-    try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
+    return accountStorage.getItem('monitor_badge_enabled') !== '0'
   })
   const toggleBadge = (id: string) => {
     if (id !== '/monitor') return
     const next = !badgeEnabled
     setBadgeEnabled(next)
-    try { localStorage.setItem('monitor_badge_enabled', next ? '1' : '0') } catch { /* ignore */ }
+    accountStorage.setItem('monitor_badge_enabled', next ? '1' : '0')
   }
 
   return (

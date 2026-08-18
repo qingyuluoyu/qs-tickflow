@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, Check, AlertCircle } from 'lucide-react'
 import { useActiveTasks, restoreDialog } from '@/lib/aiReportStore'
 import type { ActiveTask } from '@/lib/aiReportStore'
+import { accountStorage } from '@/lib/storage'
 
 /**
  * AI 分析任务全局气泡容器 —— 玻璃拟态卡片,挂在网页右侧。
@@ -235,7 +236,7 @@ function loadPos(): { x: number; y: number } {
   const defaultX = Math.max(EDGE_MARGIN, window.innerWidth - BUBBLE_W - EDGE_MARGIN)
   const defaultY = Math.max(EDGE_MARGIN, window.innerHeight - 200)
   try {
-    const v = localStorage.getItem(POS_KEY)
+    const v = accountStorage.getItem(POS_KEY)
     if (v) {
       const p = JSON.parse(v)
       if (typeof p.x === 'number' && typeof p.y === 'number') {
@@ -250,5 +251,5 @@ function loadPos(): { x: number; y: number } {
   return { x: defaultX, y: defaultY }
 }
 function savePos(p: { x: number; y: number }) {
-  try { localStorage.setItem(POS_KEY, JSON.stringify(p)) } catch { /* ignore */ }
+  accountStorage.setItem(POS_KEY, JSON.stringify(p))
 }

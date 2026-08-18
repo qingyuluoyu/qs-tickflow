@@ -17,7 +17,7 @@ test('策略页使用管理入口并提供删除与初始版本恢复契约', as
   assert.match(dialog, /回退初始版本/)
   assert.match(api, /strategyRestoreDefaults/)
   assert.match(api, /builtin_strategy_ids/)
-  assert.match(storage, /strategyPool:.*kv<string\[\]>\(.*prefix/s)
+  assert.match(storage, /strategyPool:\s*userKey<string\[\]>/)
   assert.match(pool, /userId/)
   assert.match(screener, /useStrategyPool\(user\.id\)/)
 })

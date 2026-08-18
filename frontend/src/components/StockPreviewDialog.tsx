@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Modal as MantineModal } from '@mantine/core'
-import { X, RefreshCw, Clock } from 'lucide-react'
+import { X, RefreshCw, Clock, Star } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cnSignal } from '@/lib/signals'
@@ -12,6 +12,7 @@ import { RuleEditor } from '@/components/monitor/RuleEditor'
 import { usePreferences, useQuoteStatus } from '@/lib/useSharedQueries'
 import { setFocusSymbol, clearFocusSymbol } from '@/lib/useQuoteStream'
 import { useAuth } from '@/lib/auth'
+import { toast } from '@/lib/notify'
 
 interface Props {
   symbol: string | null
@@ -61,7 +62,9 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
+    onError: (error) => toast(error instanceof Error ? error.message : '自选操作失败', 'error'),
   })
 
   // ESC 关闭 / 遮罩点击关闭 / 焦点管理由 Mantine Modal 内置处理
@@ -178,6 +181,24 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 >
                   <Clock className="h-3 w-3" />
                   分时
+                </button>
+
+                <span className="text-muted/20 mx-0.5">|</span>
+
+                {/* 弹窗顶栏提供明确的加入/移出自选入口；底部信息条仍保留星标快捷操作。 */}
+                <button
+                  onClick={() => toggleWatchlist.mutate()}
+                  disabled={watchlist.isLoading || toggleWatchlist.isPending}
+                  aria-pressed={inWatchlist}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors border disabled:cursor-not-allowed disabled:opacity-60 ${
+                    inWatchlist
+                      ? 'border-yellow-400/30 bg-yellow-400/10 text-yellow-300 hover:bg-yellow-400/15'
+                      : 'border-border bg-elevated text-secondary hover:border-accent/30 hover:text-foreground'
+                  }`}
+                  title={inWatchlist ? '移出自选' : '加入自选'}
+                >
+                  <Star className="h-3 w-3" fill={inWatchlist ? 'currentColor' : 'none'} />
+                  {watchlist.isLoading ? '读取中…' : toggleWatchlist.isPending ? '处理中…' : inWatchlist ? '已加自选' : '加入自选'}
                 </button>
 
                 <span className="text-muted/20 mx-0.5">|</span>

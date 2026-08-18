@@ -13,6 +13,7 @@ import { LastStockChip } from '@/components/LastStockChip'
 import { useLastStock } from '@/lib/useLastStock'
 import { fmtBigNum } from '@/lib/format'
 import { toast } from '@/lib/notify'
+import { useIsAdmin } from '@/lib/auth'
 
 const TABLE_LABELS: Record<string, string> = {
   metrics: '核心指标',
@@ -35,6 +36,8 @@ export function Financials() {
   const { data: status, isLoading } = useFinancialStatus()
   const hasFinancial = caps?.capabilities?.['financial'] != null || status?.available === true
   const syncMut = useFinancialSync()
+  // 财务同步(POST /api/financials/sync/{table})为管理员操作,普通用户只读
+  const isAdmin = useIsAdmin()
   // 同步进行中 = 服务端真值(status.syncing)或本地乐观态(请求已发出待确认)。
   // 乐观窗口:点击后到 invalidate 触发的 refetch 返回之间,status.syncing 暂为 false,
   // 用 syncMut.isPending 覆盖,让按钮立即置灰、避免重复点击。
@@ -175,6 +178,7 @@ export function Financials() {
                     : '同步中…'}
               </span>
             )}
+            {isAdmin && (
             <Button
               size="xs"
               variant="light"
@@ -188,6 +192,7 @@ export function Financials() {
             >
               {syncing ? '同步中…' : '全部同步'}
             </Button>
+            )}
           </div>
         }
       />
@@ -239,6 +244,7 @@ export function Financials() {
                         )}
                         <span className="text-xs font-medium text-foreground">{label}</span>
                       </div>
+                      {isAdmin && (
                       <Tooltip label={syncing ? '正在同步…' : `更新${label}`} disabled={syncing} withArrow position="top">
                         <ActionIcon
                           variant="subtle"
@@ -254,6 +260,7 @@ export function Financials() {
                             : <Download className="h-3.5 w-3.5" />}
                         </ActionIcon>
                       </Tooltip>
+                      )}
                     </div>
                     <div className="mt-2 text-xl font-semibold tabular-nums text-foreground">
                       {fmtBigNum(info?.rows ?? 0)}

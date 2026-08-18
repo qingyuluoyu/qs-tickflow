@@ -529,6 +529,7 @@ export function Screener() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 

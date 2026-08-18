@@ -20,6 +20,8 @@ import { cn } from '@/lib/cn'
 import { cnSignal } from '@/lib/signals'
 import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
+import { accountSessionStorage } from '@/lib/storage'
+import { useIsAdmin } from '@/lib/auth'
 
 function n(v: number | null | undefined) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
@@ -634,9 +636,9 @@ export function Dashboard() {
     staleTime: 5_000,
     placeholderData: (prev) => prev,
   })
-  // 看板默认展示最新快照：服务端预加载器每 30 秒拉取 TeaJoin，
-  // 前端只轮询轻量状态并使概览缓存失效，不在每个浏览器标签页重复触发上游请求。
-  // 选择历史日期时停用，避免历史回看触发无关的刷新。
+  // 看板开盘后读取后台预加载的盘中快照；收盘后回到本地完整日K。
+  // 仅轮询轻量状态以触发看板快照更新，不在页面请求线程中拉全市场数据。
+  // 选择历史日期时停用，避免历史回看触发无关刷新。
   const realtimeRefresh = useQuery({
     queryKey: ['dashboard-realtime-refresh'],
     queryFn: api.quoteStatus,
@@ -690,8 +692,8 @@ export function Dashboard() {
   useEffect(() => {
     if (!hasNoData) return
     if (settings.data?.onboarding_completed === false) return  // 还在引导流程中,不重复弹
-    if (sessionStorage.getItem('tf_welcome_shown')) return
-    sessionStorage.setItem('tf_welcome_shown', '1')
+    if (accountSessionStorage.getItem('tf_welcome_shown')) return
+    accountSessionStorage.setItem('tf_welcome_shown', '1')
     setShowWelcomeModal(true)
   }, [hasNoData, settings.data?.onboarding_completed])
 
@@ -699,7 +701,7 @@ export function Dashboard() {
   useEffect(() => {
     if (fetchSucceeded) {
       qc.invalidateQueries({ queryKey: QK.dataStatus })
-      qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) })
+    qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) })
     }
   }, [fetchSucceeded, qc])
 
@@ -721,7 +723,7 @@ export function Dashboard() {
   const handleRefresh = () => {
     setManualFetching(true)
     api.refreshCache()
-      .then(() => qc.invalidateQueries({ queryKey: ['overview-market'] }))
+      .then(() => qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) }))
       .finally(() => {
         overview.refetch().finally(() => setManualFetching(false))
       })
@@ -754,21 +756,24 @@ export function Dashboard() {
   const latestDate = dataStatus.data?.enriched?.latest_date ?? null
   const currentDate = selectedDate ?? data.as_of ?? ''
   const freshness = data.data_freshness
-  const providerSnapshot = freshness?.snapshot_kind === 'teajoin.daily'
-    || freshness?.snapshot_kind === 'teajoin.realtime'
+  const providerSnapshot = freshness?.snapshot_kind?.endsWith('.daily')
+    || freshness?.snapshot_kind?.endsWith('.realtime')
   const effectiveLatestDate = providerSnapshot
-    ? (freshness.snapshot_date ?? data.as_of ?? latestDate)
+    ? (freshness?.snapshot_date ?? data.as_of ?? latestDate)
     : (latestDate ?? data.as_of ?? freshness?.snapshot_date ?? null)
   const realtimeStatus = freshness?.realtime_status ?? data.quote_status?.last_fetch_status
   const realtimeIsCurrent = realtimeStatus === undefined || realtimeStatus === 'success'
-  const realtimeSnapshot = freshness?.snapshot_kind === 'teajoin.realtime' && realtimeStatus === 'success'
+  const realtimeSnapshot = freshness?.snapshot_kind?.endsWith('.realtime') && realtimeStatus === 'success'
+  // 新浪盘中快照源与 provider 实时流区分标注, 避免误读为逐笔实时。
+  const runningLabel = freshness?.snapshot_kind === 'sina.realtime' ? '实时 · 快照源' : '实时'
   const quoteRunning = (!selectedDate || selectedDate === effectiveLatestDate)
     && (Boolean(data.quote_status?.running) || realtimeSnapshot)
     && realtimeIsCurrent
   const isLatestSnapshot = !selectedDate || selectedDate === effectiveLatestDate
   const snapshotDate = freshness?.snapshot_date ?? latestDate ?? data.as_of ?? null
   const snapshotStale = isLatestSnapshot && (freshness?.is_stale ?? (!!snapshotDate && snapshotDate < beijingDate()))
-  const sourceLabel = freshness?.source === 'teajoin' ? 'TeaJoin' : (freshness?.source ?? '当前数据源')
+  // 对外只展示数据新鲜度，不暴露具体供应商或内部路由名称。
+  const sourceLabel = freshness?.source === 'sina' ? '盘中快照' : '行情服务'
   const realtimeUnavailable = freshness?.source === 'teajoin' && ['empty', 'provider_unavailable', 'error', 'never'].includes(realtimeStatus ?? '')
   // 实时模式: none / watchlist / full_market。
   // watchlist (Free 档) 仅自选 ≤5 只实时, 看板呈现的大盘数据实为盘后快照, 需提示避免误读。
@@ -797,6 +802,11 @@ export function Dashboard() {
         }
         right={
           <div className="flex items-center gap-3 text-[11px] text-muted">
+            {snapshotStale && (
+              <span className="text-danger" title="当前数据源尚未返回今日有效快照">
+                最近可用
+              </span>
+            )}
             {currentDate ? (
               <DatePicker
                 value={currentDate}
@@ -810,10 +820,10 @@ export function Dashboard() {
             )}
             <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{quoteAge(data.quote_status?.quote_age_ms)}</span>
             <span className="hidden" aria-hidden="true">
-              {snapshotStale ? '数据过期' : quoteRunning ? '实时' : '非实时'}
+              {snapshotStale ? '数据过期' : quoteRunning ? runningLabel : '非实时'}
             </span>
             <span className={snapshotStale ? 'text-danger' : quoteRunning ? 'text-accent' : 'text-warning'}>
-              {snapshotStale ? (realtimeUnavailable ? `${sourceLabel} 未返回今日快照` : '数据过期') : quoteRunning ? '实时' : '非实时'}
+              {snapshotStale ? (realtimeUnavailable ? `${sourceLabel} 未返回今日快照` : '数据过期') : quoteRunning ? runningLabel : '非实时'}
             </span>
             <Button
               size="xs"
@@ -888,7 +898,7 @@ export function Dashboard() {
         {data.indices.map(item => <IndexTicker key={item.symbol} item={item} />)}
       </div>
 
-      <div className="mb-1.5 grid grid-cols-2 gap-1 md:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-1.5 grid grid-cols-2 gap-1 md:grid-cols-3 xl:grid-cols-[1.3fr_1.05fr_1.05fr_0.9fr_0.9fr_1fr]">
         <KpiCell icon={TrendingUp} label="个股涨 / 平 / 跌" value={<><span className="text-bull">{data.breadth.up}</span><span className="text-muted">/</span><span className="text-muted">{data.breadth.flat}</span><span className="text-muted">/</span><span className="text-bear">{data.breadth.down}</span></>} sub={`上涨率 ${data.breadth.up_pct.toFixed(1)}%`} />
         <KpiCell icon={Zap} label="强势 / 弱势" value={<><span className="text-bull">{strongUp}</span><span className="text-muted">/</span><span className="text-bear">{strongDown}</span></>} sub="涨跌 ≥3%" />
         <KpiCell icon={Flame} label={<span className="inline-flex items-center gap-1">涨停 / 跌停<SealedBadge degraded={isSealedDegrade} hasDepth={hasDepth} isHistorical={false} sealedReady={sealedReady} sealedCountsUp={{ real: data.limit.limit_up, fake: data.limit.fake_up ?? 0, pending: 0 }} sealedCountsDown={{ real: data.limit.limit_down, fake: data.limit.fake_down ?? 0, pending: 0 }} rawUp={data.limit.limit_up + (data.limit.fake_up ?? 0)} rawDown={data.limit.limit_down + (data.limit.fake_down ?? 0)} invalidateKeys={['overview-market', 'limit-ladder']} /></span>} value={<><span className="text-bull">{data.limit.limit_up}</span><span className="text-muted">/</span><span className="text-bear">{data.limit.limit_down}</span></>} sub={`封板率 ${(data.limit.seal_rate ?? 0).toFixed(0)}%`} />
@@ -1048,6 +1058,8 @@ function FetchDataCard({
   isNoKey: boolean
 }) {
   const stageText = stage ? (STAGE_LABELS[stage] ?? stage) : '正在同步行情数据…'
+  // 触发盘后管道(POST /api/pipeline/run)为管理员操作,普通用户只展示状态
+  const isAdmin = useIsAdmin()
   return (
     <div className="mb-3 rounded-card border border-border bg-surface/85 p-3.5">
       <div className="flex items-start gap-3">
@@ -1061,7 +1073,7 @@ function FetchDataCard({
           </p>
           {isNoKey && (
             <p className="mt-1 text-[11px] text-warning/80 leading-relaxed">
-              ⓘ 无需 API Key,当前为 None 档即可获取历史日K,可制定策略+回测。配置免费 Key 可解锁实时行情监控能力。
+              ⓘ 当前可直接获取历史行情；配置扩展权限后可解锁更多实时监控能力。
             </p>
           )}
 
@@ -1088,11 +1100,11 @@ function FetchDataCard({
           ) : fetchFailed ? (
             <div className="mt-3 flex items-center gap-2">
               <span className="text-xs text-danger">同步失败,请重试</span>
-              <Button size="xs" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>重新获取</Button>
+              {isAdmin && <Button size="xs" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>重新获取</Button>}
             </div>
           ) : (
             <div className="mt-3 flex items-center gap-3">
-              <Button size="sm" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>立即获取数据</Button>
+              {isAdmin && <Button size="sm" leftSection={<Play className="h-3.5 w-3.5" />} onClick={onStart}>立即获取数据</Button>}
               <Link
                 to="/data"
                 className="inline-flex items-center gap-0.5 text-xs text-secondary hover:text-accent transition-colors"
@@ -1116,6 +1128,8 @@ function WelcomeFetchModal({
   onClose: () => void
   onStart: () => void
 }) {
+  // 触发盘后管道(POST /api/pipeline/run)为管理员操作,普通用户隐藏开始按钮
+  const isAdmin = useIsAdmin()
   return (
     <SettingsModal title="欢迎首次使用 · 获取行情数据" onClose={onClose}>
       <div className="text-center">
@@ -1134,12 +1148,12 @@ function WelcomeFetchModal({
         </p>
         {isNoKey && (
           <div className="mt-3 rounded-btn bg-elevated/60 px-3 py-2 text-[11px] text-muted leading-relaxed">
-            ⓘ 当前无需 API Key,None 档即可获取历史日K数据。
+            ⓘ 当前无需额外配置即可获取历史行情数据。
           </div>
         )}
         <div className="mt-5 flex items-center justify-center gap-2.5">
           <Button variant="subtle" color="gray" size="sm" onClick={onClose}>稍后再说</Button>
-          <Button size="sm" leftSection={<Play className="h-4 w-4" />} onClick={onStart}>开始获取</Button>
+          {isAdmin && <Button size="sm" leftSection={<Play className="h-4 w-4" />} onClick={onStart}>开始获取</Button>}
         </div>
       </div>
     </SettingsModal>

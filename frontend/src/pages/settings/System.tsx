@@ -10,6 +10,7 @@ import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info } from 'lucide-react'
 import { usePreferences, useVersion } from '@/lib/useSharedQueries'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { accountStorage } from '@/lib/storage'
 import { PageHeader } from '@/components/PageHeader'
 import { refreshAlertToastConfig } from '@/lib/alertNotify'
 import { SOUND_OPTIONS, previewSound } from '@/lib/notificationSound'
@@ -26,35 +27,35 @@ export function SettingsSystemPanel() {
   const screenerAutoRun = prefs?.screener_auto_run ?? true
   const [clearing, setClearing] = useState(false)
   const [toastEnabled, setToastEnabled] = useState(() => {
-    try { return localStorage.getItem('alert_toast_enabled') !== '0' } catch { return true }
+    return accountStorage.getItem('alert_toast_enabled') !== '0'
   })
   const [toastMax, setToastMax] = useState(() => {
     try {
-      const v = parseInt(localStorage.getItem('alert_toast_max') || '', 10)
+    const v = parseInt(accountStorage.getItem('alert_toast_max') || '', 10)
       return v >= 1 && v <= 5 ? v : 3
     } catch { return 3 }
   })
   const [soundEnabled, setSoundEnabled] = useState(() => {
-    try { return localStorage.getItem('alert_sound_enabled') !== '0' } catch { return true }
+    return accountStorage.getItem('alert_sound_enabled') !== '0'
   })
   const [soundType, setSoundType] = useState(() => {
-    try { return localStorage.getItem('alert_sound') || 'ding' } catch { return 'ding' }
+    return accountStorage.getItem('alert_sound') || 'ding'
   })
   const [voiceEnabled, setVoiceEnabled] = useState(() => {
-    try { return localStorage.getItem('voice_broadcast_enabled') === '1' } catch { return false }
+    return accountStorage.getItem('voice_broadcast_enabled') === '1'
   })
   const [voices, setVoices] = useState(listZhVoices())
   // 用户手选值 (空=走默认偏好 Google 中国大陆)
   const [voiceConfigured, setVoiceConfigured] = useState(() => {
-    try { return localStorage.getItem('voice_broadcast_voice') || '' } catch { return '' }
+    return accountStorage.getItem('voice_broadcast_voice') || ''
   })
   // 下拉回显值: 用户手选优先, 否则显示当前解析到的语音
   const [voiceURI, setVoiceURI] = useState(() => {
-    try { return localStorage.getItem('voice_broadcast_voice') || getCurrentVoiceURI() } catch { return getCurrentVoiceURI() }
+    return accountStorage.getItem('voice_broadcast_voice') || getCurrentVoiceURI()
   })
   const [voiceRate, setVoiceRate] = useState(() => {
     try {
-      const v = parseFloat(localStorage.getItem('voice_broadcast_rate') || '')
+      const v = parseFloat(accountStorage.getItem('voice_broadcast_rate') || '')
       return v >= 0.5 && v <= 2 ? v : 1
     } catch { return 1 }
   })
@@ -134,7 +135,7 @@ export function SettingsSystemPanel() {
           checked={toastEnabled}
           disabled={saving}
           onChange={(v) => {
-            localStorage.setItem('alert_toast_enabled', v ? '1' : '0')
+            accountStorage.setItem('alert_toast_enabled', v ? '1' : '0')
             setToastEnabled(v)
             refreshAlertToastConfig()
           }}
@@ -153,7 +154,7 @@ export function SettingsSystemPanel() {
             onChange={(v) => {
               if (!v) return
               const n = Number(v)
-              localStorage.setItem('alert_toast_max', String(n))
+            accountStorage.setItem('alert_toast_max', String(n))
               setToastMax(n)
               refreshAlertToastConfig()
             }}
@@ -168,7 +169,7 @@ export function SettingsSystemPanel() {
           checked={soundEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {
-            localStorage.setItem('alert_sound_enabled', v ? '1' : '0')
+            accountStorage.setItem('alert_sound_enabled', v ? '1' : '0')
             setSoundEnabled(v)
             if (v) previewSound(soundType)
           }}
@@ -190,7 +191,7 @@ export function SettingsSystemPanel() {
               disabled={!toastEnabled || !soundEnabled}
               onChange={(v) => {
                 if (!v) return
-                localStorage.setItem('alert_sound', v)
+            accountStorage.setItem('alert_sound', v)
                 setSoundType(v)
                 if (v !== 'none') previewSound(v)
               }}
@@ -220,7 +221,7 @@ export function SettingsSystemPanel() {
           checked={voiceEnabled}
           disabled={!toastEnabled}
           onChange={(v) => {
-            localStorage.setItem('voice_broadcast_enabled', v ? '1' : '0')
+            accountStorage.setItem('voice_broadcast_enabled', v ? '1' : '0')
             setVoiceEnabled(v)
             if (v) { activateVoice(); previewVoice() }   // 开启即激活 + 试听一句
           }}
@@ -247,12 +248,12 @@ export function SettingsSystemPanel() {
               onChange={(v) => {
                 if (v && v !== defaultVoiceValue) {
                   // 手选某一语音包
-                  localStorage.setItem('voice_broadcast_voice', v)
+            accountStorage.setItem('voice_broadcast_voice', v)
                   setVoiceConfigured(v)
                   setVoiceURI(v)
                 } else {
                   // 选"默认偏好": 清空手选, 走 Google 中国大陆偏好
-                  localStorage.removeItem('voice_broadcast_voice')
+            accountStorage.removeItem('voice_broadcast_voice')
                   setVoiceConfigured('')
                   setVoiceURI(getCurrentVoiceURI())
                 }
@@ -286,7 +287,7 @@ export function SettingsSystemPanel() {
               min={0.5} max={2} step={0.1} value={voiceRate}
               disabled={!toastEnabled || !voiceEnabled}
               onChange={(v) => {
-                localStorage.setItem('voice_broadcast_rate', String(v))
+            accountStorage.setItem('voice_broadcast_rate', String(v))
                 setVoiceRate(v)
               }}
               label={null}

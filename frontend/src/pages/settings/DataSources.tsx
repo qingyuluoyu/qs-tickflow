@@ -160,7 +160,7 @@ export function SettingsDataSourcesPanel() {
           <span className="text-[10px] uppercase tracking-widest text-muted">服务器当前</span>
           <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
           <span className="text-sm font-medium text-foreground">
-            {activeName === 'tickflow' ? 'TickFlow' : customList.find(s => s.name === activeName)?.display_name || activeName}
+            {activeName === 'tickflow' ? '默认行情服务' : customList.find(s => s.name === activeName)?.display_name || activeName}
           </span>
         </div>
 
@@ -200,7 +200,7 @@ export function SettingsDataSourcesPanel() {
                     {item.display_name}
                   </span>
                   {item.name === 'tickflow' && (
-                    <Badge size="xs" variant="light" color="gray" className="shrink-0 uppercase">内置</Badge>
+                    <Badge size="xs" variant="light" color="gray" className="shrink-0">默认</Badge>
                   )}
                   {pluginNames.has(item.name) && (
                     <Badge size="xs" variant="light" color="gray" className="shrink-0 uppercase">插件</Badge>
@@ -268,7 +268,7 @@ export function SettingsDataSourcesPanel() {
                   </div>
                 )}
                 {item.name === 'tickflow' && (
-                  <div className="text-[10px] text-muted/60 ml-3.5">日K · 除权 · 实时 · 分钟K</div>
+                  <div className="text-[10px] text-muted/60 ml-3.5">历史行情 · 实时行情 · 分钟行情</div>
                 )}
                 {/* 未安装插件显示安装命令提示 */}
                 {pluginUnavailable && plugin?.install_hint && (
@@ -311,7 +311,7 @@ export function SettingsDataSourcesPanel() {
           <span className="text-muted/30">·</span>
           <span>点「使用」切换为当前数据源</span>
           <span className="text-muted/30">·</span>
-          <span>未启用的数据集自动回退 TickFlow</span>
+          <span>未启用的数据集自动使用默认服务</span>
         </div>
       </section>
 
@@ -433,7 +433,7 @@ function TickFlowDetail({ active, onSwitch, switching }: { active: boolean; onSw
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base font-semibold text-foreground">TickFlow</h2>
+            <h2 className="text-base font-semibold text-foreground">默认行情服务</h2>
             <span className="text-[10px] text-muted/60 uppercase tracking-wider border border-border rounded px-1.5 py-0.5">内置默认</span>
             {active && (
               <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded">
@@ -442,7 +442,7 @@ function TickFlowDetail({ active, onSwitch, switching }: { active: boolean; onSw
             )}
           </div>
           <p className="text-xs text-secondary mt-1.5 leading-relaxed">
-            项目默认数据源。日K、除权因子、实时行情、分钟K均由 TickFlow 提供,无需额外配置。
+            项目默认行情服务，覆盖历史行情、实时行情与分钟行情，无需额外配置。
           </p>
         </div>
       </div>

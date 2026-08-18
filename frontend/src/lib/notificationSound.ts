@@ -9,6 +9,8 @@
  * - none:   无声
  */
 
+import { accountStorage } from './storage'
+
 let _audioCtx: AudioContext | null = null
 
 function getCtx(): AudioContext | null {
@@ -111,10 +113,10 @@ const SOUND_PRESETS: Record<string, (ctx: AudioContext) => void> = {
 /** 播放通知声效 (从 localStorage 读配置) */
 export function playNotificationSound() {
   try {
-    const enabled = localStorage.getItem('alert_sound_enabled')
+    const enabled = accountStorage.getItem('alert_sound_enabled')
     if (enabled === '0') return  // 关闭声效
 
-    const sound = localStorage.getItem('alert_sound') || 'ding'
+    const sound = accountStorage.getItem('alert_sound') || 'ding'
     if (sound === 'none') return
 
     const ctx = getCtx()

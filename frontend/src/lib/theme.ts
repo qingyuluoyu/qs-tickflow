@@ -7,6 +7,7 @@
 //   - UI token (bg-surface/text-foreground 等) 自动跟随;
 //     图表画布不吃 CSS 变量, 统一走 useChartTheme() 取调色板
 import { useEffect, useState } from 'react'
+import { accountStorage } from './storage'
 
 const KEY = 'qs-theme'
 const EVENT = 'qs-theme-change'
@@ -15,14 +16,14 @@ export type Theme = 'dark' | 'light'
 
 export function getTheme(): Theme {
   try {
-    return localStorage.getItem(KEY) === 'dark' ? 'dark' : 'light'
+    return accountStorage.getItem(KEY) === 'dark' ? 'dark' : 'light'
   } catch {
     return 'light'
   }
 }
 
 export function setTheme(theme: Theme) {
-  try { localStorage.setItem(KEY, theme) } catch { /* ignore */ }
+  accountStorage.setItem(KEY, theme)
   document.documentElement.classList.toggle('dark', theme === 'dark')
   window.dispatchEvent(new CustomEvent(EVENT, { detail: theme }))
 }

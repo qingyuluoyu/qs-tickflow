@@ -20,6 +20,7 @@ import {
   REGIME_STATE_LABELS, REGIME_STATE_COLORS,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { useIsAdmin } from '@/lib/auth'
 import { useChartTheme } from '@/lib/theme'
 import { toast } from '@/lib/notify'
 import { Modal } from '@/components/Modal'
@@ -356,6 +357,9 @@ export function Regime() {
     }
   }, [calendarExpanded, calendarMonths])
 
+  // 重算(POST /api/regime/recompute)为管理员操作,普通用户隐藏入口
+  const isAdmin = useIsAdmin()
+
   const handleRecompute = async () => {
     setRecomputing(true)
     try {
@@ -411,7 +415,8 @@ export function Regime() {
                 },
               ]}
             />
-            {/* 重算 */}
+            {/* 重算 (仅管理员) */}
+            {isAdmin && (
             <Button
               size="xs"
               variant="default"
@@ -421,6 +426,7 @@ export function Regime() {
             >
               {recomputing ? '重算中…' : '重算'}
             </Button>
+            )}
           </div>
         }
       />

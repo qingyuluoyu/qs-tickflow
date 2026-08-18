@@ -47,6 +47,7 @@ const MAX_ACTIVE = 3
 let activeTasks: ActiveTask[] = []
 let history: HistoryReport[] = []
 let historyLoaded = false
+let accountGeneration = 0
 const listeners = new Set<() => void>()
 
 // 当前"前台"展示的任务:
@@ -67,6 +68,18 @@ function normalizeAiError(msg: string) {
   return msg.includes('API Key') || msg.includes('api_key')
     ? 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
     : msg
+}
+
+/** Drop all in-memory private state before the authenticated account changes. */
+export function resetAccountState(): void {
+  accountGeneration += 1
+  activeTasks = []
+  history = []
+  historyLoaded = false
+  activeDialogTaskId = null
+  dialogMinimized = false
+  rebuildSnap()
+  emit()
 }
 
 // 快照必须返回稳定引用:只有内容真正变化时才返回新数组/对象。
@@ -151,8 +164,10 @@ export function useDialogTask(): { task: ActiveTask | HistoryReport | null; mode
 
 /** 拉取历史报告(惰性,首次需要时调用)。 */
 export async function loadHistory(): Promise<void> {
+  const generation = accountGeneration
   try {
     const res = await api.financialReportsList()
+    if (generation !== accountGeneration) return
     history = res.reports ?? []
     historyLoaded = true
     rebuildSnap()
@@ -333,4 +348,3 @@ export function openHistoryReport(reportId: string) {
   rebuildSnap()
   emit()
 }
-

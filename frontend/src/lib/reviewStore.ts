@@ -159,6 +159,15 @@ export function abortReviewGeneration(): void {
   abortCtrl = null
 }
 
+/** Drop the previous account's in-memory report and stop its stream. */
+export function resetAccountState(): void {
+  abortCtrl?.abort()
+  abortCtrl = null
+  generatingSource = null
+  state = { ...INITIAL }
+  notify()
+}
+
 /** 设置当前查看的历史报告(把 store 状态切到 done + 该报告内容)。 */
 export function setViewingReport(report: {
   content: string

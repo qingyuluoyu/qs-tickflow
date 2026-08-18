@@ -270,7 +270,7 @@ def search_instruments(
     return {"results": rows}
 
 
-@router.post("/instruments/names", dependencies=[Depends(require_admin)])
+@router.post("/instruments/names")
 def instruments_names(request: Request, symbols: list[str]):
     """批量查标的名称 (股票 + ETF + 指数)。传入 symbol 列表, 返回 {symbol: name}。"""
     if not symbols:
@@ -622,7 +622,7 @@ class DailyBatchRequest:
     days: int = 12
 
 
-@router.post("/daily-batch", dependencies=[Depends(require_admin)])
+@router.post("/daily-batch")
 def get_daily_batch(request: Request, body: dict):
     """批量获取多只股票最近 N 天日K (OHLCV)。
 
@@ -685,7 +685,7 @@ def get_daily_batch(request: Request, body: dict):
     return {"data": result, "market_as_of": _market_asof_payload(market_asof)}
 
 
-@router.post("/minute-batch", dependencies=[Depends(require_admin)])
+@router.post("/minute-batch")
 def get_minute_batch(request: Request, body: dict):
     """批量获取多只股票某天的分钟K (分时图用)。
 

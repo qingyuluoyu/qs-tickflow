@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { accountStorage } from './storage'
 
 /**
  * 记忆"上次查看的个股"(按页面维度,localStorage 持久化)。
@@ -36,7 +37,7 @@ export function useLastStock(scope: string) {
 
 function load(scope: string): StockRef | null {
   try {
-    const v = localStorage.getItem(PREFIX + scope)
+    const v = accountStorage.getItem(PREFIX + scope)
     if (!v) return null
     const p = JSON.parse(v)
     if (p && typeof p.symbol === 'string' && typeof p.name === 'string') return p
@@ -46,7 +47,7 @@ function load(scope: string): StockRef | null {
 
 function save(scope: string, ref: StockRef | null) {
   try {
-    if (ref) localStorage.setItem(PREFIX + scope, JSON.stringify(ref))
-    else localStorage.removeItem(PREFIX + scope)
+    if (ref) accountStorage.setItem(PREFIX + scope, JSON.stringify(ref))
+    else accountStorage.removeItem(PREFIX + scope)
   } catch { /* ignore */ }
 }

@@ -11,6 +11,7 @@ export interface AuthUser {
   id: string
   name: string
   phone: string
+  role: string
 }
 
 export interface Qingshu101User {
@@ -385,6 +386,38 @@ export interface WatchlistImportResult {
   candidates: WatchlistImportCandidate[]
   matched_count: number
   unmatched_count: number
+}
+
+export type WatchlistNewsCategory = 'announcement' | 'public_news' | 'today_highlight'
+
+export interface WatchlistNewsItem {
+  id: string
+  category: WatchlistNewsCategory
+  symbol?: string | null
+  name?: string | null
+  title: string
+  summary?: string | null
+  content?: string | null
+  url?: string | null
+  source: string
+  published_at?: string | null
+  fetched_at: string
+  data_version: string
+  generated: boolean
+  source_ids: string[]
+}
+
+export interface WatchlistNewsResponse {
+  category: WatchlistNewsCategory
+  items: WatchlistNewsItem[]
+  selected_symbol?: string | null
+  query?: string | null
+  as_of?: string | null
+  stale: boolean
+  source_status: 'ok' | 'empty' | 'stale' | 'unavailable' | 'invalid'
+  source_message?: string | null
+  watchlist_count: number
+  next_cursor?: string | null
 }
 
 export interface Quote {
@@ -1446,9 +1479,12 @@ export const api = {
     last_fetch_rows?: number
     last_fetch_error?: string | null
   }>('/api/intraday/refresh', { method: 'POST' }),
-  indexQuotes: (symbols?: string[]) =>
+  indexQuotes: (symbols?: string[], options: { localOnly?: boolean } = {}) =>
     request<{ rows: IndexQuote[]; count: number }>(
-      `/api/intraday/indices${symbols?.length ? `?symbols=${encodeURIComponent(symbols.join(','))}` : ''}`,
+      `/api/intraday/indices?${[
+        symbols?.length ? `symbols=${encodeURIComponent(symbols.join(','))}` : '',
+        options.localOnly ? 'local=1' : '',
+      ].filter(Boolean).join('&')}`,
     ),
   updateRealtimeMonitorConfig: (cfg: {
     sse_refresh_pages?: Record<string, boolean>
@@ -1718,6 +1754,30 @@ export const api = {
     }),
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
+  watchlistNews: (
+    category: WatchlistNewsCategory,
+    options: {
+      symbol?: string | null
+      query?: string
+      limit?: number
+      cursor?: string | null
+      signal?: AbortSignal
+    } = {},
+  ) => {
+    const params = new URLSearchParams({ category })
+    if (options.symbol) params.set('symbol', options.symbol)
+    if (options.query?.trim()) params.set('q', options.query.trim())
+    if (options.limit != null) params.set('limit', String(options.limit))
+    if (options.cursor) params.set('cursor', options.cursor)
+    return request<WatchlistNewsResponse>(`/api/watchlist/news?${params.toString()}`, {
+      signal: options.signal,
+    })
+  },
+  watchlistNewsDetail: (itemId: string, category: WatchlistNewsCategory, signal?: AbortSignal) =>
+    request<WatchlistNewsItem>(
+      `/api/watchlist/news/${encodeURIComponent(itemId)}?category=${encodeURIComponent(category)}`,
+      { signal },
+    ),
   watchlistAdd: (symbol: string, note = '') =>
     request<{ symbols: WatchlistEntry[] }>('/api/watchlist', {
       method: 'POST',
@@ -1796,7 +1856,12 @@ export const api = {
     ),
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
-  overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
+  overviewMarket: (asOf?: string, options: { localOnly?: boolean } = {}) => request<OverviewMarket>(
+    `/api/overview/market?${[
+      asOf ? `as_of=${encodeURIComponent(asOf)}` : '',
+      options.localOnly ? 'local=1' : '',
+    ].filter(Boolean).join('&')}`,
+  ),
 
   // 概念涨幅轮动矩阵: 每列(日期)各自把所有概念按当天涨幅从高到低排序
   rpsRotation: (days: number, kind?: 'concept' | 'industry', level?: number) =>

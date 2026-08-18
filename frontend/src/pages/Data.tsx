@@ -30,6 +30,7 @@ import {
   useDataStatus,
 } from '@/lib/useSharedQueries'
 import { useToggleRealtimeQuotes, useUpdateQuoteInterval } from '@/lib/useSharedMutations'
+import { useIsAdmin } from '@/lib/auth'
 import { QK } from '@/lib/queryKeys'
 import { PageHeader } from '@/components/PageHeader'
 import { PageContainer } from '@/components/PageContainer'
@@ -58,6 +59,8 @@ import { EditExtDialog } from '@/components/ext-data/EditExtDialog'
 
 export function Data() {
   const qc = useQueryClient()
+  // 同步/清空/调度等服务器级写操作均有后端管理员闸门,普通用户隐藏入口
+  const isAdmin = useIsAdmin()
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const startTime = useRef<number | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
@@ -416,7 +419,7 @@ export function Data() {
             customProvider={getCustomProviderName('daily')}
             auto
             onShowFields={() => setSchemaTable('daily')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'daily' ? null : 'daily') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'daily' ? null : 'daily') : undefined}
             settingsOpen={openSettings === 'daily'}
           />
         )
@@ -457,7 +460,7 @@ export function Data() {
             subLabel={status.data?.indicators_ready === false ? '字段 · 指标计算中…' : '字段 · 指标 · 信号'}
             localBadgeSuffix={`${prefs.data?.enriched_batch_size ?? 1000}只/批`}
             onShowFields={() => setSchemaTable('enriched')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'enriched' ? null : 'enriched') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'enriched' ? null : 'enriched') : undefined}
             settingsOpen={openSettings === 'enriched'}
           />
         )
@@ -525,7 +528,7 @@ export function Data() {
             customProvider={getCustomProviderName('minute')}
             auto={minuteAuto}
             onShowFields={() => setSchemaTable('minute')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
             settingsOpen={openSettings === 'minute'}
           />
         )
@@ -542,7 +545,7 @@ export function Data() {
             tierLabel={caps.data?.label}
             customProvider={getCustomProviderName('financials')}
             subLabel={`历史股本 · ${historicalShareRows.toLocaleString()} 条`}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'financials' ? null : 'financials') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'financials' ? null : 'financials') : undefined}
             settingsOpen={openSettings === 'financials'}
           />
         )
@@ -563,7 +566,7 @@ export function Data() {
             tierLabel={caps.data?.label}
             auto={prefs.data?.pipeline_regime_enabled === true}
             subLabel="状态 · 综合分 · 指标"
-            onSettings={hasData ? () => setOpenSettings(v => v === 'regime' ? null : 'regime') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'regime' ? null : 'regime') : undefined}
             settingsOpen={openSettings === 'regime'}
           />
         )
@@ -580,9 +583,11 @@ export function Data() {
         subtitle="本地数据画像 · 同步状态 · 历史记录"
         right={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {!hasData && !isLoading && (
+            {isAdmin && !hasData && !isLoading && (
               <span className="text-xs text-accent animate-pulse">首次使用请点击右侧按钮同步数据</span>
             )}
+            {isAdmin && (
+            <>
             <Button
               size="compact-xs"
               variant="light"
@@ -618,6 +623,8 @@ export function Data() {
               修正数据
             </Button>
             <div className="w-px h-4 bg-border" />
+            </>
+            )}
             <div className="flex flex-wrap items-center gap-1">
               <Button
                 size="compact-xs"
@@ -628,15 +635,17 @@ export function Data() {
               >
                 扩展数据
               </Button>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="gray"
-                onClick={() => setShowEndpointTest(true)}
-                leftSection={<Wifi className="h-3.5 w-3.5" />}
-              >
-                测试端点
-              </Button>
+              {isAdmin && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => setShowEndpointTest(true)}
+                  leftSection={<Wifi className="h-3.5 w-3.5" />}
+                >
+                  测试端点
+                </Button>
+              )}
               <Button
                 size="compact-xs"
                 variant="subtle"
@@ -646,6 +655,8 @@ export function Data() {
               >
                 页面设置
               </Button>
+              {isAdmin && (
+              <>
               <div className="w-px h-4 bg-border" />
               <Tooltip label="切换数据源" position="bottom">
                 <Button
@@ -669,6 +680,8 @@ export function Data() {
               >
                 清除数据
               </Button>
+              </>
+              )}
             </div>
           </div>
         }
@@ -721,6 +734,7 @@ export function Data() {
             showIntervalEdit={showIntervalEdit}
             onShowIntervalEdit={handleToggleIntervalEdit}
             onIntervalChange={(v) => updateInterval.mutate(v)}
+            isAdmin={isAdmin}
           />
 
           {/* 自动调度 */}
@@ -760,6 +774,7 @@ export function Data() {
                     <span className="font-mono text-secondary">
                       {`${String(instrumentsSched.hour).padStart(2, '0')}:${String(instrumentsSched.minute).padStart(2, '0')}`}
                     </span>
+                    {isAdmin && (
                     <ActionIcon
                       variant="subtle"
                       color="gray"
@@ -770,6 +785,7 @@ export function Data() {
                     >
                       <Clock className="h-3 w-3" />
                     </ActionIcon>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 font-mono text-secondary">
                     {s?.last_instruments_run && (
@@ -811,6 +827,7 @@ export function Data() {
                     <span className="font-mono text-secondary">
                       {`${String(pipelineSched.hour).padStart(2, '0')}:${String(pipelineSched.minute).padStart(2, '0')}`}
                     </span>
+                    {isAdmin && (
                     <ActionIcon
                       variant="subtle"
                       color="gray"
@@ -821,6 +838,7 @@ export function Data() {
                     >
                       <Clock className="h-3 w-3" />
                     </ActionIcon>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 font-mono text-secondary">
                     {s?.last_pipeline_run && (
@@ -1115,6 +1133,7 @@ export function Data() {
                   {indexEarliestDate && <span> (当前最早: <span className="font-mono text-secondary">{indexEarliestDate}</span>)</span>}
                 </div>
 
+                {isAdmin && (
                 <div className="rounded-btn border border-border bg-base/40 p-3 space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1152,6 +1171,7 @@ export function Data() {
                     当前生效: <span className="font-mono text-secondary">{indexDailyBatchSize}</span>
                   </div>
                 </div>
+                )}
                 <Button
                   fullWidth
                   size="xs"

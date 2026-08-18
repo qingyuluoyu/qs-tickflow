@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { api, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { useIsAdmin } from '@/lib/auth'
 import { EChartsIntraday } from '@/components/EChartsIntraday'
 
 interface Props {
@@ -50,6 +51,8 @@ export function StockIntradayChart({
   const sourceIsNone = minute.data?.source === 'none'
   // 指数分钟K无本地存储且不支持落库获取 (后端 sync_minute_single 显式拒绝), 不显示获取按钮
   const isIndex = minute.data?.asset_type === 'index'
+  // sync_minute_single 为管理员写操作: 普通用户不显示获取入口, 只显示静态提示
+  const isAdmin = useIsAdmin()
 
   useEffect(() => {
     setMinuteDismissed(false)
@@ -71,6 +74,9 @@ export function StockIntradayChart({
           ) : isIndex ? (
             // 指数: 分钟K仅支持实时读取, 无落库获取入口
             <div className="flex items-center justify-center h-full text-xs text-muted">指数暂无分钟数据</div>
+          ) : !isAdmin ? (
+            // 普通用户: 无获取分钟K权限, 静态提示
+            <div className="flex items-center justify-center h-full text-xs text-muted">暂无分钟数据</div>
           ) : sourceIsNone ? (
             // 数据源确认无此日分钟数据 (停牌/复牌延迟等): 静态提示 + 保留重试
             <div className="flex flex-col items-center justify-center h-full gap-3">

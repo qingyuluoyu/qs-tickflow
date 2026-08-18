@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle, Star } from 'lucide-react'
 import { Badge, Button, Tooltip } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
 import { PageContainer } from '@/components/PageContainer'
@@ -17,6 +17,7 @@ import { api } from '@/lib/api'
 import { useLastStock } from '@/lib/useLastStock'
 import { QK } from '@/lib/queryKeys'
 import { toast } from '@/lib/notify'
+import { useAuth } from '@/lib/auth'
 import {
   startAnalysis, findTodayReport, useHistoryReports,
   deleteReport, openHistoryReport, loadHistory,
@@ -37,10 +38,29 @@ export function StockAnalysis() {
   const [confirmReport, setConfirmReport] = useState<{ id: string; created_at: string; focus: string } | null>(null)
   const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
   const [showPriceAlerts, setShowPriceAlerts] = useState(false)
+  const qc = useQueryClient()
+  const { user } = useAuth()
   const { last: lastStock, remember: rememberStock } = useLastStock('stock-analysis')
   const [searchParams] = useSearchParams()
   const querySymbol = searchParams.get('symbol')?.trim() ?? ''
   const queryName = searchParams.get('name')?.trim() ?? ''
+
+  // 自选状态使用用户隔离的 query key；切换账户后不会复用上一账户的列表。
+  const watchlist = useQuery({
+    queryKey: QK.watchlistFor(user.id),
+    queryFn: api.watchlistList,
+    enabled: !!symbol,
+  })
+  const inWatchlist = (watchlist.data?.symbols ?? []).some((entry) => entry.symbol === symbol)
+  const toggleWatchlist = useMutation({
+    mutationFn: () => inWatchlist ? api.watchlistRemove(symbol) : api.watchlistAdd(symbol),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
+    },
+    onError: (error) => toast(error instanceof Error ? error.message : '自选操作失败', 'error'),
+  })
 
   // 进入页面立即加载历史报告(供右侧常驻列表)。store 内部有 historyLoaded 去重, 重复调用安全。
   useEffect(() => { loadHistory() }, [])
@@ -119,6 +139,19 @@ export function StockAnalysis() {
                 <span className="text-[10px] font-mono text-muted">{symbol}</span>
                 <ExternalLink className="h-3 w-3 text-muted opacity-0 group-hover:opacity-100 transition-opacity" />
               </button>
+              <Button
+                size="xs"
+                variant={inWatchlist ? 'light' : 'default'}
+                color={inWatchlist ? 'yellow' : undefined}
+                onClick={() => toggleWatchlist.mutate()}
+                loading={watchlist.isLoading || toggleWatchlist.isPending}
+                disabled={watchlist.isLoading}
+                leftSection={!watchlist.isLoading && !toggleWatchlist.isPending && <Star className="h-3.5 w-3.5" fill={inWatchlist ? 'currentColor' : 'none'} />}
+                aria-pressed={inWatchlist}
+                title={inWatchlist ? '移出自选' : '加入自选'}
+              >
+                {inWatchlist ? '已加自选' : '加入自选'}
+              </Button>
               <Button
                 size="xs"
                 variant="light"

@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ActionIcon, Badge, Button, NumberInput, TextInput, Tooltip } from '@mantine/core'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus } from 'lucide-react'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, Newspaper } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storageForUser } from '@/lib/storage'
@@ -19,6 +19,7 @@ import {
 } from '@/components/DimensionMembersDialog'
 import { WatchlistImportDialog } from '@/components/WatchlistImportDialog'
 import { Modal } from '@/components/Modal'
+import { WatchlistNewsModal } from '@/components/WatchlistNewsModal'
 import { getOcrInstallHint } from '@/lib/ocrInstallHint'
 import { ColumnCustomizer } from '@/components/ColumnCustomizer'
 import { StockDataTable } from '@/components/stock-table/StockDataTable'
@@ -603,6 +604,8 @@ export function Watchlist() {
   const [importOpen, setImportOpen] = useState(false)
   const [ocrAvailable, setOcrAvailable] = useState<boolean | null>(null)
   const [ocrInstallHint, setOcrInstallHint] = useState('')
+  const [newsOpen, setNewsOpen] = useState(false)
+  const [newsCategory, setNewsCategory] = useState<'announcement' | 'public_news' | 'today_highlight'>('announcement')
   const columnsLoaded = useRef(false)
 
   useEffect(() => {
@@ -765,6 +768,7 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
       qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
@@ -780,6 +784,7 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
       qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
@@ -789,6 +794,7 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
       qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
       qc.invalidateQueries({ queryKey: QK.preferences })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
     },
@@ -803,6 +809,7 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
       qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
@@ -1153,6 +1160,28 @@ export function Watchlist() {
           </div>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface/70 px-4 py-2 lg:px-6">
+        <div className="mr-1 inline-flex items-center gap-1.5 text-xs font-medium text-secondary">
+          <Newspaper className="h-3.5 w-3.5 text-accent" />
+          资讯雷达
+        </div>
+        {[
+          ['announcement', 'A股公告'],
+          ['public_news', '公开新闻'],
+          ['today_highlight', '今日要点'],
+        ].map(([value, label]) => (
+          <Button
+            key={value}
+            variant="subtle"
+            size="compact-sm"
+            onClick={() => { setNewsCategory(value as typeof newsCategory); setNewsOpen(true) }}
+            className="h-7 rounded-md bg-elevated px-2.5 text-xs text-secondary hover:bg-accent/10 hover:text-accent"
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
 
       {/* 筛选栏 */}
       {filterOpen && (
@@ -1520,6 +1549,14 @@ export function Watchlist() {
           )}
         </PageContainer>
       </div>
+
+      <WatchlistNewsModal
+        opened={newsOpen}
+        onClose={() => setNewsOpen(false)}
+        userId={user.id}
+        symbols={list.data?.symbols ?? []}
+        initialCategory={newsCategory}
+      />
 
       {/* 清空确认弹窗 (Mantine Modal) */}
       {confirmClear && (

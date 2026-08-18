@@ -23,7 +23,7 @@ import { QK } from '@/lib/queryKeys'
 import { tierRank } from '@/lib/capability-labels'
 import { toast } from '@/lib/notify'
 import { DepthConfigContent } from '@/components/data/DepthConfigCard'
-import { useAuth } from '@/lib/auth'
+import { useAuth, useIsAdmin } from '@/lib/auth'
 
 // 页面 → 显示名
 const PAGE_LABELS: Record<string, string> = {
@@ -44,6 +44,8 @@ const SIDEBAR_INDEX_OPTIONS = [
 export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = {}) {
   const qc = useQueryClient()
   const { user } = useAuth()
+  // 实时行情开关与轮询间隔(PUT realtime-quotes / quote-interval)为管理员操作
+  const isAdmin = useIsAdmin()
   const { data: prefs } = usePreferences()
   const { data: caps } = useCapabilities()
   const { data: quoteStatus } = useQuoteStatus()
@@ -305,8 +307,9 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 max-w-5xl">
       {/* ========== 左列 ========== */}
       <div className="space-y-6">
-        {/* 行情状态 — 开关 + 间隔 */}
+        {/* 行情状态 — 开关 + 间隔 (开关/间隔为管理员写操作, 普通用户只读状态) */}
         <Card icon={Activity} title="行情轮询">
+          {isAdmin ? (
           <ToggleRow
             label="实时行情"
             desc={
@@ -319,7 +322,21 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
             onChange={handleToggleQuote}
             disabled={isPaused}
           />
+          ) : (
+          <div className="flex items-center justify-between gap-4 py-2">
+            <div className="min-w-0">
+              <div className="text-sm text-foreground">实时行情</div>
+              <div className="text-[11px] text-muted truncate">
+                {isPaused ? '数据同步运行中，已临时暂停'
+                : isRunning && isTrading ? '运行中'
+                : isRunning ? '运行中 (非交易时段)'
+                : '已关闭'}
+              </div>
+            </div>
+          </div>
+          )}
 
+          {isAdmin && (
           <div className="mt-3 pt-3 border-t border-border">
             <div className="flex items-center justify-between gap-4 py-1">
               <div className="min-w-0">
@@ -347,6 +364,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
               </span>
             </div>
           </div>
+          )}
         </Card>
 
         {isFreeTier && (
