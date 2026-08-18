@@ -104,6 +104,12 @@ class GenericHTTPProvider:
     def close(self) -> None:
         self._client.close()
 
+    def is_configured(self) -> bool:
+        """Return whether credentials required by this source are available."""
+        if self.config.auth.type == "none":
+            return True
+        return bool(_token_from_env(self.config.auth.token_env))
+
     def validate(self) -> list[str]:
         errors: list[str] = []
         for dataset, cfg in self.config.datasets.items():
@@ -348,9 +354,13 @@ class GenericHTTPProvider:
             # 把 table 注入到请求参数 (上游据此区分财务表)
             extra_params = {**cfg.params, "table": upstream_table}
             extra_body = {**cfg.body, "table": upstream_table}
-            if table == "shares":
-                extra_params["latest"] = latest_only
-                extra_body["latest"] = latest_only
+            # Tushare-compatible endpoints use api_name rather than table.  A
+            # source opts into this behaviour by putting api_name in its body;
+            # other custom sources retain the existing table contract.
+            if "api_name" in extra_body:
+                extra_body["api_name"] = upstream_table
+            extra_params["latest"] = latest_only
+            extra_body["latest"] = latest_only
             rows = self._request_rows(
                 cfg, symbols=chunk,
                 override_params=extra_params, override_body=extra_body,

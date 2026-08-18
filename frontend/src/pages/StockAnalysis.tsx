@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { AskAiButton } from '@/components/ask-ai/AskAiButton'
 import { EmptyState } from '@/components/EmptyState'
 import { StockFinancialSearch } from '@/components/financials/StockFinancialSearch'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
@@ -85,6 +86,9 @@ export function StockAnalysis() {
     const r = await startAnalysis(symbol, name)
     if (r.error) toast(r.error, 'error')
   }
+  const aiContext = symbol
+    ? `当前个股分析标的：${name || symbol}（${symbol}）。请结合本页已接入的日 K、技术指标、关键价位与分析报告回答客观问题。`
+    : '当前尚未选择个股。请回答通用的客观研究问题，不要编造个股数据。'
 
   return (
     <>
@@ -93,6 +97,13 @@ export function StockAnalysis() {
         subtitle="日 K · 关键价位 · AI 四维分析(技术 / 基本面 / 财务 / 消息面)"
         right={
           <div className="flex items-center gap-2">
+            <AskAiButton
+              context={aiContext}
+              scopeKey={symbol || 'general'}
+              symbol={symbol}
+              name={name}
+              suggestions={symbol ? ['当前技术状态是什么？', '关键风险有哪些？', '这份分析有哪些数据缺口？'] : ['如何分析一家公司？', '技术分析应看哪些数据？']}
+            />
             <LastStockChip stock={lastStock} onSelect={onSelect} />
           </div>
         }

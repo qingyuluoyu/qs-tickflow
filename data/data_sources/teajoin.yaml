@@ -1,0 +1,158 @@
+name: teajoin
+display_name: "TeaJoin 行情与财务"
+fail_closed: true
+
+# Token is read from the process environment or data/private/TEAJOIN_API_KEY.
+# Never put a real token in this file.
+auth:
+  type: body
+  token_env: TEAJOIN_API_KEY
+
+datasets:
+  instruments:
+    url: https://teajoin.com
+    method: POST
+    response_path: data
+    body:
+      api_name: stock_basic
+      params:
+        list_status: L
+    field_map:
+      ts_code: symbol
+      symbol: code
+      name: name
+      market: market
+      industry: industry
+      list_date: list_date
+
+  daily:
+    url: https://teajoin.com
+    method: POST
+    batch: 100
+    rpm: 60
+    response_path: data
+    body:
+      api_name: daily
+      params: {}
+    symbols_body_path: params.ts_code
+    start_body_path: params.start_date
+    end_body_path: params.end_date
+    date_only: true
+    date_format: "%Y%m%d"
+    field_map:
+      ts_code: symbol
+      trade_date: date
+      open: open
+      high: high
+      low: low
+      close: close
+      pre_close: prev_close
+      change: change_amount
+      pct_chg: change_pct
+      vol: volume
+      amount: amount
+    transforms:
+      date: "parse_date(value, '%Y%m%d')"
+      change_pct: "value / 100"
+      amount: "value * 1000"
+
+  adj_factor:
+    url: https://teajoin.com
+    method: POST
+    batch: 100
+    rpm: 60
+    response_path: data
+    body:
+      api_name: adj_factor
+      params: {}
+    symbols_body_path: params.ts_code
+    start_body_path: params.start_date
+    end_body_path: params.end_date
+    date_only: true
+    date_format: "%Y%m%d"
+    field_map:
+      ts_code: symbol
+      trade_date: trade_date
+      adj_factor: ex_factor
+    transforms:
+      trade_date: "parse_date(value, '%Y%m%d')"
+
+  realtime:
+    url: https://teajoin.com/realtime
+    method: POST
+    batch: 100
+    rpm: 60
+    response_path: data
+    body:
+      params: {}
+    symbols_body_path: params.ts_code
+    field_map:
+      ts_code: symbol
+      name: name
+      last: last_price
+      pre_close: prev_close
+      open: open
+      high: high
+      low: low
+      vol: volume
+      amount: amount
+      pct_chg: change_pct
+      change: change_amount
+      amplitude: amplitude
+      turnover_rate: turnover_rate
+      trade_time: timestamp
+    transforms:
+      change_pct: "value / 100"
+      amplitude: "value / 100"
+      turnover_rate: "value / 100"
+
+  minute:
+    url: https://teajoin.com/stk_mins
+    method: POST
+    batch: 100
+    rpm: 60
+    response_path: data
+    body:
+      api_name: stk_mins
+      params:
+        freq: 1min
+    symbols_body_path: params.ts_code
+    start_body_path: params.start_date
+    end_body_path: params.end_date
+    date_only: true
+    date_format: "%Y%m%d"
+    field_map:
+      ts_code: symbol
+      trade_time: datetime
+      open: open
+      high: high
+      low: low
+      close: close
+      vol: volume
+      amount: amount
+    transforms:
+      datetime: "parse_datetime(value, '%Y-%m-%d %H:%M:%S')"
+
+  financial:
+    url: https://teajoin.com
+    method: POST
+    batch: 100
+    rpm: 30
+    response_path: data
+    body:
+      # GenericHTTPProvider replaces api_name with the mapped table name.
+      api_name: daily_basic
+      params: {}
+    symbols_body_path: params.ts_code
+    start_body_path: params.start_date
+    end_body_path: params.end_date
+    date_only: true
+    date_format: "%Y%m%d"
+    field_map:
+      ts_code: symbol
+    financial_table_map:
+      metrics: daily_basic
+      income: income
+      balance_sheet: balancesheet
+      cash_flow: cashflow
+      shares: daily_basic

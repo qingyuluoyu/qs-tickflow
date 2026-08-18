@@ -8,9 +8,9 @@ import os
 import threading
 import time
 from collections import defaultdict
-from datetime import date
+from collections.abc import AsyncIterator, Iterable
 from pathlib import Path
-from typing import Any, AsyncIterator, Iterable
+from typing import Any, ClassVar
 
 import polars as pl
 
@@ -63,7 +63,7 @@ _TOOL_LABELS = {
 class ChatStore:
     """Per-user atomic JSON chat history, keyed by conversation id."""
 
-    _locks: defaultdict[str, threading.Lock] = defaultdict(threading.Lock)
+    _locks: ClassVar[defaultdict[str, threading.Lock]] = defaultdict(threading.Lock)
 
     def __init__(self, shared_root: Path, user_root: Path | None = None, max_messages: int = MAX_HISTORY_MESSAGES) -> None:
         self.shared_root = Path(shared_root)

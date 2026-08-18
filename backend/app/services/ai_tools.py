@@ -118,7 +118,7 @@ def _query_financials(repo, data_dir, code: str, table: str | None = None) -> di
             if "period_end" in frame.columns:
                 frame = frame.sort("period_end", descending=True).head(4)
             out[name] = _json_result(frame.to_dicts())
-        except Exception as exc:  # noqa: BLE001
+        except Exception:
             logger.debug("financial tool failed: %s", name, exc_info=True)
             out[name] = []
     if not any(out.get(name) for name in tables):

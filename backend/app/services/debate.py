@@ -10,9 +10,10 @@ import json
 import logging
 import math
 import re
+from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 import polars as pl
 
@@ -228,6 +229,7 @@ def dossier_text(dossier: dict[str, Any]) -> str:
         parts.append(f"## {section['title']}（来源 {section['tool']}）\n{body}\n")
     if dossier["missing"]:
         parts.append("## 数据缺口\n以下数据项目前未接入或本次无记录，立论时不得臆测：" + "、".join(dict.fromkeys(dossier["missing"])))
+        parts.append("该数据项目前未接入；如需相关判断，必须明确标注数据缺失。")
     return "\n".join(parts)
 
 

@@ -60,8 +60,13 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
       }
     } catch { /* ignore */ }
     const msg = detail || `${res.status} ${res.statusText}`
-    // 401 (未登录/会话过期) 不弹 toast — 由全局认证拦截器统一跳登录页, 避免刷屏
-    if (res.status !== 401 && !quiet) toast(msg, 'error')
+    // 401 (未登录/会话过期) 不弹 toast — 由全局认证拦截器统一跳登录页, 避免刷屏。
+    // Financial capability gates are rendered by the financial page itself;
+    // several queries can hit the gate together, so don't stack duplicate red
+    // banners for the same expected state.
+    const isFinancialCapability = res.status === 403
+      && (detail.includes('capability not available: financial') || detail.includes('financial』能力可解锁'))
+    if (res.status !== 401 && !quiet && !isFinancialCapability) toast(msg, 'error')
     throw new Error(msg)
   }
   return res.json() as Promise<T>
@@ -82,6 +87,9 @@ export interface CapabilitiesResponse {
 // ===== Financials =====
 export interface FinancialStatus {
   available: boolean
+  provider?: string
+  configured?: boolean
+  reason?: string
   tables: Record<string, { rows: number; symbols: number }>
   last_sync: Record<string, string>
   /** 服务端是否正在同步(手动触发)——驱动"同步中"UI 并防重复点击 */
@@ -1018,6 +1026,8 @@ export interface DatasetConfig {
   rpm?: number | null
   response_path: string
   field_map: Record<string, string>
+  params?: Record<string, unknown>
+  body?: Record<string, unknown>
   transforms?: Record<string, string>
   symbols_param?: string
   start_param?: string
@@ -2139,7 +2149,7 @@ export const api = {
   },
 
   /** 多空辩论 — NDJSON 流式事件。 */
-  async *debateStream(code: string, rounds = 1): AsyncGenerator<{
+  async *debateStream(code: string, rounds = 1, signal?: AbortSignal): AsyncGenerator<{
     type: 'status' | 'dossier_progress' | 'dossier' | 'stage' | 'delta' | 'stage_done' | 'done' | 'error'
     message?: string
     code?: string
@@ -2161,6 +2171,7 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code, rounds }),
+      signal,
     })
     if (!res.ok) {
       let detail = ''
@@ -2197,7 +2208,7 @@ export const api = {
     stock_code?: string
     stock_name?: string
     conversation_id?: string
-  }): AsyncGenerator<{
+  }, signal?: AbortSignal): AsyncGenerator<{
     type: 'delta' | 'tool_started' | 'tool_completed' | 'tool_failed' | 'done' | 'error'
     text?: string
     message?: string
@@ -2214,6 +2225,7 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     })
     if (!res.ok) {
       let detail = ''

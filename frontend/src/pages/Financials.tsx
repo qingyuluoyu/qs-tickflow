@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { RefreshCw, Download, Lock, Loader2, X, Search, FileText, Database, Clock, CheckCircle2, Hourglass, Lightbulb, ExternalLink, ChartPie } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { AskAiButton } from '@/components/ask-ai/AskAiButton'
 import { EmptyState } from '@/components/EmptyState'
 import { useCapabilities } from '@/lib/useSharedQueries'
 import { useFinancialStatus, useFinancialSync } from '@/lib/useFinancials'
@@ -60,6 +61,7 @@ export function Financials() {
   }
 
   if (!hasFinancial) {
+    const sourceNotConfigured = status?.configured === false && status.provider && status.provider !== 'tickflow'
     return (
       <>
         <PageHeader title="财务分析" subtitle="利润表 / 资负表 / 现金流 / 关键指标 / 股本 / AI分析 · Expert" />
@@ -68,9 +70,13 @@ export function Financials() {
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-warning/10">
               <Lock className="h-6 w-6 text-warning" />
             </div>
-            <h3 className="mt-4 text-base font-semibold text-foreground">需要 Expert 套餐</h3>
+            <h3 className="mt-4 text-base font-semibold text-foreground">
+              {sourceNotConfigured ? '财务数据源未配置' : '需要 Expert 套餐'}
+            </h3>
             <p className="mt-2 text-xs leading-relaxed text-secondary">
-              财务数据接口仅 Expert 套餐可用。升级后此页自动显示财务数据面板。
+              {sourceNotConfigured
+                ? `当前数据源为 ${status.provider}，请配置 TEAJOIN_API_KEY 后重新加载数据源。`
+                : '财务数据接口仅 Expert 套餐可用。升级后此页自动显示财务数据面板。'}
             </p>
             {/* 当前财务数据源(TickFlow)需付费,后续将接入免费数据源;期间欢迎在 issues 推荐免费源 */}
             <div className="mt-5 rounded-btn border border-accent/25 bg-accent/[0.05] px-3.5 py-3 text-left">
@@ -154,6 +160,9 @@ export function Financials() {
   // 卡片三态: 仅全量同步时未轮到的表显示"等待"; 单表同步时其他表保持原样
   const isWaitingTable = (key: string): boolean =>
     !!isFullSync && !tableDoneThisRound(key) && currentSyncingTable !== key
+  const aiContext = selected
+    ? `当前财务分析标的：${selected.name || selected.symbol}（${selected.symbol}）。请结合已接入的财务、行情与概念数据回答客观问题。`
+    : '当前尚未选择股票。请说明需要什么财务数据，不要编造具体公司结论。'
 
   return (
     <>
@@ -162,6 +171,13 @@ export function Financials() {
         subtitle="利润表 / 资负表 / 现金流 / 关键指标 / 股本 / AI分析 · Expert"
         right={
           <div className="flex items-center gap-2">
+            <AskAiButton
+              context={aiContext}
+              scopeKey={selected?.symbol || 'general'}
+              symbol={selected?.symbol}
+              name={selected?.name}
+              suggestions={selected ? ['这只股票的财务状态如何？', '哪些财务指标值得关注？', '当前有哪些数据缺口？'] : ['如何看利润表？', '如何判断现金流质量？']}
+            />
             <LastStockChip stock={lastStock} onSelect={pick} />
             {syncing && (
               <span className="text-xs text-accent/80 flex items-center gap-1.5">

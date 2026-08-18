@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.services import ai_reports
-from app.services import server_preferences
+from app.services import ai_reports, server_preferences
 from app.services.financial_analyzer import analyze_financials_stream
 from app.services.financial_sync import FINANCIAL_TABLES, get_financial_df
 from app.services.financial_view import load_financial_frame, search_financial_symbols
@@ -48,7 +47,20 @@ def financial_status(request: Request):
     """返回各财务表的同步状态。无需 FINANCIAL 权限（前端根据 available 决定是否展示）。"""
     capset = request.app.state.capabilities
     if not _financial_allowed(capset):
-        return {"available": False, "tables": {}}
+        from app.services import preferences
+        provider = preferences.get_financial_provider()
+        reason = (
+            "未配置 TEAJOIN_API_KEY"
+            if provider != "tickflow"
+            else "当前 TickFlow 档位未开通 financial 能力"
+        )
+        return {
+            "available": False,
+            "tables": {},
+            "provider": provider,
+            "configured": provider == "tickflow" or bool(capset.has(Cap.FINANCIAL)),
+            "reason": reason,
+        }
 
     data_dir = request.app.state.repo.store.data_dir
     tables = {}
@@ -73,6 +85,8 @@ def financial_status(request: Request):
 
     return {
         "available": True,
+        "provider": "tickflow" if capset.has(Cap.FINANCIAL) else "custom",
+        "configured": True,
         "tables": tables,
         "last_sync": last_sync,
         # 服务端是否正在同步(手动触发)——前端据此显示"同步中"并防重复点击,

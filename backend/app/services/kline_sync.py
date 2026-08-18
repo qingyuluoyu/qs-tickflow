@@ -367,6 +367,10 @@ def sync_adj_factor(symbols: list[str], repo: KlineRepository,
                 merged = pl.concat([existing, new_data]).unique(
                     subset=["symbol", "trade_date"], keep="last",
                 ).sort(["symbol", "trade_date"])
+                # DuckDB keeps readers for registered Parquet views alive. On
+                # Windows those handles prevent replacing the single-file
+                # adj_factor store until they are explicitly released.
+                repo.release_parquet_read_handles()
                 _atomic_write_parquet(merged, out)
                 return merged.height - before, affected
             _atomic_write_parquet(new_data.sort(["symbol", "trade_date"]), out)
@@ -436,6 +440,9 @@ def sync_adj_factor(symbols: list[str], repo: KlineRepository,
         merged = pl.concat([existing, new_data]).unique(
             subset=["symbol", "trade_date"], keep="last",
         ).sort(["symbol", "trade_date"])
+        # See the custom-provider branch above: release DuckDB's Parquet
+        # handles before replacing the all.parquet file on Windows.
+        repo.release_parquet_read_handles()
         _atomic_write_parquet(merged, out)
         added = merged.height - before
         logger.info("adj_factor merged: %d total (+%d new), %d/%d symbols",

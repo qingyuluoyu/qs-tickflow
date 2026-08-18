@@ -10,6 +10,10 @@ interface Props {
   onSelect: (symbol: string, name: string) => void
   /** 搜索资产类型, 逗号分隔 (默认 'stock')。如 'stock,index' */
   assetTypes?: string
+  /** 已选中的资产，展示在输入框内，避免选择后输入框重新显示为空态占位符。 */
+  selected?: { symbol: string; name?: string } | null
+  /** 生成任务进行中时锁定选择器，避免切换标的造成上下文混淆。 */
+  disabled?: boolean
 }
 
 /**
@@ -17,7 +21,7 @@ interface Props {
  * 复用 instrumentSearch 后端(代码 / 名称模糊匹配),单选即跳转该股财务详情。
  * 模式对齐 Watchlist.StockSearchBox:useQuery + 外部点击关闭 + 键盘导航。
  */
-export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
+export function StockFinancialSearch({ onSelect, assetTypes, selected, disabled = false }: Props) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const [activeIdx, setActiveIdx] = useState(-1)
@@ -47,6 +51,7 @@ export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
   }, [])
 
   function handleSelect(r: { symbol: string; name: string }) {
+    if (disabled) return
     onSelect(r.symbol, r.name)
     setQuery('')
     setOpen(false)
@@ -78,13 +83,14 @@ export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
         <input
           ref={inputRef}
           type="text"
-          placeholder="输入股票代码或名称，如 600000 / 浦发"
+          placeholder={selected?.symbol ? `已选：${selected.name || selected.symbol}（可重新搜索）` : '输入股票代码或名称，如 600000 / 浦发'}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1) }}
-          onFocus={() => { if (trimmed) setOpen(true) }}
+          onChange={(e) => { if (disabled) return; setQuery(e.target.value); setOpen(true); setActiveIdx(-1) }}
+          onFocus={() => { if (!disabled && trimmed) setOpen(true) }}
           onKeyDown={handleKeyDown}
+          disabled={disabled}
           // 较宽、更醒目 —— 作为财务页主入口
-          className="w-full h-11 pl-11 pr-10 rounded-card bg-surface border border-border text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50 focus:bg-base transition-colors"
+          className="w-full h-11 pl-11 pr-10 rounded-card bg-surface border border-border text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50 focus:bg-base transition-colors disabled:cursor-not-allowed disabled:opacity-50"
         />
         {search.isFetching && (
           <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted animate-spin" />

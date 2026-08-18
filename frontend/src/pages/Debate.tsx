@@ -1,10 +1,11 @@
-import { useState } from 'react'
-import { Loader2, Swords, Trash2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Loader2, Square, Swords, Trash2 } from 'lucide-react'
 import { PageHeader } from '@/components/PageHeader'
+import { AskAiButton } from '@/components/ask-ai/AskAiButton'
 import { StockFinancialSearch } from '@/components/financials/StockFinancialSearch'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
 import { toast } from '@/components/Toast'
-import { clearFinishedDebates, startDebate, useDebateTasks } from '@/lib/debateStore'
+import { clearFinishedDebates, startDebate, stopDebate, useDebateTasks } from '@/lib/debateStore'
 
 export function Debate() {
   const [code, setCode] = useState('')
@@ -12,24 +13,46 @@ export function Debate() {
   const [rounds, setRounds] = useState(1)
   const tasks = useDebateTasks()
   const current = tasks[tasks.length - 1]
+  const currentCodeBusy = current?.code === code && (
+    current.phase === 'loading' || current.phase === 'dossier' || current.phase === 'streaming'
+  )
+  const aiContext = useMemo(() => {
+    const identity = code ? `当前研究股票：${name || code}（${code}）。` : '当前尚未选择研究股票。'
+    const completed = current?.stages
+      .filter(stage => stage.done && stage.content.trim())
+      .map(stage => `## ${stage.label}\n${stage.content.trim()}`)
+      .join('\n\n')
+    return `${identity}请优先基于客观数据回答，明确区分事实、推断、风险与数据缺口，不得虚构行情或财务数据。${completed ? `\n\n当前辩论已完成内容：\n${completed.slice(0, 30000)}` : '\n\n当前还没有已完成的辩论内容。'}`
+  }, [code, current, name])
   const select = (symbol: string, stockName: string) => { setCode(symbol); setName(stockName) }
   const begin = () => {
     if (!code) { toast('请先选择一只股票', 'error'); return }
     const result = startDebate(code, name, rounds)
     if (result.error) toast(result.error, 'error')
   }
-
   return (
     <>
       <PageHeader title="多空辩论" subtitle="同一份客观底稿 · 多方 · 空方 · 中立主持" right={
-        <button onClick={clearFinishedDebates} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground">
-          <Trash2 className="h-3.5 w-3.5" /> 清理已完成
-        </button>
+        <div className="flex items-center gap-2">
+          <AskAiButton
+            context={aiContext}
+            scopeKey={code || 'general'}
+            symbol={code}
+            name={name}
+            suggestions={code ? ['总结当前研究分歧', '这只股票的基本面怎么样', '主要风险有哪些'] : ['今天市场有哪些重要变化', '如何分析一家公司', '帮我建立研究框架']}
+          />
+          <button onClick={clearFinishedDebates} className="inline-flex items-center gap-1.5 text-xs text-muted hover:text-foreground">
+            <Trash2 className="h-3.5 w-3.5" /> 清理已完成
+          </button>
+        </div>
       } />
       <div className="w-full px-8 py-6 space-y-5">
         <div className="flex flex-wrap items-center gap-3 rounded-card border border-border/60 bg-surface/40 p-4">
-          <div className="w-80"><StockFinancialSearch onSelect={select} /></div>
-          {code && <span className="text-xs text-secondary">{name || code} <span className="font-mono text-muted">{code}</span></span>}
+          <div className="w-80"><StockFinancialSearch onSelect={select} selected={code ? { symbol: code, name } : null} disabled={!!currentCodeBusy} /></div>
+          {code && <span className="inline-flex items-center gap-1.5 rounded-btn border border-accent/30 bg-accent/10 px-2.5 py-1.5 text-xs text-accent" title="当前已选股票">
+            <span className="font-medium">{name || code}</span>
+            <span className="font-mono text-accent/75">{code}</span>
+          </span>}
           <label className="flex items-center gap-2 text-xs text-secondary">
             轮数
             <select value={rounds} onChange={e => setRounds(Number(e.target.value))} className="rounded border border-border bg-base px-2 py-1.5 text-xs">
@@ -37,8 +60,15 @@ export function Debate() {
               <option value={2}>2（含交叉反驳）</option>
             </select>
           </label>
-          <button onClick={begin} disabled={current?.phase === 'loading' || current?.phase === 'dossier' || current?.phase === 'streaming'} className="inline-flex items-center gap-1.5 rounded-btn border border-violet-400/30 bg-violet-500/15 px-3 py-1.5 text-xs font-medium text-violet-300 transition-colors hover:bg-violet-500/25 disabled:cursor-not-allowed disabled:opacity-40">
-            <Swords className="h-3.5 w-3.5" /> 开始辩论
+          <button
+            onClick={() => currentCodeBusy && current ? stopDebate(current.id) : begin()}
+            disabled={!code}
+            className={currentCodeBusy
+              ? 'inline-flex items-center gap-1.5 rounded-btn border border-border/70 bg-elevated px-3 py-1.5 text-xs font-medium text-secondary transition-colors hover:border-danger/50 hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40'
+              : 'inline-flex items-center gap-1.5 rounded-btn bg-bull px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-colors hover:bg-bull/90 disabled:cursor-not-allowed disabled:opacity-40'}
+            title={!code ? '请先选择一只股票' : currentCodeBusy ? '中止当前股票的辩论' : '开始多空辩论'}
+          >
+            {currentCodeBusy ? <><Square className="h-3.5 w-3.5" /> 中止辩论</> : <><Swords className="h-3.5 w-3.5" /> 开始辩论</>}
           </button>
         </div>
 
@@ -79,4 +109,3 @@ function DebateResult({ task }: { task: ReturnType<typeof useDebateTasks>[number
     </div>
   )
 }
-

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
 
-export type DebatePhase = 'loading' | 'dossier' | 'streaming' | 'done' | 'error'
+export type DebatePhase = 'loading' | 'dossier' | 'streaming' | 'done' | 'stopped' | 'error'
 export interface DebateStage { stage: string; label: string; content: string; done: boolean; failed?: boolean }
 export interface DebateTask {
   id: string
@@ -21,6 +21,7 @@ export interface DebateTask {
 
 const MAX_ACTIVE = 3
 let tasks: DebateTask[] = []
+const controllers = new Map<string, AbortController>()
 const listeners = new Set<() => void>()
 let snapshot: DebateTask[] = tasks
 function emit() { snapshot = tasks; listeners.forEach(fn => fn()) }
@@ -46,13 +47,15 @@ export function startDebate(code: string, name: string, rounds: number): { id?: 
     sections: [], missing: [], stages: [], error: '', createdAt: Date.now(),
   }]
   emit()
-  void runStream(id, code, rounds)
+  const controller = new AbortController()
+  controllers.set(id, controller)
+  void runStream(id, code, rounds, controller.signal)
   return { id }
 }
 
-async function runStream(id: string, code: string, rounds: number) {
+async function runStream(id: string, code: string, rounds: number, signal: AbortSignal) {
   try {
-    for await (const event of api.debateStream(code, rounds)) {
+    for await (const event of api.debateStream(code, rounds, signal)) {
       const task = tasks.find(t => t.id === id)
       if (!task) return
       if (event.type === 'status') patchTask(id, { phase: 'dossier', status: event.message ?? '正在准备底稿' })
@@ -77,15 +80,29 @@ async function runStream(id: string, code: string, rounds: number) {
         patchTask(id, { phase: 'done', status: '辩论完成' })
       }
     }
+    controllers.delete(id)
+    if (signal.aborted) return
     const final = tasks.find(t => t.id === id)
     if (final && final.phase !== 'error' && final.phase !== 'done') patchTask(id, { phase: 'error', error: '流式响应提前结束', status: '生成失败' })
   } catch (error) {
+    controllers.delete(id)
+    if (signal.aborted) {
+      patchTask(id, { phase: 'stopped', status: '已中止' })
+      return
+    }
     patchTask(id, { phase: 'error', error: String((error as Error)?.message ?? error), status: '生成失败' })
   }
+}
+
+export function stopDebate(id: string) {
+  const task = tasks.find(item => item.id === id)
+  if (!task || !['loading', 'dossier', 'streaming'].includes(task.phase)) return
+  controllers.get(id)?.abort()
+  controllers.delete(id)
+  patchTask(id, { phase: 'stopped', status: '已中止' })
 }
 
 export function clearFinishedDebates() {
   tasks = tasks.filter(t => t.phase === 'loading' || t.phase === 'dossier' || t.phase === 'streaming')
   emit()
 }
-

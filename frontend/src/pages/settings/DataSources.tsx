@@ -13,6 +13,7 @@ const DATASET_LABEL: Record<string, string> = {
   adj_factor: '除权',
   realtime: '实时',
   minute: '分钟',
+  financial: '财务',
 }
 
 export function SettingsDataSourcesPanel() {

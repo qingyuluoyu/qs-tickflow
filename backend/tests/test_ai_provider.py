@@ -93,6 +93,24 @@ def test_format_openai_error_falls_back_to_status_message_without_detail():
     assert message == "AI 服务请求失败(400): 请求参数无效, 请检查模型名称和上下文长度"
 
 
+def test_format_openai_error_normalizes_quota_exceeded_payload():
+    response = httpx.Response(
+        402,
+        json={"error": {"message": "You exceeded your current quota", "type": "quota_exceeded"}},
+        request=httpx.Request("POST", "https://api.stepfun.com/v1/chat/completions"),
+    )
+    exc = openai.APIStatusError(
+        "payment required",
+        response=response,
+        body={"error": {"message": "You exceeded your current quota", "type": "quota_exceeded"}},
+    )
+
+    message = _format_openai_error(exc)
+
+    assert message == "AI 服务请求失败(402): AI 账户额度已用尽, 请充值/开通额度后重试, 或切换到有额度的模型"
+    assert "quota_exceeded" not in message
+
+
 def test_is_temperature_rejected_matches_moonshot_message():
     """Moonshot 对 reasoning 模型报 'only 1 is allowed for this model'。"""
     response = httpx.Response(

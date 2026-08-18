@@ -20,6 +20,7 @@ import { QK } from '@/lib/queryKeys'
 import { cn } from '@/lib/cn'
 import { fmtBigNum } from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
+import { AskAiButton } from '@/components/ask-ai/AskAiButton'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
 import { toast } from '@/components/Toast'
 import { usePreferences } from '@/lib/useSharedQueries'
@@ -217,6 +218,9 @@ export function Review() {
   const isGenerating = phase === 'loading' || phase === 'streaming'
   const displayDate = viewing?.as_of ?? meta?.as_of ?? marketQuery.data?.as_of ?? asOf ?? '最新'
   const data = marketQuery.data
+  const reviewAiContext = data
+    ? `当前复盘交易日：${data.as_of ?? '最新'}。市场摘要：${JSON.stringify({ indices: data.indices, breadth: data.breadth, limit: data.limit, amount: data.amount, emotion: data.emotion })}`
+    : '当前暂无可用市场数据。请明确说明数据尚未接入，不要编造市场结论。'
   // 主区域显示的内容:viewing(查看历史)优先于 store 的生成 content,
   // 这样点历史报告不会覆盖后台生成中的流。
   const displayContent = viewing?.content ?? content
@@ -249,6 +253,13 @@ export function Review() {
             >
               <Clock className="h-3 w-3" />定时
             </button>
+            <AskAiButton
+              context={reviewAiContext}
+              scopeKey="market"
+              name="大盘"
+              label="问 AI"
+              suggestions={['今天大盘怎么走', '哪些指数领涨领跌', '盘面有什么值得注意']}
+            />
             <button
               onClick={generate}
               disabled={isGenerating}

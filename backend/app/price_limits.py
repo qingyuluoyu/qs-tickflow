@@ -78,6 +78,11 @@ def polars_is_risk_warning_name(name: pl.Expr) -> pl.Expr:
 
 def polars_limit_price(previous: pl.Expr, limit_pct: pl.Expr, *, up: bool) -> pl.Expr:
     """Calculate exchange half-up prices with integer-cent arithmetic."""
+    # Upstream market feeds can encode unavailable previous closes as NaN/Inf.
+    # Keep those rows nullable instead of strict-casting a non-finite float to
+    # Int64, which would abort the whole enriched rebuild.
+    previous = previous.fill_nan(None)
+    previous = pl.when(previous.is_finite()).then(previous).otherwise(None)
     sign = 1 if up else -1
     numerator = ((1 + sign * limit_pct) * 100).round(0).cast(pl.Int64)
     cents = (previous * 100 + 0.5).floor().cast(pl.Int64)

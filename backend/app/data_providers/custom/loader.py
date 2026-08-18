@@ -325,6 +325,8 @@ def _config_to_dict(config: CustomSourceConfig) -> dict:
             **({"timeout": ds.timeout} if ds.timeout != DEFAULT_TIMEOUT else {}),
             "response_path": ds.response_path,
             "field_map": dict(ds.field_map),
+            **({"params": dict(ds.params)} if ds.params else {}),
+            **({"body": dict(ds.body)} if ds.body else {}),
             **({"transforms": dict(ds.transforms)} if ds.transforms else {}),
             **({
                 "symbols_param": ds.symbols_param,

@@ -10,6 +10,7 @@ import logging
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+
 import polars as pl
 
 from app.tickflow.capabilities import Cap, CapabilitySet
@@ -52,7 +53,14 @@ def _financial_is_custom() -> bool:
     if provider == "tickflow":
         return False
     from app.data_providers import custom as custom_sources
-    return custom_sources.provider_has_dataset(provider, "financial")
+    if not custom_sources.provider_has_dataset(provider, "financial"):
+        return False
+    try:
+        # A credentialed YAML source may be listed in Settings before its token
+        # is supplied. Do not advertise access or start sync loops in that state.
+        return custom_sources.get_provider(provider).is_configured()
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _fetch_table(
@@ -72,8 +80,8 @@ def _fetch_table(
 
     # 自定义数据源分流
     if is_custom:
-        from app.services import preferences
         from app.data_providers import custom as custom_sources
+        from app.services import preferences
         try:
             provider = custom_sources.get_provider(preferences.get_financial_provider())
             logger.info(

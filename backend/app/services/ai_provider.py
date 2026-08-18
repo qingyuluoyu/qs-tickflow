@@ -13,8 +13,8 @@ import time
 import tomllib
 from collections.abc import AsyncIterator, Callable, Sequence
 from pathlib import Path
-from typing import Any
 from types import TracebackType
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from app.services.ai_profiles import ResolvedAiProfile, resolve_current_profile
@@ -478,9 +478,17 @@ def _format_openai_error(exc: Exception) -> str:
         503: "AI 服务暂时不可用, 请稍后重试",
         504: "AI 上游服务超时, 请稍后重试或检查 AI Base URL / 网络",
     }
-    # 优先透出上游真实错误 (如 Moonshot 的 "model not found"), 仅在没有
-    # 可读 detail 时才回落到按状态码的通用文案, 避免吞掉排障关键信息。
-    message = detail or status_messages.get(status) or "请稍后重试或检查 AI 服务配置"
+    # StepFun and other OpenAI-compatible gateways use HTTP 402 with a
+    # quota_exceeded payload when the account has no remaining credits. The
+    # raw English payload is not actionable for users, so normalize it to a
+    # concise Chinese message while retaining the status code for diagnostics.
+    detail_lower = detail.lower()
+    if status == 402 or "quota_exceeded" in detail_lower or "exceeded your current quota" in detail_lower:
+        message = "AI 账户额度已用尽, 请充值/开通额度后重试, 或切换到有额度的模型"
+    else:
+        # 优先透出上游真实错误 (如 Moonshot 的 "model not found"), 仅在没有
+        # 可读 detail 时才回落到按状态码的通用文案, 避免吞掉排障关键信息。
+        message = detail or status_messages.get(status) or "请稍后重试或检查 AI 服务配置"
     if status:
         return f"AI 服务请求失败({status}): {message}"
     return f"AI 服务请求失败: {message}"

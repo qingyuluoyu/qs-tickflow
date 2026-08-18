@@ -75,6 +75,21 @@ def test_polars_and_numpy_limit_prices_use_identical_half_up_rounding():
     assert numpy_limit_price(previous, limits, up=False)[0] == pytest.approx(17.96)
 
 
+def test_polars_limit_price_keeps_non_finite_previous_close_nullable():
+    frame = pl.DataFrame({
+        "previous": [float("nan"), float("inf"), 10.0],
+        "limit": [0.10, 0.10, 0.10],
+    })
+
+    result = frame.select(
+        polars_limit_price(
+            pl.col("previous"), pl.col("limit"), up=True,
+        ).alias("price")
+    )
+
+    assert result["price"].to_list() == [None, None, 11.0]
+
+
 def test_matrix_uses_date_specific_st_limits_across_change(tmp_path):
     root = tmp_path / "market"
     rows = [
