@@ -667,7 +667,7 @@ def update_minute_sync(req: MinuteSyncPrefs) -> dict:
     minute_sync_segment_days 为可选:未传(None)时不覆盖现有值,便于开关/天数
     与段大小各自独立更新。
     """
-    from app.services import preferences
+    from app.services import preferences, server_preferences
     days = max(1, min(30, req.minute_sync_days))
     updates: dict = {
         "minute_sync_enabled": req.minute_sync_enabled,
@@ -675,7 +675,8 @@ def update_minute_sync(req: MinuteSyncPrefs) -> dict:
     }
     if req.minute_sync_segment_days is not None:
         updates["minute_sync_segment_days"] = max(5, min(30, req.minute_sync_segment_days))
-    preferences.save(updates)
+    # 服务器级: 分钟线同步由全局管道执行
+    server_preferences.save(updates)
     return {
         "minute_sync_enabled": req.minute_sync_enabled,
         "minute_sync_days": days,
@@ -838,9 +839,9 @@ class PipelineRegimeEnabledIn(BaseModel):
 
 @router.put("/preferences/pipeline-regime-enabled")
 def update_pipeline_regime_enabled(req: PipelineRegimeEnabledIn) -> dict:
-    """更新盘后管道 regime 自动计算开关。"""
-    from app.services import preferences
-    preferences.save({"pipeline_regime_enabled": bool(req.pipeline_regime_enabled)})
+    """更新盘后管道 regime 自动计算开关(服务器级)。"""
+    from app.services import preferences, server_preferences
+    server_preferences.save({"pipeline_regime_enabled": bool(req.pipeline_regime_enabled)})
     return {"pipeline_regime_enabled": preferences.get_pipeline_regime_enabled()}
 
 
@@ -852,15 +853,15 @@ class RegimeBatchParamsIn(BaseModel):
 
 @router.put("/preferences/regime-batch-params")
 def update_regime_batch_params(req: RegimeBatchParamsIn) -> dict:
-    """更新 regime 分批参数。仅在传入字段时保存对应项(支持部分更新)。"""
-    from app.services import preferences
+    """更新 regime 分批参数(服务器级)。仅在传入字段时保存对应项(支持部分更新)。"""
+    from app.services import preferences, server_preferences
     updates: dict = {}
     if req.batch_days is not None:
         updates["regime_batch_days"] = req.batch_days
     if req.warmup_days is not None:
         updates["regime_warmup_days"] = req.warmup_days
     if updates:
-        preferences.save(updates)
+        server_preferences.save(updates)
     return {
         "regime_batch_days": preferences.get_regime_batch_days(),
         "regime_warmup_days": preferences.get_regime_warmup_days(),

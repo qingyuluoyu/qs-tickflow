@@ -27,6 +27,7 @@ from app.strategy.prompt_builder import build_step1, build_step2
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 logger = logging.getLogger(__name__)
+_USER_STRATEGY_SOURCES = ("custom", "ai", "composite")
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -276,6 +277,12 @@ class StrategyCompositeSaveRequest(BaseModel):
 
 class MonitorStartRequest(BaseModel):
     strategy_id: str
+
+
+class RestoreDefaultsRequest(BaseModel):
+    """恢复策略层初始版本的显式确认。"""
+
+    confirm: bool = False
 
 
 # ── 列表 / 详情 ─────────────────────────────────────────────────────
@@ -1049,6 +1056,163 @@ def delete_strategy(strategy_id: str, request: Request):
     engine.unregister(strategy_id)
     warnings = _cleanup_deleted_strategy(request, strategy_id)
     return {"ok": True, "warnings": warnings}
+
+
+def _collect_user_strategy_files(data_dir: Path) -> tuple[list[Path], set[str]]:
+    """收集当前用户策略文件，并在删除前拒绝符号链接或目录逃逸。"""
+    files: list[Path] = []
+    strategy_ids: set[str] = set()
+    for source in _USER_STRATEGY_SOURCES:
+        root = (data_dir / "strategies" / source).resolve()
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.py")):
+            try:
+                resolved = path.resolve()
+            except (OSError, RuntimeError) as exc:
+                raise HTTPException(status_code=409, detail=f"无法访问策略文件 {path.name}: {exc}") from exc
+            if path.is_symlink() or resolved.parent != root:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"策略文件 {path.name} 不在当前用户策略目录, 拒绝恢复",
+                )
+            if not path.is_file():
+                continue
+            files.append(path)
+            strategy_ids.add(path.stem)
+    return files, strategy_ids
+
+
+def _cleanup_restored_strategy_state(request: Request, deleted_ids: set[str]) -> list[str]:
+    """清理恢复初始版本后不再存在的监控引用，并刷新运行时状态。"""
+    from app.services import preferences
+    from app.strategy import monitor_rules
+
+    data_dir = _data_dir(request)
+    warnings: list[str] = []
+    deleted = set(deleted_ids)
+
+    try:
+        monitored_ids = preferences.get_strategy_monitor_ids()
+        remaining = [sid for sid in monitored_ids if sid not in deleted]
+        if remaining != monitored_ids:
+            preferences.set_realtime_monitor_config({"strategy_monitor_ids": remaining})
+    except Exception as exc:
+        warnings.append(f"监控偏好清理失败: {exc}")
+
+    try:
+        rules_changed = False
+        for rule in monitor_rules.load_all(data_dir):
+            if (
+                rule.get("type") == "strategy"
+                and rule.get("strategy_id") in deleted
+                and rule.get("enabled", True)
+            ):
+                next_rule = dict(rule)
+                next_rule["enabled"] = False
+                monitor_rules.save_one(data_dir, next_rule)
+                rules_changed = True
+
+        user = getattr(getattr(request, "state", None), "user", None)
+        monitor_engine = None if user is not None else getattr(request.app.state, "monitor_engine", None)
+        if rules_changed and monitor_engine is not None:
+            monitor_engine.set_rules(monitor_rules.load_all(data_dir))
+        elif rules_changed and user is not None:
+            runtime = getattr(request.app.state, "monitor_runtime", None)
+            if runtime is not None:
+                runtime.invalidate(user.id)
+    except Exception as exc:
+        warnings.append(f"关联监控清理失败: {exc}")
+
+    try:
+        _invalidate_strategy_runtime(request)
+    except Exception as exc:
+        warnings.append(f"运行缓存清理失败: {exc}")
+
+    for warning in warnings:
+        logger.warning("restore strategy defaults: %s", warning)
+    return warnings
+
+
+@router.post("/restore-defaults")
+def restore_default_strategies(req: RestoreDefaultsRequest, request: Request):
+    """恢复当前用户的策略层到打包的 19 个内置策略。"""
+    if not req.confirm:
+        raise HTTPException(status_code=400, detail="恢复初始策略前必须明确确认")
+
+    engine = _get_engine(request)
+    data_dir = _data_dir(request)
+    files, file_ids = _collect_user_strategy_files(data_dir)
+    builtin_ids_before = {
+        str(meta["id"])
+        for meta in engine.list_strategies()
+        if meta.get("source") == "builtin"
+    }
+
+    # 仅把当前用户目录中的策略加入删除集合; 内置策略和其他目录永远不会被删除。
+    deleted_ids = set(file_ids)
+    for strategy in engine.strategy_definitions():
+        if strategy.source not in _USER_STRATEGY_SOURCES or strategy.file_path is None:
+            continue
+        try:
+            resolved = strategy.file_path.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if any(resolved == path.resolve() for path in files):
+            deleted_ids.add(str(strategy.meta["id"]))
+
+    for path in files:
+        try:
+            path.unlink()
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"无法删除策略文件 {path.name}: {exc.strerror or exc}",
+            ) from exc
+
+    # 初始版本不包含任何策略覆盖配置, 但只清理策略专用目录, 不触碰其他用户数据。
+    overrides_dir = data_dir / "user_data" / "strategy_overrides"
+    if overrides_dir.exists():
+        resolved_overrides_dir = overrides_dir.resolve()
+        for path in sorted(overrides_dir.glob("*.json")):
+            try:
+                resolved = path.resolve()
+                if path.is_symlink() or resolved.parent != resolved_overrides_dir:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"策略覆盖配置 {path.name} 不在当前用户目录, 拒绝恢复",
+                    )
+                if path.is_file():
+                    if path.stem not in builtin_ids_before:
+                        deleted_ids.add(path.stem)
+                    path.unlink()
+            except (OSError, RuntimeError) as exc:
+                reason = getattr(exc, "strerror", None) or str(exc)
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"无法清理策略覆盖配置 {path.name}: {reason}",
+                ) from exc
+
+    try:
+        engine.reload()
+    except ValueError as exc:
+        # 删除已落盘的用户策略后，至少从当前注册表移除对应 ID, 避免继续执行旧代码。
+        for strategy_id in deleted_ids:
+            engine.unregister(strategy_id)
+        raise HTTPException(status_code=409, detail=f"恢复后策略重载失败: {exc}") from exc
+
+    builtins = [meta["id"] for meta in engine.list_strategies() if meta.get("source") == "builtin"]
+    if len(builtins) != 19 or len(engine.list_strategies()) != 19:
+        raise HTTPException(status_code=409, detail="内置策略版本异常, 未能恢复为原先 19 个策略")
+
+    warnings = _cleanup_restored_strategy_state(request, deleted_ids)
+    return {
+        "ok": True,
+        "count": len(builtins),
+        "builtin_strategy_ids": builtins,
+        "deleted": sorted(deleted_ids),
+        "warnings": warnings,
+    }
 
 
 # ── 监控 ─────────────────────────────────────────────────────────────

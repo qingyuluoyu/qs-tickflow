@@ -583,6 +583,16 @@ class DepthService:
     # ================================================================
 
     def _has_capability(self) -> bool:
+        # Five-level depth is a TickFlow-specific capability in the current
+        # provider contract.  Never use a stale TickFlow depth snapshot while
+        # the server is configured for another source (TeaJoin currently has
+        # no depth dataset); the ladder UI will show its degraded state.
+        from app.services import preferences
+
+        provider_name = preferences.get_realtime_data_provider()
+        if provider_name != "tickflow":
+            logger.info("depth sealed disabled: provider %s has no depth dataset", provider_name)
+            return False
         capset = self._get_capset()
         from app.tickflow.capabilities import Cap
         return capset.has(Cap.DEPTH5_BATCH)

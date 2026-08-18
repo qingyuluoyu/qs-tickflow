@@ -333,6 +333,7 @@ def _config_to_dict(config: CustomSourceConfig) -> dict:
                 "symbols_body_path": ds.symbols_body_path,
                 "start_body_path": ds.start_body_path,
                 "end_body_path": ds.end_body_path,
+                "trade_date_body_path": ds.trade_date_body_path,
                 "date_only": ds.date_only,
                 "date_format": ds.date_format,
                 "adj_factor_kind": ds.adj_factor_kind,
@@ -492,7 +493,10 @@ def _sanitize_dataset(ds_name: str, ds_cfg: dict) -> dict:
             out["start_param"] = start_param
         if end_param:
             out["end_param"] = end_param
-        for key in ("symbols_body_path", "start_body_path", "end_body_path", "date_format"):
+        for key in (
+            "symbols_body_path", "start_body_path", "end_body_path",
+            "trade_date_body_path", "date_format",
+        ):
             value = str(ds_cfg.get(key) or "").strip()
             if value:
                 out[key] = value

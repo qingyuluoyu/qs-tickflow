@@ -49,6 +49,39 @@ def test_teajoin_minute_dataset_uses_official_stk_mins_contract():
     assert minute["end_body_path"] == "params.end_date"
     assert minute["body"]["params"]["freq"] == "1min"
     assert minute["field_map"]["trade_time"] == "datetime"
+    # TeaJoin stk_mins requires full timestamps, unlike daily which accepts
+    # YYYYMMDD.  Sending date-only values makes an otherwise valid request fail.
+    assert minute.get("date_only", False) is False
+    assert minute.get("date_format", "") == ""
+
+
+def test_teajoin_daily_dataset_supports_exact_trade_date_queries():
+    config_path = Path(__file__).resolve().parents[2] / "data" / "data_sources" / "teajoin.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    daily = config["datasets"]["daily"]
+
+    assert daily["trade_date_body_path"] == "params.trade_date"
+
+
+def test_teajoin_minute_normalizes_trade_time_to_datetime():
+    from app.data_providers.custom.provider import GenericHTTPProvider
+
+    df = pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "datetime": ["2026-08-14 15:00:00"],
+        "open": [11.1],
+        "high": [11.2],
+        "low": [11.0],
+        "close": [11.1],
+        "volume": [100.0],
+        "amount": [1100.0],
+    })
+
+    normalized = GenericHTTPProvider._normalize_minute(df)
+
+    assert normalized.schema["datetime"] == pl.Datetime("us")
+    assert normalized["datetime"].item() == datetime(2026, 8, 14, 15, 0)
 
 
 def test_teajoin_realtime_dataset_keeps_table_wrapper_for_fields_mapping():
@@ -245,6 +278,50 @@ def test_latest_daily_snapshot_requests_unfiltered_rows_and_keeps_latest_date():
     assert result["date"].item().isoformat() == "2026-08-14"
     assert result["change_pct"].item() == 0.090909
     assert result["amount"].item() == 3000
+
+
+def test_latest_daily_snapshot_can_query_an_explicit_trade_date():
+    provider = GenericHTTPProvider(CustomSourceConfig(
+        name="teajoin",
+        display_name="TeaJoin",
+        datasets={
+            "daily": DatasetConfig(
+                url="https://teajoin.example/daily",
+                method="POST",
+                body={"params": {}},
+                response_path="data",
+                trade_date_body_path="params.trade_date",
+                date_only=True,
+                date_format="%Y%m%d",
+                field_map={
+                    "ts_code": "symbol", "trade_date": "date", "close": "close",
+                },
+                transforms={"date": "parse_date(value, '%Y%m%d')"},
+            ),
+        },
+    ))
+    captured: dict[str, object] = {}
+
+    def request(_method, _url, **kwargs):
+        captured.update(kwargs)
+        return type("Response", (), {
+            "raise_for_status": lambda self: None,
+            "json": lambda self: {
+                "data": {
+                    "fields": ["ts_code", "trade_date", "close"],
+                    "items": [["000001.SZ", "20260817", 12.5]],
+                },
+            },
+        })()
+
+    provider._client.request = request
+    result = provider.get_latest_daily_snapshot(
+        as_of=datetime(2026, 8, 17),
+    )
+    provider.close()
+
+    assert captured["json"]["params"] == {"trade_date": "20260817"}
+    assert result["date"].item().isoformat() == "2026-08-17"
 
 
 def test_teajoin_daily_request_places_symbol_and_dates_in_nested_params_body():

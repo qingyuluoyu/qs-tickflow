@@ -18,7 +18,7 @@ from typing import Any
 
 import polars as pl
 
-from app.market_time import cn_today, is_market_snapshot_stale
+from app.market_time import cn_today, is_market_snapshot_stale, resolve_market_as_of
 from app.services.ext_data import ExtConfig, ExtConfigStore
 from app.services.screener import ScreenerService
 
@@ -115,7 +115,15 @@ def _dashboard_daily_snapshot(repo) -> tuple[date | None, pl.DataFrame | None]:
         loader = getattr(provider, "get_latest_daily_snapshot", None)
         if not callable(loader):
             return None, None
-        snapshot = loader()
+        market_asof = resolve_market_as_of()
+        target_date = market_asof.daily_date if market_asof.is_partial else cn_today()
+        try:
+            snapshot = loader(
+                asset_type="stock",
+                as_of=datetime.combine(target_date, time.min),
+            )
+        except TypeError:
+            snapshot = loader()
     except Exception as exc:
         # A provider outage must not blank the dashboard or silently switch
         # providers; the persisted snapshot remains available and freshness
@@ -134,7 +142,12 @@ def _dashboard_daily_snapshot(repo) -> tuple[date | None, pl.DataFrame | None]:
     latest = snapshot.get_column("date").drop_nulls().max()
     if latest is None:
         return None, None
-    if latest > cn_today():
+    target_date = (
+        resolve_market_as_of().daily_date
+        if resolve_market_as_of().is_partial
+        else cn_today()
+    )
+    if latest > target_date:
         import logging
 
         logging.getLogger(__name__).warning(
@@ -179,7 +192,7 @@ def _dashboard_daily_snapshot(repo) -> tuple[date | None, pl.DataFrame | None]:
         except Exception:
             pass
 
-    return latest, snapshot.filter(pl.col("date") == latest)
+    return latest, snapshot.filter(pl.col("date") == latest).filter(pl.col("date") <= target_date)
 
 
 def _merge_live_snapshot_indicators(
@@ -390,6 +403,7 @@ def _data_freshness(
 
     source = preferences.get_daily_data_provider()
     current_date = cn_today()
+    market_asof = resolve_market_as_of()
     snapshot_date = as_of.isoformat() if as_of else None
     realtime_provider = quote_status.get("realtime_provider")
     realtime_status = quote_status.get("last_fetch_status")
@@ -409,7 +423,8 @@ def _data_freshness(
         and (
             is_market_snapshot_stale(as_of, current_date)
             or (
-                snapshot_kind == "teajoin.realtime"
+                isinstance(snapshot_kind, str)
+                and snapshot_kind.endswith(".realtime")
                 and realtime_status != "success"
             )
         )
@@ -424,7 +439,12 @@ def _data_freshness(
         "realtime_provider": realtime_provider,
             "realtime_status": realtime_status,
             "realtime_rows": quote_status.get("last_fetch_rows", 0),
-            "snapshot_kind": snapshot_kind,
+        "snapshot_kind": snapshot_kind,
+        "session": market_asof.session.value,
+        "cutoff_time": market_asof.cutoff_time,
+        "is_partial": market_asof.is_partial,
+        "observed_at": market_asof.observed_at.isoformat(),
+        "allowed_daily_date": market_asof.daily_date.isoformat(),
     }
 
 
@@ -496,22 +516,32 @@ def _index_quotes(
     dashboard_provider: str | None = None,
     dashboard_date: date | None = None,
     dashboard_snapshot: pl.DataFrame | None = None,
+    dashboard_index_snapshot: pl.DataFrame | None = None,
 ) -> list[dict]:
     rows: list[dict] = []
-    if dashboard_snapshot is not None and not dashboard_snapshot.is_empty():
+    index_snapshot = (
+        dashboard_index_snapshot
+        if dashboard_index_snapshot is not None and not dashboard_index_snapshot.is_empty()
+        else dashboard_snapshot
+    )
+    if index_snapshot is not None and not index_snapshot.is_empty():
         required = {"symbol", "close"}
-        if required.issubset(dashboard_snapshot.columns):
+        if required.issubset(index_snapshot.columns):
             for symbol in CORE_INDEX_SYMBOLS:
-                matched = dashboard_snapshot.filter(pl.col("symbol") == symbol)
+                matched = index_snapshot.filter(pl.col("symbol") == symbol)
                 if matched.is_empty():
                     continue
-                record = (
-                    matched.sort("date", descending=True).to_dicts()[0]
+                history = (
+                    matched.sort("date", descending=True).to_dicts()
                     if "date" in matched.columns
-                    else matched.to_dicts()[0]
+                    else matched.to_dicts()
                 )
+                record = history[0]
                 last_price = _finite(record.get("close"))
+                previous = history[1] if len(history) > 1 else None
                 prev_close = _finite(record.get("prev_close"))
+                if prev_close is None and previous is not None:
+                    prev_close = _finite(previous.get("close"))
                 change_amount = _finite(record.get("change_amount"))
                 change_pct = _finite(record.get("change_pct"))
                 if change_amount is None and last_price is not None and prev_close not in (None, 0):
@@ -831,16 +861,37 @@ def build_market_overview(
     live_date: date | None = None
     live_snapshot: pl.DataFrame | None = None
     live_kind: str | None = None
-    if dashboard_live and not explicit_as_of:
-        if dashboard_snapshot is not None:
-            if dashboard_snapshot.frame is not None and not dashboard_snapshot.frame.is_empty():
-                live_date = dashboard_snapshot.snapshot_date
-                live_snapshot = dashboard_snapshot.frame.clone()
-                live_kind = dashboard_snapshot.kind
-        else:
-            live_date, live_snapshot = _dashboard_daily_snapshot(repo)
-            if live_snapshot is not None:
-                live_kind = "teajoin.daily"
+    if dashboard_live and not explicit_as_of and dashboard_snapshot is not None:
+        # The original dashboard is backed by the local enriched partition.
+        # Only a non-empty, successful realtime snapshot for the actual China
+        # trading date is allowed to override that path.  A daily provider
+        # fallback is deliberately ignored: during a trading session it is
+        # normally the previous completed date and must not replace the
+        # original dashboard with a different, potentially stale dataset.
+        realtime_is_current = (
+            dashboard_snapshot.kind.endswith(".realtime")
+            and dashboard_snapshot.status == "success"
+            and dashboard_snapshot.realtime_rows > 0
+            and dashboard_snapshot.snapshot_date == cn_today()
+        )
+        if (
+            realtime_is_current
+            and dashboard_snapshot.frame is not None
+            and not dashboard_snapshot.frame.is_empty()
+        ):
+            live_date = dashboard_snapshot.snapshot_date
+            live_snapshot = dashboard_snapshot.frame.clone()
+            live_kind = dashboard_snapshot.kind
+    # 本地管道(含收盘后快照补缺)可能比 provider 的 T+1 快照更新 —— 此时以本地为准,
+    # 否则 provider 尚未发布当日数据时会把看板整体拖回旧交易日。
+    local_latest = svc.latest_date()
+    if (
+        live_snapshot is not None
+        and live_date is not None
+        and local_latest is not None
+        and local_latest > live_date
+    ):
+        live_date, live_snapshot, live_kind = None, None, None
     as_of = as_of or live_date or svc.latest_date()
     status = _quote_status(quote_service)
     if dashboard_snapshot is not None:
@@ -849,11 +900,7 @@ def build_market_overview(
             "realtime_provider": dashboard_snapshot.provider,
             "snapshot_kind": dashboard_snapshot.kind,
             "last_fetch_status": dashboard_snapshot.status,
-            "last_fetch_rows": (
-                dashboard_snapshot.frame.height
-                if dashboard_snapshot.frame is not None
-                else 0
-            ),
+            "last_fetch_rows": dashboard_snapshot.realtime_rows,
             "last_fetch_error": dashboard_snapshot.error,
         }
     freshness = _data_freshness(
@@ -887,7 +934,16 @@ def build_market_overview(
         ),
         dashboard_date=live_date,
         dashboard_snapshot=live_snapshot,
+        dashboard_index_snapshot=(
+            getattr(dashboard_snapshot, "index_frame", None)
+            if dashboard_snapshot is not None and live_snapshot is not None
+            else None
+        ),
     )
+    if live_snapshot is not None and dashboard_snapshot is not None:
+        # Report the actual source only after the current-date snapshot passed
+        # the live boundary check; a rejected old snapshot must remain stale.
+        freshness["source"] = dashboard_snapshot.provider
 
     if not as_of:
         return {
@@ -917,8 +973,13 @@ def build_market_overview(
     # the provider snapshot is unavailable; no other page opts into this path.
     if live_snapshot is not None:
         local_enriched = svc._load_enriched_for_date(as_of)
-        df = _derive_dashboard_limit_indicators(live_snapshot, repo)
+        # Compute turnover before limit-signal enrichment, because the latter
+        # intentionally drops instrument-only float_shares after using it.
+        df = _derive_dashboard_turnover_rate(live_snapshot)
+        df = _derive_dashboard_limit_indicators(df, repo)
         df = _merge_live_snapshot_indicators(df, local_enriched, as_of)
+        # Historical same-date enriched data may be the only source of
+        # float_shares in provider snapshots; derive again after that merge.
         df = _derive_dashboard_turnover_rate(df)
         df = _extend_dashboard_limit_ladder(df, svc, as_of)
     else:

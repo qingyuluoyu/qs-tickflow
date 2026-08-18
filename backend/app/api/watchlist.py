@@ -70,14 +70,8 @@ def add_one(req: AddRequest, request: Request):
 
 @router.post("/batch")
 def add_batch(req: BatchAddRequest, request: Request):
-    existing = {r["symbol"] for r in watchlist.list_symbols()}
-    added = 0
-    for sym in req.symbols:
-        if sym not in existing:
-            added += 1
-            existing.add(sym)
-        watchlist.add(sym, req.note)
-    return {"symbols": _with_names(watchlist.list_symbols(), request), "added": added}
+    rows, added = watchlist.add_many(req.symbols, req.note)
+    return {"symbols": _with_names(rows, request), "added": added}
 
 
 @router.get("/ocr-status")

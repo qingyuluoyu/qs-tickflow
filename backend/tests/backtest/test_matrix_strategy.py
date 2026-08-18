@@ -261,14 +261,20 @@ def test_builtin_matrix_strategies_use_their_declared_formula_modules():
         path for path in strategy_dir.glob("*.py") if path.name != "__init__.py"
     )
 
-    assert len(strategy_files) == 18
-    for strategy_path in strategy_files:
+    assert len(strategy_files) == 19
+    matrix_strategy_files = [path for path in strategy_files if path.stem != "qingshu_one"]
+    assert len(matrix_strategy_files) == 18
+    for strategy_path in matrix_strategy_files:
         strategy = StrategyEngine._load_file(strategy_path)
         assert strategy.execution_backend == "matrix_native"
         assert strategy.matrix_strategy is not None
         assert strategy.matrix_strategy.__class__.__module__ == strategy_path.stem
         assert strategy.filter_fn is None
         assert strategy.filter_history_fn is None
+
+    qingshu = StrategyEngine._load_file(strategy_dir / "qingshu_one.py")
+    assert qingshu.execution_backend == "python_history_legacy"
+    assert qingshu.filter_history_fn is not None
 
 
 def test_market_matrix_derives_live_raw_close_when_requested():
@@ -673,10 +679,14 @@ def test_registered_builtin_matrix_strategies_share_one_cache_profile():
     profile = build_matrix_cache_profile(engine, "stock")
     strategies = engine.strategy_definitions()
 
-    assert len(strategies) == 18
-    assert all(strategy.execution_backend == "matrix_native" for strategy in strategies)
+    matrix_strategies = [
+        strategy for strategy in strategies if strategy.execution_backend == "matrix_native"
+    ]
+    assert len(strategies) == 19
+    assert len(matrix_strategies) == 18
+    assert all(strategy.execution_backend == "matrix_native" for strategy in matrix_strategies)
     assert profile.warmup_bars > 0
-    assert profile.forward_bars == max(int(strategy.max_hold_days or 0) for strategy in strategies)
+    assert profile.forward_bars == max(int(strategy.max_hold_days or 0) for strategy in matrix_strategies)
     assert {"open", "high", "low", "close", "volume"}.issubset(profile.field_columns)
 
 

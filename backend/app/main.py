@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, qingshu101, regime, rps, screener, settings as settings_api, signals, stock_analysis, strategy, watchlist
+from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, qingshu101, regime, rps, screener, settings as settings_api, signals, stock_analysis, stock_insight, strategy, watchlist, watchlist_news as watchlist_news_api
 from app.api.routes import router as core_router
 from app.config import settings
 from app.jobs import daily_pipeline
@@ -85,6 +85,34 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("custom data sources init failed: %s", e)
 
+    # Prefer an operator-provided VibePublic API configuration; when it is
+    # absent, the maintained Vibe-Research public-source adapter is used.
+    # Invalid configuration remains fail-closed and must not affect
+    # market-data startup.
+    try:
+        from app.data_providers import news_registry
+        from app.services.watchlist_news import WatchlistNewsService
+
+        news_registry.load()
+        app.state.watchlist_news_service = WatchlistNewsService(
+            provider=news_registry.get_provider(),
+        )
+        from app.services.watchlist_news_preloader import WatchlistNewsPreloader
+
+        news_preloader = WatchlistNewsPreloader(
+            account_store=account_store,
+            shared_root=store.data_dir,
+            service=app.state.watchlist_news_service,
+            interval_s=300.0,
+        )
+        app.state.watchlist_news_preloader = news_preloader
+        news_preloader.start()
+        logger.info("watchlist news provider: %s", news_registry.status().get("name"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VibePublic news provider init failed: %s", e)
+        app.state.watchlist_news_service = None
+        app.state.watchlist_news_preloader = None
+
     # Provider selection and background refresh settings are server-scoped.
     # Migrate only the old shared preferences file; never choose a provider
     # from an authenticated user's private workspace.
@@ -94,22 +122,32 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("server preferences migration failed: %s", e)
 
-    # 看板行情预加载: provider 请求在后台每 30 秒执行, 访问 /api/overview/market
-    # 不再同步等待 TeaJoin。预加载器只缓存全市场快照, 不缓存用户维度排名, 保持账户隔离。
+    # 看板使用独立的盘中快照预加载器: 开盘后从新浪读取当天快照并只保存在
+    # 内存中,不写入日K分区; 收盘后由 daily_pipeline 接管当天日K。这样没有
+    # TickFlow Key 时看板也能从开盘起显示真实盘中广度,且不会污染历史数据。
     try:
         from app.services.market_overview_preloader import (
             MarketOverviewPreloader,
-            make_dashboard_snapshot_fetcher,
+            make_sina_intraday_snapshot_fetcher,
         )
 
-        dashboard_preloader = MarketOverviewPreloader(
-            make_dashboard_snapshot_fetcher(),
+        def _dashboard_stock_symbols() -> list[str]:
+            instruments = repo.get_instruments()
+            if instruments.is_empty() or "symbol" not in instruments.columns:
+                return []
+            return instruments.get_column("symbol").drop_nulls().unique().to_list()
+
+        intraday_fetcher = make_sina_intraday_snapshot_fetcher(
+            _dashboard_stock_symbols,
+            lambda: list(QuoteService.CORE_INDEX_SYMBOLS),
+            repo,
             interval_s=30.0,
         )
-        app.state.market_overview_preloader = dashboard_preloader
-        dashboard_preloader.start()
+        market_preloader = MarketOverviewPreloader(intraday_fetcher, interval_s=30.0)
+        app.state.market_overview_preloader = market_preloader
+        market_preloader.start()
     except Exception as e:  # noqa: BLE001
-        logger.warning("dashboard market preloader not started: %s", e)
+        logger.warning("dashboard intraday preloader not started: %s", e)
         app.state.market_overview_preloader = None
 
     # 全局行情服务
@@ -169,7 +207,7 @@ async def lifespan(app: FastAPI):
 
     # 扩展数据定时拉取: 在预设配置就绪后启动, 自动调度 enabled 的预设。
     from app.services.ext_pull import pull_scheduler
-    pull_scheduler.start(store.data_dir)
+    pull_scheduler.start()
     pull_scheduler.refresh(store.data_dir)
     app.state.pull_scheduler = pull_scheduler
 
@@ -347,6 +385,14 @@ async def lifespan(app: FastAPI):
         custom_sources.close_all()
     except Exception:  # noqa: BLE001
         logger.warning("custom data source shutdown failed", exc_info=True)
+    news_preloader = getattr(app.state, "watchlist_news_preloader", None)
+    if news_preloader:
+        news_preloader.stop()
+    try:
+        from app.data_providers import news_registry
+        news_registry.close()
+    except Exception:  # noqa: BLE001
+        logger.warning("VibePublic news provider shutdown failed", exc_info=True)
     dsvc = getattr(app.state, "depth_service", None)
     if dsvc:
         dsvc.stop_polling()
@@ -458,6 +504,7 @@ app.include_router(auth_api.router)
 app.include_router(qingshu101.router)
 app.include_router(kline.router)
 app.include_router(watchlist.router)
+app.include_router(watchlist_news_api.router)
 app.include_router(screener.router)
 app.include_router(backtest.router)
 app.include_router(intraday.router)
@@ -477,6 +524,7 @@ app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
 app.include_router(rps.router)
+app.include_router(stock_insight.router)
 
 
 # 能力门控异常 → 403(而非默认 500)

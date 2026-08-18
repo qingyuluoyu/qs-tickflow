@@ -209,12 +209,32 @@ def save_current_override(
 
 
 def clear_current_override() -> bool:
-    return get_account_store(settings.data_dir).clear_user_ai_profile(_require_current_user_id())
+    """清除个人覆盖并留下空 tombstone, 防止旧版 secrets.json 在下次读取时重新迁移复活。"""
+    user_id = _require_current_user_id()
+    store = get_account_store(settings.data_dir)
+    if store.get_user_ai_profile(user_id) is None:
+        return False
+    store.save_user_ai_profile(
+        user_id,
+        provider="",
+        base_url="",
+        model="",
+        encrypted_api_key=None,
+        user_agent="",
+    )
+    return True
 
 
 def has_current_override() -> bool:
     user = current_user()
-    return bool(user and get_account_store(settings.data_dir).get_user_ai_profile(user.id))
+    if user is None:
+        return False
+    record = get_account_store(settings.data_dir).get_user_ai_profile(user.id)
+    return bool(
+        record
+        and record.provider == OPENAI_COMPAT_PROVIDER
+        and record.encrypted_api_key
+    )
 
 
 def masked_current_override_key() -> str:

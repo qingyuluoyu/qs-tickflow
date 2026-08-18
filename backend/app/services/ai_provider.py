@@ -64,8 +64,10 @@ _CODEX_ENV_ALLOWLIST = (
 )
 
 Message = dict[str, str]
+AiStreamEvent = dict[str, object]
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+_COMPLETE_FINISH_REASONS = {"stop", "end_turn", "eos"}
 
 
 # ----------------------------------------------------------------
@@ -225,6 +227,91 @@ async def stream_ai_text(
         yield chunk
 
 
+async def stream_ai_events(
+    messages: Sequence[Message],
+    *,
+    temperature: float | None = 0.5,
+    max_tokens: int = 6000,
+    timeout: float = 180.0,
+    max_continuations: int = 2,
+) -> AsyncIterator[AiStreamEvent]:
+    """Yield structured reasoning/answer events with bounded continuation.
+
+    OpenAI-compatible providers disagree on the name of a reasoning field and
+    some stop with ``finish_reason=length`` after spending the output budget on
+    hidden reasoning.  This adapter keeps reasoning out of the answer stream,
+    then asks for the missing answer tail at most ``max_continuations`` times.
+    Callers can persist/display the answer without ever mixing the two layers.
+    """
+    max_continuations = max(0, min(int(max_continuations), 2))
+    if is_codex_cli_provider():
+        text = await _run_codex_cli(messages, max_tokens=max_tokens, timeout=max(timeout, 600.0))
+        if text:
+            yield {"type": "delta", "content": text}
+        yield {
+            "type": "done",
+            "complete": True,
+            "truncated": False,
+            "finish_reason": "stop",
+            "continuations": 0,
+        }
+        return
+
+    answer = ""
+    continuations = 0
+    while True:
+        request_messages = list(messages)
+        if answer:
+            request_messages.extend([
+                {"role": "assistant", "content": answer},
+                {
+                    "role": "user",
+                    "content": "请从上一个回答末尾继续，只输出尚未完成的内容，不要重复已有内容。",  # noqa: RUF001
+                },
+            ])
+
+        finish_reason: str | None = None
+        async for event in _stream_openai_events(
+            request_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+        ):
+            event_type = event.get("type")
+            if event_type == "reasoning_delta":
+                yield event
+            elif event_type == "delta":
+                text = str(event.get("content") or "")
+                if text:
+                    answer += text
+                    yield {"type": "delta", "content": text}
+            elif event_type == "finish":
+                value = event.get("finish_reason")
+                finish_reason = str(value) if value else None
+
+        finish_reason = finish_reason or "stop"
+        if finish_reason == "length" and continuations < max_continuations:
+            continuations += 1
+            yield {
+                "type": "continuation",
+                "attempt": continuations,
+                "message": "回答较长，正在补齐剩余内容…",  # noqa: RUF001
+            }
+            continue
+
+        # 只有明确的正常结束才算完整;内容过滤、工具调用或未知停止原因
+        # 都不能被静默当成一份完整的用户答案。
+        truncated = finish_reason not in _COMPLETE_FINISH_REASONS
+        yield {
+            "type": "done",
+            "complete": not truncated,
+            "truncated": truncated,
+            "finish_reason": finish_reason,
+            "continuations": continuations,
+        }
+        return
+
+
 async def _run_openai_once(
     messages: Sequence[Message],
     *,
@@ -316,6 +403,68 @@ async def _stream_openai(
     try:
         async for piece in _iter(stream):
             yield piece
+    except Exception as exc:
+        if _is_openai_transport_error(exc):
+            raise RuntimeError(_format_openai_error(exc)) from exc
+        raise
+
+
+async def _stream_openai_events(
+    messages: Sequence[Message],
+    *,
+    temperature: float | None,
+    max_tokens: int,
+    timeout: float,
+) -> AsyncIterator[AiStreamEvent]:
+    """Read one provider stream while retaining reasoning and finish metadata."""
+    profile = resolve_current_profile()
+    if not profile.api_key:
+        raise RuntimeError("AI API Key 未配置, 请在设置页配置")
+
+    client = _openai_client(profile, timeout)
+    model = profile.model
+    req_messages = list(messages)
+
+    async def _open_stream(**kwargs):
+        return await client.chat.completions.create(**kwargs)
+
+    kwargs = {
+        "model": model,
+        "messages": req_messages,
+        **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
+        "stream": True,
+    }
+    try:
+        stream = await _open_stream(**kwargs)
+    except Exception as exc:
+        if temperature is not None and _is_temperature_rejected(exc):
+            kwargs.pop("temperature", None)
+            stream = await _open_stream(**kwargs)
+        else:
+            if _is_openai_transport_error(exc):
+                raise RuntimeError(_format_openai_error(exc)) from exc
+            raise
+
+    try:
+        async for chunk in stream:
+            choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
+            if choice is None:
+                continue
+            delta = getattr(choice, "delta", None)
+            if delta is not None:
+                reasoning = (
+                    getattr(delta, "reasoning", None)
+                    or getattr(delta, "reasoning_content", None)
+                    or ""
+                )
+                if reasoning:
+                    yield {"type": "reasoning_delta", "content": str(reasoning)}
+                content = getattr(delta, "content", None) or ""
+                if content:
+                    yield {"type": "delta", "content": str(content)}
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason:
+                yield {"type": "finish", "finish_reason": str(finish_reason)}
     except Exception as exc:
         if _is_openai_transport_error(exc):
             raise RuntimeError(_format_openai_error(exc)) from exc

@@ -9,7 +9,7 @@ from datetime import date
 from typing import Any
 
 import polars as pl
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 
 from app.services.ext_data import ExtConfig, ExtConfigStore
 from app.services.screener import ScreenerService
@@ -17,9 +17,9 @@ from app.services.screener import ScreenerService
 router = APIRouter(prefix="/api/overview", tags=["overview"])
 
 _CACHE_TTL = 5.0
-_cache: dict[str, Any] | None = None
-_cache_key: str | None = None
-_cache_ts: float = 0.0
+# 多槽缓存: {cache_key: (ts, data)} —— cache_key 含用户 id,
+# 避免单槽缓存被交替用户互相挤掉, 也避免跨用户读到个性化结果。
+_cache: dict[str, tuple[float, dict[str, Any]]] = {}
 # 缓存跨线程读写锁: market_overview 在 FastAPI 线程池读, invalidate 在数据刷新线程清,
 # 无锁会读到撕裂/过期状态。用模块级 Lock 守护 check-then-set 与 clear。
 _cache_lock = threading.Lock()
@@ -30,11 +30,8 @@ def invalidate_overview_cache() -> None:
 
     清除数据后调用, 避免看板在 TTL 窗口内继续返回旧的聚合结果。
     """
-    global _cache, _cache_key, _cache_ts
     with _cache_lock:
-        _cache = None
-        _cache_key = None
-        _cache_ts = 0.0
+        _cache.clear()
 
 
 CORE_INDEX_NAMES = {
@@ -353,7 +350,12 @@ def _pct_band_rows(values: list[float]) -> list[dict]:
     return out
 
 
-def _build_overview(request: Request, as_of: date | None = None) -> dict:
+def _build_overview(
+    request: Request,
+    as_of: date | None = None,
+    *,
+    local_only: bool = False,
+) -> dict:
     """装配市场总览(委托给 services.market_overview_builder,保持行为一致)。
 
     逻辑已抽离至 build_market_overview,以解耦对 Request 的依赖,
@@ -362,7 +364,7 @@ def _build_overview(request: Request, as_of: date | None = None) -> dict:
     from app.services.market_overview_builder import build_market_overview
     dashboard_snapshot = None
     preloader = getattr(request.app.state, "market_overview_preloader", None)
-    if preloader is not None and as_of is None:
+    if not local_only and preloader is not None and as_of is None:
         from app.services import preferences
         from app.services.market_overview_preloader import DashboardSnapshot
 
@@ -373,30 +375,63 @@ def _build_overview(request: Request, as_of: date | None = None) -> dict:
         dashboard_snapshot = preloader.snapshot() or DashboardSnapshot.empty(
             preferences.get_daily_data_provider(), "warming"
         )
-    return build_market_overview(
+    result = build_market_overview(
         repo=request.app.state.repo,
-        quote_service=getattr(request.app.state, "quote_service", None),
+        # The dashboard rollback is deliberately local-only.  Passing no
+        # QuoteService prevents a realtime/provider lookup from changing the
+        # index cards while the persisted enriched partition remains the
+        # source of truth.  Other callers keep the original live behaviour.
+        quote_service=(None if local_only else getattr(request.app.state, "quote_service", None)),
         depth_service=getattr(request.app.state, "depth_service", None),
         as_of=as_of,
-        dashboard_live=True,
+        dashboard_live=not local_only,
         dashboard_snapshot=dashboard_snapshot,
     )
+    if local_only:
+        freshness = result.get("data_freshness")
+        if isinstance(freshness, dict):
+            # Do not expose the server-selected TeaJoin name as if this
+            # response had queried it.  The local rollback is explicit.
+            freshness.update({
+                "source": "persisted",
+                "realtime_provider": None,
+                "realtime_status": None,
+                "realtime_rows": 0,
+                "snapshot_kind": "persisted.enriched",
+            })
+    return result
 
 
 @router.get("/market")
-def market_overview(request: Request, as_of: date | None = None):
+def market_overview(
+    request: Request,
+    as_of: date | None = None,
+    local_only: bool = Query(
+        False,
+        alias="local",
+        description="看板本地回退模式; 不访问实时或自定义数据源",
+    ),
+):
     """总览页单次请求聚合数据，避免前端拉全市场明细后再计算。"""
-    global _cache, _cache_key, _cache_ts
+    # Keep direct Python callers compatible with FastAPI's Query defaults.
+    local_mode = local_only is True
     now = time.time()
-    cache_key = as_of.isoformat() if as_of else "latest"
+    # 缓存键必须带用户: 总览内含个人扩展表排名(build 走 personal_data_root),
+    # 不带用户键会让 TTL 窗口内 B 用户拿到 A 用户的个性化结果。
+    user = getattr(request.state, "user", None)
+    uid = getattr(user, "id", None) or "anon"
+    cache_key = f"{uid}:{'local' if local_mode else 'default'}:{as_of.isoformat() if as_of else 'latest'}"
     # 读缓存持锁, 避免与 invalidate 的 clear 竞态读到撕裂状态
     with _cache_lock:
-        if _cache is not None and _cache_key == cache_key and (now - _cache_ts) < _CACHE_TTL:
-            return _cache
+        hit = _cache.get(cache_key)
+        if hit is not None and (now - hit[0]) < _CACHE_TTL:
+            return hit[1]
+        # 顺手清掉过期槽位, 防止用户数增长后缓存无界膨胀
+        expired = [k for k, (ts, _) in _cache.items() if (now - ts) >= _CACHE_TTL]
+        for k in expired:
+            del _cache[k]
     # 装配在锁外进行 (耗时), 允许并发未命中时各自构建, 不长时间持锁串行化请求
-    data = _build_overview(request, as_of)
+    data = _build_overview(request, as_of, local_only=local_mode)
     with _cache_lock:
-        _cache = data
-        _cache_key = cache_key
-        _cache_ts = now
+        _cache[cache_key] = (now, data)
     return data

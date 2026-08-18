@@ -30,8 +30,10 @@ def invalidate_regime_cache() -> None:
 
 
 def _data_dir(request: Request) -> Any:
-    from app.services.user_context import request_data_root
-    return request_data_root(request, shared_root=request.app.state.repo.store.data_dir)
+    # regime 是全市场聚合数据, 管道(daily_pipeline)写入共享根;
+    # 读写都必须落在共享根, 与账户模式无关 —— 个人工作区不存 regime 副本,
+    # 否则账户模式下每个用户的 regime 页都会读到空表。
+    return request.app.state.repo.store.data_dir
 
 
 def _df_to_records(df) -> list[dict]:

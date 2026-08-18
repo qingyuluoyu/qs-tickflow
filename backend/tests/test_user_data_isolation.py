@@ -10,21 +10,31 @@ from app.strategy import custom_signals, monitor_rules
 
 
 def _bind(root: Path, user_id: str):
-    return set_current_user(UserIdentity(user_id, user_id, user_id), root / "users" / user_id)
+    from app.services.account_store import AccountStore
+
+    result = AccountStore(root).enter(user_id, f"{user_id}-phone", "password")
+    assert result is not None
+    return (
+        set_current_user(
+            UserIdentity(result.user.id, result.user.name, result.user.phone),
+            root / "users" / result.user.id,
+        ),
+        result.user.id,
+    )
 
 
 def test_watchlist_and_preferences_use_the_authenticated_workspace(monkeypatch, tmp_path: Path):
     from app.config import settings
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
-    first = _bind(tmp_path, "alice")
+    first, alice_id = _bind(tmp_path, "alice")
     try:
         watchlist.add("600000.SH")
         preferences.save({"nav_order": ["/watchlist"]})
     finally:
         reset_current_user(first)
 
-    second = _bind(tmp_path, "bob")
+    second, bob_id = _bind(tmp_path, "bob")
     try:
         assert watchlist.list_symbols() == []
         assert preferences.load() == {}
@@ -32,8 +42,8 @@ def test_watchlist_and_preferences_use_the_authenticated_workspace(monkeypatch, 
     finally:
         reset_current_user(second)
 
-    alice_file = tmp_path / "users" / "alice" / "user_data" / "watchlist.parquet"
-    bob_file = tmp_path / "users" / "bob" / "user_data" / "watchlist.parquet"
+    alice_file = tmp_path / "users" / alice_id / "user_data" / "watchlist.parquet"
+    bob_file = tmp_path / "users" / bob_id / "user_data" / "watchlist.parquet"
     assert pl.read_parquet(alice_file)["symbol"].to_list() == ["600000.SH"]
     assert pl.read_parquet(bob_file)["symbol"].to_list() == ["000001.SZ"]
 

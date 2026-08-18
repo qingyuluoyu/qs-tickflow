@@ -101,6 +101,34 @@ def test_financial_report_write_keeps_latest_teajoin_revision(tmp_path):
     ]
 
 
+def test_instruments_sync_backfills_shares_from_financials(tmp_path, monkeypatch):
+    """自定义数据源重写 instruments(股本=None)后必须立即回填, 否则回测市值过滤团灭候选。"""
+    from app.services import instrument_sync
+
+    shares_path = tmp_path / "financials" / "shares" / "part.parquet"
+    shares_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({
+        "symbol": ["600000.SH"],
+        "period_end": ["2024-06-30"],
+        "total_shares": [1_000_000.0],
+        "float_shares": [800_000.0],
+    }).write_parquet(shares_path)
+
+    monkeypatch.setattr(instrument_sync, "_fetch_instruments_via_provider", lambda: [{
+        "symbol": "600000.SH", "name": "浦发银行", "code": "600000",
+        "exchange": "SH", "region": None, "type": "stock",
+        "listing_date": None, "total_shares": None, "float_shares": None,
+        "tick_size": None, "limit_up": None, "limit_down": None,
+    }])
+
+    rows = instrument_sync.sync_instruments(tmp_path)
+
+    assert rows == 1
+    stored = pl.read_parquet(tmp_path / "instruments" / "instruments.parquet")
+    assert stored["total_shares"].to_list() == [1_000_000.0]
+    assert stored["float_shares"].to_list() == [800_000.0]
+
+
 def test_incremental_share_sync_updates_existing_and_backfills_new_symbols(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH", "000001.SZ"])
     path = tmp_path / "financials" / "shares" / "part.parquet"

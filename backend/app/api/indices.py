@@ -9,6 +9,7 @@ import polars as pl
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.indicators.pipeline import compute_enriched
+from app.market_time import cn_today, resolve_market_as_of
 from app.services import index_sync, kline_sync
 from app.tickflow.capabilities import Cap
 
@@ -79,13 +80,30 @@ def get_index_daily(
 ):
     """读取指数日 K。指数数据使用独立 kline_index_* parquet。"""
     repo = request.app.state.repo
-    end = date.fromisoformat(end_date) if end_date else date.today()
+    market_asof = resolve_market_as_of()
+    end = (
+        date.fromisoformat(end_date)
+        if end_date
+        else (market_asof.daily_date if market_asof.is_partial else cn_today())
+    )
     start = date.fromisoformat(start_date) if start_date else end - timedelta(days=days)
     info = _index_info(repo, symbol)
 
     df = repo.get_index_daily(symbol, start, end)
     if not df.is_empty():
-        return {"symbol": symbol, "name": info.get("name"), "index_info": info, "rows": df.to_dicts(), "source": "index_enriched"}
+        return {
+            "symbol": symbol,
+            "name": info.get("name"),
+            "index_info": info,
+            "rows": df.to_dicts(),
+            "source": "index_enriched",
+            "market_as_of": {
+                "trade_date": market_asof.daily_date.isoformat(),
+                "cutoff_time": market_asof.cutoff_time,
+                "session": market_asof.session.value,
+                "is_partial": market_asof.is_partial,
+            },
+        }
 
     capset = request.app.state.capabilities
     if not capset.has(Cap.KLINE_DAILY_BATCH):
@@ -94,7 +112,7 @@ def get_index_daily(
     try:
         raw = kline_sync.sync_daily_batch([symbol], count=days + 150)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"TickFlow fetch failed: {e}") from e
+        raise HTTPException(status_code=502, detail=f"指数日线数据源请求失败: {e}") from e
     if raw.is_empty():
         return {"symbol": symbol, "name": info.get("name"), "index_info": info, "rows": [], "source": "none"}
 
@@ -112,15 +130,25 @@ def get_index_minute(
     """实时读取指数分钟 K。不写入股票分钟 parquet。"""
     repo = request.app.state.repo
     info = _index_info(repo, symbol)
-    day = trade_date or date.today()
+    market_asof = resolve_market_as_of()
+    explicit_trade_date = trade_date is not None
+    day = trade_date or market_asof.intraday_date or market_asof.daily_date
     df = kline_sync.fetch_minute_single(symbol, day, asset_type="index")
+    source = "live" if not df.is_empty() else "none"
     return {
         "symbol": symbol,
         "name": info.get("name"),
         "index_info": info,
         "date": str(day),
         "rows": df.to_dicts(),
-        "source": "live" if not df.is_empty() else "none",
+        "source": source,
+        "market_as_of": {
+            "trade_date": str(day),
+            "cutoff_time": market_asof.cutoff_time,
+            "session": market_asof.session.value,
+            "is_partial": market_asof.is_partial,
+            "explicit_date": explicit_trade_date,
+        },
     }
 
 

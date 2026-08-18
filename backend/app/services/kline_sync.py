@@ -104,6 +104,43 @@ def sync_daily_batch(symbols: list[str],
     failed_out: 可选出参。拉取失败的分块标的会追加进该 list, 供上层判定「部分失败」
                 而非静默当成功(某分块断网 → 这些标的本轮未更新, 保持旧数据)。
     """
+    provider_name = preferences.get_daily_data_provider()
+    if provider_name != "tickflow":
+        from app.data_providers import custom as custom_sources
+
+        try:
+            provider = custom_sources.get_provider(provider_name)
+            has_daily = custom_sources.provider_has_dataset(provider_name, "daily")
+        except Exception as exc:
+            logger.warning("daily provider %s could not be resolved: %s", provider_name, exc)
+            provider = None
+            has_daily = False
+
+        fail_closed = bool(getattr(getattr(provider, "config", None), "fail_closed", False))
+        if has_daily and provider is not None:
+            request_end = end_time or datetime.now()
+            request_start = start_time or (request_end - timedelta(days=count or 250))
+            try:
+                custom_df = provider.get_daily(
+                    symbols,
+                    start_time=request_start,
+                    end_time=request_end,
+                    asset_type=asset_type,
+                    on_chunk_done=on_chunk_done,
+                )
+            except Exception as exc:
+                if fail_closed:
+                    logger.error("daily provider %s failed closed: %s", provider_name, exc)
+                    return pl.DataFrame()
+                logger.warning("daily provider %s failed, falling back to TickFlow: %s", provider_name, exc)
+            else:
+                # An authoritative custom provider returning no rows is a
+                # valid empty result, not permission to mix in another source.
+                return _normalize_daily(custom_df)
+        elif fail_closed:
+            logger.error("daily provider %s has no daily dataset and is fail-closed", provider_name)
+            return pl.DataFrame()
+
     tf = get_client()
     out: list[pl.DataFrame] = []
     chunks = chunked(symbols, batch_size)
@@ -492,8 +529,15 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
     # 类型规范:统一转 Datetime('us')
     if "datetime" in df.columns:
         dt_type = df.schema["datetime"]
-        if not isinstance(dt_type, pl.Datetime) or dt_type.time_unit != "us":
+        if dt_type == pl.String:
+            # Custom providers (including TeaJoin) commonly return timestamp
+            # strings.  Direct cast silently produces null datetimes.
+            df = df.with_columns(
+                pl.col("datetime").str.to_datetime(strict=False).alias("datetime"),
+            )
+        elif not isinstance(dt_type, pl.Datetime) or dt_type.time_unit != "us":
             df = df.with_columns(pl.col("datetime").cast(pl.Datetime("us"), strict=False))
+        df = df.filter(pl.col("datetime").is_not_null())
 
     for col in ("open", "high", "low", "close"):
         if col in df.columns:
@@ -891,11 +935,40 @@ def fetch_minute_single(
 
 
 def fetch_adj_factor_single(symbol: str) -> pl.DataFrame:
-    """从 TickFlow 实时拉取单股除权因子(不写入本地), 用于单股 K 线即时前复权。
+    """拉取单股除权因子(不写入本地), 用于单股 K 线即时前复权。
 
-    返回结构: symbol, trade_date, ex_factor (空 DataFrame 表示无除权事件或拉取失败)。
-    与 _apply_adj_factor / compute_enriched 的 factors 参数格式一致。
+    优先使用当前选中的 provider。TeaJoin 等 fail-closed 源失败时返回空表，
+    不混入另一数据源；仅 legacy 非 fail-closed 源保留 TickFlow 兼容回退。
     """
+    provider_name = preferences.get_adj_factor_provider()
+    if provider_name == "same_as_daily":
+        provider_name = preferences.get_daily_data_provider()
+    if provider_name != "tickflow":
+        from app.data_providers import custom as custom_sources
+
+        try:
+            provider = custom_sources.get_provider(provider_name)
+            has_factors = custom_sources.provider_has_dataset(provider_name, "adj_factor")
+        except Exception as exc:
+            logger.warning("adj-factor provider %s could not be resolved: %s", provider_name, exc)
+            provider = None
+            has_factors = False
+
+        fail_closed = bool(getattr(getattr(provider, "config", None), "fail_closed", False))
+        if has_factors and provider is not None:
+            try:
+                return provider.get_adj_factors(
+                    [symbol], start_time=None, end_time=None, asset_type="stock",
+                )
+            except Exception as exc:
+                if fail_closed:
+                    logger.error("adj-factor provider %s failed closed: %s", provider_name, exc)
+                    return pl.DataFrame()
+                logger.warning("adj-factor provider %s failed, falling back to TickFlow: %s", provider_name, exc)
+        elif fail_closed:
+            logger.error("adj-factor provider %s has no adj_factor dataset and is fail-closed", provider_name)
+            return pl.DataFrame()
+
     tf = get_client()
     try:
         raw = tf.klines.ex_factors([symbol], as_dataframe=True, show_progress=False)

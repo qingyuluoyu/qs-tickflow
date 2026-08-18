@@ -24,6 +24,9 @@ class ProviderCapabilities:
     minute: bool = False
     realtime: bool = False
     financial: bool = False
+    # News is intentionally independent from market-data datasets.  A news
+    # provider can be active without granting access to daily/realtime data.
+    news: bool = False
 
 
 class MarketDataProvider(Protocol):
@@ -73,3 +76,22 @@ class MarketDataProvider(Protocol):
         symbols: list[str] | None = None,
     ) -> pl.DataFrame:
         """Return normalized realtime quotes. Implementations may return empty."""
+
+
+class NewsProvider(Protocol):
+    """Batch provider contract for public stock news and announcements."""
+
+    name: str
+    capabilities: ProviderCapabilities
+
+    def get_news(
+        self,
+        category: str,
+        symbols: list[str],
+        start_time: datetime | None = None,
+        end_time: datetime | None = None,
+        query: str | None = None,
+        limit: int = 30,
+        cursor: str | None = None,
+    ):
+        """Return normalized news items without user-specific state."""

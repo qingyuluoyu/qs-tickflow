@@ -156,7 +156,7 @@ async def analyze_stock(request: Request, req: AnalyzeRequest):
     """AI 个股四维分析 — NDJSON 流式返回。
 
     组合 K 线(技术指标)+ 财务表 + 关键价位 → 客观技术分析提示词 →
-    流式调用 LLM → 逐 chunk 以 NDJSON 推给前端(每行一个 JSON)。
+    流式调用 LLM → 分离思考草稿和最终回答,并逐行以 NDJSON 推给前端。
     """
     if not req.symbol:
         raise HTTPException(400, "symbol 不能为空")
@@ -188,6 +188,9 @@ class SaveReportRequest(BaseModel):
     summary: str = ""
     close: float | None = None
     levels: dict | None = None
+    reasoning: str = ""
+    complete: bool = True
+    truncated: bool = False
 
 
 @router.get("/reports")
@@ -207,6 +210,9 @@ def save_report(request: Request, req: SaveReportRequest):
         "summary": req.summary,
         "close": req.close,
         "levels": req.levels,
+        "reasoning": req.reasoning,
+        "complete": req.complete,
+        "truncated": req.truncated,
     })
     return {"ok": True, "report": report}
 

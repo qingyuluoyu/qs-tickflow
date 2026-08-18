@@ -39,6 +39,24 @@ def _mock_minute_df(symbol: str = "600519.SH") -> pl.DataFrame:
     })
 
 
+def test_kline_sync_normalizes_string_minute_datetime():
+    raw = pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "trade_time": ["2026-08-14 15:00:00"],
+        "open": [11.1],
+        "high": [11.2],
+        "low": [11.0],
+        "close": [11.1],
+        "vol": [100.0],
+        "amount": [1100.0],
+    })
+
+    normalized = kline_sync._normalize_minute(raw)
+
+    assert normalized.schema["datetime"] == pl.Datetime("us")
+    assert normalized["datetime"].item() == datetime(2026, 8, 14, 15, 0)
+
+
 def _setup_custom_provider(monkeypatch, provider: object, has_dataset: bool = True) -> None:
     """统一 mock 自定义分钟源路由前置: preferences + provider_has_dataset + get_provider。
 

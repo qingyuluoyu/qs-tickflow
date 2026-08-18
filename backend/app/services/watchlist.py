@@ -4,7 +4,12 @@
 """
 from __future__ import annotations
 
+import contextlib
 import logging
+import os
+import threading
+import uuid
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
@@ -18,6 +23,79 @@ from app.tickflow.rate_limits import chunked, resolve_limit
 logger = logging.getLogger(__name__)
 
 
+# A watchlist is a small user-owned document, but it is updated frequently by
+# search clicks, OCR imports and batch imports.  Keep the existing Parquet
+# format for compatibility while serialising read-modify-write operations.
+# The thread lock covers requests handled by one worker; the sidecar lock file
+# also serialises multiple backend workers/processes.
+_PATH_LOCKS: dict[Path, threading.RLock] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+
+
+def _thread_lock(path: Path) -> threading.RLock:
+    key = path.resolve()
+    with _PATH_LOCKS_GUARD:
+        lock = _PATH_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _PATH_LOCKS[key] = lock
+        return lock
+
+
+@contextlib.contextmanager
+def _exclusive_path_lock(path: Path) -> Iterator[None]:
+    """Lock one watchlist across threads and backend worker processes."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with _thread_lock(path):
+        lock_path = path.with_name(f".{path.name}.lock")
+        with lock_path.open("a+b") as lock_file:
+            # msvcrt.locking requires at least one byte in the locked region.
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write(b"0")
+                lock_file.flush()
+            lock_file.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+def _read(path: Path) -> pl.DataFrame:
+    if not path.exists():
+        return pl.DataFrame(schema={"symbol": pl.Utf8, "added_at": pl.Utf8, "note": pl.Utf8})
+    return pl.read_parquet(path)
+
+
+def _write_atomic(path: Path, frame: pl.DataFrame) -> None:
+    """Write a complete Parquet file, then atomically publish it."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        frame.write_parquet(temporary)
+        os.replace(temporary, path)
+    finally:
+        # If serialisation or replace failed, preserve the previous file and
+        # remove only this operation's temporary artifact.
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
+
+
 def _path() -> Path:
     from app.services.user_context import personal_user_data_dir
     p = personal_user_data_dir(settings.data_dir) / "watchlist.parquet"
@@ -27,68 +105,86 @@ def _path() -> Path:
 
 def list_symbols() -> list[dict]:
     p = _path()
-    if not p.exists():
-        return []
-    df = pl.read_parquet(p)
-    if df.is_empty():
-        return []
-    return df.to_dicts()
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        return [] if df.is_empty() else df.to_dicts()
 
 
 def add(symbol: str, note: str = "") -> list[dict]:
     p = _path()
-    if p.exists():
-        df = pl.read_parquet(p)
-        # 已存在则先移除，后面重新插入到最前面
-        if symbol in df["symbol"].to_list():
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        # 已存在则先移除, 后面重新插入到最前面
+        if not df.is_empty() and symbol in df["symbol"].to_list():
             df = df.filter(pl.col("symbol") != symbol)
-    else:
-        df = pl.DataFrame(schema={"symbol": pl.Utf8, "added_at": pl.Utf8, "note": pl.Utf8})
 
-    new_row = pl.DataFrame({
-        "symbol": [symbol],
-        "added_at": [datetime.utcnow().isoformat(timespec="seconds")],
-        "note": [note],
-    })
-    out = pl.concat([new_row, df], how="diagonal_relaxed")
-    out.write_parquet(p)
-    return out.to_dicts()
+        new_row = pl.DataFrame({
+            "symbol": [symbol],
+            "added_at": [datetime.utcnow().isoformat(timespec="seconds")],
+            "note": [note],
+        })
+        out = pl.concat([new_row, df], how="diagonal_relaxed")
+        _write_atomic(p, out)
+        return out.to_dicts()
+
+
+def add_many(symbols: list[str], note: str = "") -> tuple[list[dict], int]:
+    """Add a batch with one locked read/write and return (rows, added_count)."""
+    p = _path()
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        added = 0
+        # Match the existing endpoint's ordering: each submitted symbol is
+        # moved to the front, so the last submitted symbol is first.
+        for symbol in symbols:
+            if not df.is_empty() and symbol in df["symbol"].to_list():
+                df = df.filter(pl.col("symbol") != symbol)
+            else:
+                added += 1
+            new_row = pl.DataFrame({
+                "symbol": [symbol],
+                "added_at": [datetime.utcnow().isoformat(timespec="seconds")],
+                "note": [note],
+            })
+            df = pl.concat([new_row, df], how="diagonal_relaxed")
+        if symbols:
+            _write_atomic(p, df)
+        return ([] if df.is_empty() else df.to_dicts()), added
 
 
 def remove(symbol: str) -> list[dict]:
     p = _path()
-    if not p.exists():
-        return []
-    df = pl.read_parquet(p)
-    df = df.filter(pl.col("symbol") != symbol)
-    df.write_parquet(p)
-    return df.to_dicts()
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        if df.is_empty():
+            return []
+        df = df.filter(pl.col("symbol") != symbol)
+        _write_atomic(p, df)
+        return df.to_dicts()
 
 
 def move_to_top(symbol: str) -> list[dict]:
     p = _path()
-    if not p.exists():
-        return []
-    df = pl.read_parquet(p)
-    if df.is_empty() or symbol not in df["symbol"].to_list():
-        return df.to_dicts()
-    target = df.filter(pl.col("symbol") == symbol)
-    rest = df.filter(pl.col("symbol") != symbol)
-    out = pl.concat([target, rest], how="diagonal_relaxed")
-    out.write_parquet(p)
-    return out.to_dicts()
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        if df.is_empty() or symbol not in df["symbol"].to_list():
+            return df.to_dicts()
+        target = df.filter(pl.col("symbol") == symbol)
+        rest = df.filter(pl.col("symbol") != symbol)
+        out = pl.concat([target, rest], how="diagonal_relaxed")
+        _write_atomic(p, out)
+        return out.to_dicts()
 
 
 def clear() -> int:
     """清空自选列表。返回移除的数量。"""
     p = _path()
-    if not p.exists():
-        return 0
-    df = pl.read_parquet(p)
-    count = df.height
-    if count > 0:
-        pl.DataFrame(schema={"symbol": pl.Utf8, "added_at": pl.Utf8, "note": pl.Utf8}).write_parquet(p)
-    return count
+    with _exclusive_path_lock(p):
+        df = _read(p)
+        count = df.height
+        if count > 0:
+            _write_atomic(p, pl.DataFrame(schema={"symbol": pl.Utf8, "added_at": pl.Utf8, "note": pl.Utf8}))
+        return count
 
 
 def fetch_quotes(symbols: list[str], capset: CapabilitySet, timeout_s: float = 8.0) -> list[dict]:

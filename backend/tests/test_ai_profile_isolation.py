@@ -146,6 +146,35 @@ def test_legacy_personal_ai_configuration_is_copied_once_to_the_encrypted_store(
     assert profile.api_key == "legacy-private-key"
 
 
+def test_clearing_override_with_legacy_config_does_not_resurrect(monkeypatch, tmp_path: Path):
+    """显式删除个人覆盖后, 旧版 secrets.json 不得在下次读取时复活覆盖配置。"""
+    from app import secrets_store
+    from app.services import ai_profiles
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "user_secrets_master_key", _master_key(), raising=False)
+    monkeypatch.setattr(settings, "ai_api_key", "server-api-key")
+    monkeypatch.setattr(settings, "ai_model", "server-model")
+    user = _create_user(tmp_path, name="Alice", phone="alice-phone")
+
+    tokens = _bind(user, tmp_path)
+    try:
+        secrets_store.save({
+            "ai_provider": "openai_compat",
+            "ai_base_url": "https://8.8.8.8/v1",
+            "ai_api_key": "legacy-private-key",
+            "ai_model": "legacy-model",
+        })
+        assert ai_profiles.resolve_current_profile().source == "user_override"
+
+        ai_profiles.clear_current_override()
+
+        assert ai_profiles.resolve_current_profile().source == "server_default"
+        assert not ai_profiles.has_current_override()
+    finally:
+        reset_current_user(tokens)
+
+
 def test_updating_a_personal_model_without_a_new_key_preserves_its_encrypted_key(monkeypatch, tmp_path: Path):
     from app.services import ai_profiles
 
