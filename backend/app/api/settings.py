@@ -8,7 +8,9 @@ import logging
 import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends, APIRouter, HTTPException, Request
+
+from app.api.deps import require_admin
 from pydantic import BaseModel, Field
 
 from app import secrets_store
@@ -95,7 +97,7 @@ class SwitchEndpointIn(BaseModel):
     url: str
 
 
-@router.post("/switch_endpoint")
+@router.post("/switch_endpoint", dependencies=[Depends(require_admin)])
 def switch_endpoint(req: SwitchEndpointIn, request: Request) -> dict:
     """切换 TickFlow 端点并立即生效。
 
@@ -121,7 +123,7 @@ def switch_endpoint(req: SwitchEndpointIn, request: Request) -> dict:
     }
 
 
-@router.post("/tickflow-key")
+@router.post("/tickflow-key", dependencies=[Depends(require_admin)])
 def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
     """保存 TickFlow API Key 并立即重新探测能力。
 
@@ -204,7 +206,7 @@ def save_tickflow_key(req: TickflowKeyIn, request: Request) -> dict:
     }
 
 
-@router.delete("/tickflow-key")
+@router.delete("/tickflow-key", dependencies=[Depends(require_admin)])
 def clear_tickflow_key(request: Request) -> dict:
     """清除 Key,退回无档(none)。
 
@@ -454,7 +456,7 @@ def list_data_sources() -> dict:
     }
 
 
-@router.post("/data-sources/reload")
+@router.post("/data-sources/reload", dependencies=[Depends(require_admin)])
 def reload_data_sources() -> dict:
     """重新加载 data_sources/*.yaml。"""
     from app.data_providers import custom as custom_sources
@@ -462,7 +464,7 @@ def reload_data_sources() -> dict:
     return list_data_sources()
 
 
-@router.post("/plugins/{name}/install")
+@router.post("/plugins/{name}/install", dependencies=[Depends(require_admin)])
 def install_plugin(name: str) -> dict:
     """安装指定插件的依赖 (npm install / pip install), 完成后重新扫描。
 
@@ -481,7 +483,7 @@ def install_plugin(name: str) -> dict:
     return result
 
 
-@router.delete("/plugins/{name}/install")
+@router.delete("/plugins/{name}/install", dependencies=[Depends(require_admin)])
 def uninstall_plugin(name: str) -> dict:
     """卸载指定插件的依赖 (删除 node_modules / pip uninstall), 完成后重新扫描。
 
@@ -518,7 +520,7 @@ def get_data_source(name: str) -> dict:
     return cfg
 
 
-@router.post("/data-sources")
+@router.post("/data-sources", dependencies=[Depends(require_admin)])
 def save_data_source(req: CustomSourceIn) -> dict:
     """创建或更新一个自定义数据源 yaml, 保存后自动 reload。"""
     from app.data_providers import custom as custom_sources
@@ -532,7 +534,7 @@ def save_data_source(req: CustomSourceIn) -> dict:
     return list_data_sources()
 
 
-@router.delete("/data-sources/{name}")
+@router.delete("/data-sources/{name}", dependencies=[Depends(require_admin)])
 def delete_data_source(name: str) -> dict:
     """删除一个自定义数据源 yaml, 保存后自动 reload。
 
@@ -586,7 +588,7 @@ def test_data_source(req: CustomSourceTestIn) -> dict:
             provider.close()
 
 
-@router.put("/preferences/data-providers")
+@router.put("/preferences/data-providers", dependencies=[Depends(require_admin)])
 def update_data_providers(req: DataProvidersIn) -> dict:
     """保存数据源选择。"""
     from app.services import preferences, server_preferences
@@ -660,7 +662,7 @@ def update_screener_result_columns(req: dict) -> dict:
     return {"columns": saved}
 
 
-@router.put("/preferences/minute-sync")
+@router.put("/preferences/minute-sync", dependencies=[Depends(require_admin)])
 def update_minute_sync(req: MinuteSyncPrefs) -> dict:
     """保存分钟 K 同步偏好。
 
@@ -696,7 +698,7 @@ class RealtimeQuoteScopePrefs(BaseModel):
     realtime_index_symbols: list[str] | None = None
 
 
-@router.put("/preferences/realtime-quotes")
+@router.put("/preferences/realtime-quotes", dependencies=[Depends(require_admin)])
 def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     """保存全局实时行情开关。
 
@@ -730,7 +732,7 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     return {"realtime_quotes_enabled": req.realtime_quotes_enabled, "realtime_allowed": allowed}
 
 
-@router.put("/preferences/realtime-quote-scope")
+@router.put("/preferences/realtime-quote-scope", dependencies=[Depends(require_admin)])
 def update_realtime_quote_scope(req: RealtimeQuoteScopePrefs) -> dict:
     """保存盘中实时行情范围；独立于盘后管道范围。"""
     from app.services import preferences
@@ -824,7 +826,7 @@ class PipelinePullTypesIn(BaseModel):
     pipeline_pull_index: bool | None = None
 
 
-@router.put("/preferences/pipeline-pull-types")
+@router.put("/preferences/pipeline-pull-types", dependencies=[Depends(require_admin)])
 def update_pipeline_pull_types(req: PipelinePullTypesIn) -> dict:
     """更新盘后管道拉取内容开关。"""
     from app.services import preferences
@@ -837,7 +839,7 @@ class PipelineRegimeEnabledIn(BaseModel):
     pipeline_regime_enabled: bool
 
 
-@router.put("/preferences/pipeline-regime-enabled")
+@router.put("/preferences/pipeline-regime-enabled", dependencies=[Depends(require_admin)])
 def update_pipeline_regime_enabled(req: PipelineRegimeEnabledIn) -> dict:
     """更新盘后管道 regime 自动计算开关(服务器级)。"""
     from app.services import preferences, server_preferences
@@ -851,7 +853,7 @@ class RegimeBatchParamsIn(BaseModel):
     warmup_days: int | None = None
 
 
-@router.put("/preferences/regime-batch-params")
+@router.put("/preferences/regime-batch-params", dependencies=[Depends(require_admin)])
 def update_regime_batch_params(req: RegimeBatchParamsIn) -> dict:
     """更新 regime 分批参数(服务器级)。仅在传入字段时保存对应项(支持部分更新)。"""
     from app.services import preferences, server_preferences
@@ -873,7 +875,7 @@ class PipelineIndexSymbolsIn(BaseModel):
     symbols: str = ""
 
 
-@router.put("/preferences/pipeline-index-symbols")
+@router.put("/preferences/pipeline-index-symbols", dependencies=[Depends(require_admin)])
 def update_pipeline_index_symbols(req: PipelineIndexSymbolsIn) -> dict:
     """保存指数自定义拉取代码。"""
     from app.services import preferences
@@ -1050,7 +1052,7 @@ def update_webhook_default_channels(req: WebhookDefaultChannelsIn) -> dict:
     return {"webhook_default_channels": saved}
 
 
-@router.put("/preferences/quote-interval")
+@router.put("/preferences/quote-interval", dependencies=[Depends(require_admin)])
 def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
     """更新行情轮询间隔。按档位自动 clamp。"""
     qs = getattr(request.app.state, "quote_service", None)
@@ -1278,7 +1280,7 @@ class PipelineScheduleIn(BaseModel):
     minute: int
 
 
-@router.put("/preferences/pipeline-schedule")
+@router.put("/preferences/pipeline-schedule", dependencies=[Depends(require_admin)])
 def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
     """保存盘后管道调度时间并立即 reschedule。"""
     from app.services import preferences
@@ -1302,7 +1304,7 @@ def update_pipeline_schedule(req: PipelineScheduleIn, request: Request) -> dict:
     return sched
 
 
-@router.put("/preferences/instruments-schedule")
+@router.put("/preferences/instruments-schedule", dependencies=[Depends(require_admin)])
 def update_instruments_schedule(req: PipelineScheduleIn, request: Request) -> dict:
     """保存盘前标的维表调度时间并立即 reschedule。"""
     from app.services import preferences
@@ -1327,7 +1329,7 @@ class EnrichedBatchSizeIn(BaseModel):
     size: int
 
 
-@router.put("/preferences/enriched-batch-size")
+@router.put("/preferences/enriched-batch-size", dependencies=[Depends(require_admin)])
 def update_enriched_batch_size(req: EnrichedBatchSizeIn) -> dict:
     """保存 enriched 全量计算批次大小。"""
     from app.services import preferences
@@ -1339,7 +1341,7 @@ class IndexDailyBatchSizeIn(BaseModel):
     size: int
 
 
-@router.put("/preferences/index-daily-batch-size")
+@router.put("/preferences/index-daily-batch-size", dependencies=[Depends(require_admin)])
 def update_index_daily_batch_size(req: IndexDailyBatchSizeIn) -> dict:
     """保存指数日 K 同步批次大小。"""
     from app.services import preferences

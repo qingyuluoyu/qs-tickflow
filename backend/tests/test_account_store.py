@@ -80,7 +80,7 @@ def test_account_migration_and_create_login_are_transactional(tmp_path: Path):
     import sqlite3
 
     with sqlite3.connect(store.path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
 
 
@@ -142,7 +142,7 @@ def test_account_security_migration_tracks_login_and_persistent_lock(tmp_path: P
     with sqlite3.connect(store.path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-        assert version == 5
+        assert version == 6
         assert {"status", "last_login_at"} <= columns
         assert conn.execute("SELECT status FROM users").fetchone()[0] == "active"
         first_login = conn.execute("SELECT last_login_at FROM users").fetchone()[0]
@@ -178,7 +178,7 @@ def test_concurrent_workers_serialize_database_migrations(tmp_path: Path):
 
     assert len(stores) == 2
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         assert {"status", "last_login_at"} <= columns
 

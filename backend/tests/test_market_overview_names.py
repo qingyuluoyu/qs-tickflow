@@ -58,3 +58,13 @@ def test_live_snapshot_uses_same_date_enriched_name_when_provider_name_is_null()
     )
 
     assert result.get_column("name").to_list() == ["平安银行"]
+
+
+def test_live_snapshot_replaces_symbol_echo_with_instrument_name():
+    snapshot = pl.DataFrame([
+        {"symbol": "000001.SZ", "name": "000001.SZ", "close": 12.1},
+    ])
+
+    result = builder._fill_live_snapshot_names(snapshot, _Repo())
+
+    assert result.get_column("name").to_list() == ["平安银行"]

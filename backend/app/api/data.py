@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import Depends, APIRouter, Request
+
+from app.api.deps import require_admin
 
 from app.indicators.pipeline import ENRICHED_COLUMNS
 
@@ -680,7 +682,7 @@ def market_data_health(request: Request) -> dict:
     return report
 
 
-@router.post("/clear")
+@router.post("/clear", dependencies=[Depends(require_admin)])
 def clear_data(request: Request):
     """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。"""
     import shutil

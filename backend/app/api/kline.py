@@ -11,7 +11,9 @@ from functools import lru_cache
 from typing import Optional
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import Depends, APIRouter, HTTPException, Query, Request
+
+from app.api.deps import require_admin
 
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
 from app.market_time import (
@@ -268,7 +270,7 @@ def search_instruments(
     return {"results": rows}
 
 
-@router.post("/instruments/names")
+@router.post("/instruments/names", dependencies=[Depends(require_admin)])
 def instruments_names(request: Request, symbols: list[str]):
     """批量查标的名称 (股票 + ETF + 指数)。传入 symbol 列表, 返回 {symbol: name}。"""
     if not symbols:
@@ -620,7 +622,7 @@ class DailyBatchRequest:
     days: int = 12
 
 
-@router.post("/daily-batch")
+@router.post("/daily-batch", dependencies=[Depends(require_admin)])
 def get_daily_batch(request: Request, body: dict):
     """批量获取多只股票最近 N 天日K (OHLCV)。
 
@@ -683,7 +685,7 @@ def get_daily_batch(request: Request, body: dict):
     return {"data": result, "market_as_of": _market_asof_payload(market_asof)}
 
 
-@router.post("/minute-batch")
+@router.post("/minute-batch", dependencies=[Depends(require_admin)])
 def get_minute_batch(request: Request, body: dict):
     """批量获取多只股票某天的分钟K (分时图用)。
 
@@ -865,7 +867,7 @@ def get_minute(
     }
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(require_admin)])
 def sync_symbol(
     request: Request,
     symbol: str = Query(...),
@@ -878,7 +880,7 @@ def sync_symbol(
     return {"symbol": symbol, "rows_written": n}
 
 
-@router.post("/sync_batch")
+@router.post("/sync_batch", dependencies=[Depends(require_admin)])
 def sync_batch(
     request: Request,
     symbols: list[str],
@@ -890,7 +892,7 @@ def sync_batch(
     return {"symbols": symbols, "rows_written": n}
 
 
-@router.post("/refresh_views")
+@router.post("/refresh_views", dependencies=[Depends(require_admin)])
 def refresh_views(request: Request):
     """刷新所有 DuckDB 视图(解决视图状态不一致问题)。"""
     from app.jobs.daily_pipeline import _refresh_views
@@ -899,7 +901,7 @@ def refresh_views(request: Request):
     return {"status": "ok"}
 
 
-@router.post("/sync_minute")
+@router.post("/sync_minute", dependencies=[Depends(require_admin)])
 async def sync_minute(request: Request):
     """手动触发分钟 K 同步(全市场)。返回 pipeline job_id 可轮询进度。
 
@@ -995,7 +997,7 @@ async def sync_minute(request: Request):
     return {"status": "started", "job_id": job_id}
 
 
-@router.post("/sync_minute_single")
+@router.post("/sync_minute_single", dependencies=[Depends(require_admin)])
 async def sync_minute_single(request: Request, body: dict):
     """手动拉取单只股票的分钟K并落库 (前复权)。
 
@@ -1035,7 +1037,7 @@ async def sync_minute_single(request: Request, body: dict):
     return {"status": "ok", "symbol": symbol, "rows": written}
 
 
-@router.post("/clear_minute")
+@router.post("/clear_minute", dependencies=[Depends(require_admin)])
 async def clear_minute(request: Request):
     """清空全部分钟K数据 (仅 kline_minute, 不影响其他数据)。
 
@@ -1073,7 +1075,7 @@ async def clear_minute(request: Request):
     return {"status": "ok", "removed": removed}
 
 
-@router.post("/extend_history")
+@router.post("/extend_history", dependencies=[Depends(require_admin)])
 async def extend_history(request: Request):
     """向前扩展历史日K数据 — 独立于盘后管道。
 
@@ -1144,7 +1146,7 @@ async def extend_history(request: Request):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/repair_daily")
+@router.post("/repair_daily", dependencies=[Depends(require_admin)])
 async def repair_daily(request: Request):
     """修正 / 补全日K数据 — 从指定起始日期重拉到今天。
 
@@ -1228,7 +1230,7 @@ async def repair_daily(request: Request):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/rebuild_enriched")
+@router.post("/rebuild_enriched", dependencies=[Depends(require_admin)])
 async def rebuild_enriched(request: Request):
     """全量重算 enriched 表 — 不获取任何数据,仅基于已有 kline_daily + adj_factor 重算复权+指标。
 

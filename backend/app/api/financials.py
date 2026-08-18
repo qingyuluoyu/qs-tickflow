@@ -4,7 +4,9 @@ from __future__ import annotations
 import logging
 
 import polars as pl
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import Depends, APIRouter, HTTPException, Query, Request
+
+from app.api.deps import require_admin
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -167,7 +169,7 @@ def get_shares(request: Request, symbol: str | None = None):
     return {"data": df.to_dicts()}
 
 
-@router.post("/sync/{table}")
+@router.post("/sync/{table}", dependencies=[Depends(require_admin)])
 def sync_table(request: Request, table: str):
     """手动触发同步(立即返回,后台异步执行)。
 

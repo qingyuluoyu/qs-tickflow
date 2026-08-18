@@ -152,7 +152,7 @@ def auth_status(request: Request) -> dict:
     return {
         "configured": store.has_users(),
         "authenticated": user is not None,
-        "user": ({"id": user.id, "name": user.name, "phone": user.phone} if user else None),
+        "user": ({"id": user.id, "name": user.name, "phone": user.phone, "role": user.role} if user else None),
     }
 
 
@@ -162,7 +162,7 @@ def current_account(request: Request) -> dict:
     user = _accounts().user_for_token(request.cookies.get(COOKIE_NAME))
     if user is None:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
-    return {"user": {"id": user.id, "name": user.name, "phone": user.phone}}
+    return {"user": {"id": user.id, "name": user.name, "phone": user.phone, "role": user.role}}
 
 
 @router.post("/entry")
@@ -229,7 +229,7 @@ def account_entry(req: AccountEntryIn, request: Request, response: Response) -> 
         "ok": True,
         "created": result.created,
         "authenticated": True,
-        "user": {"id": result.user.id, "name": result.user.name, "phone": result.user.phone},
+        "user": {"id": result.user.id, "name": result.user.name, "phone": result.user.phone, "role": result.user.role},
     }
 
 

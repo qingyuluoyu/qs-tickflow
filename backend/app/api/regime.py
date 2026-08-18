@@ -9,7 +9,9 @@ import time
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import Depends, APIRouter, Query, Request
+
+from app.api.deps import require_admin
 
 from app.services import regime_builder
 
@@ -137,7 +139,7 @@ def regime_coverage(request: Request):
     return regime_builder.get_regime_coverage(_data_dir(request))
 
 
-@router.post("/recompute")
+@router.post("/recompute", dependencies=[Depends(require_admin)])
 def regime_recompute(request: Request, start: date | None = None, end: date | None = None):
     """手动触发重算(全量或指定区间)。管理员操作。
 

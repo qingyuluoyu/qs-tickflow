@@ -254,6 +254,53 @@ def _merge_live_snapshot_indicators(
     return merged
 
 
+def _fill_live_snapshot_names(snapshot: pl.DataFrame, repo) -> pl.DataFrame:
+    """Fill provider labels before rankings are exposed to the dashboard.
+
+    Realtime adapters are allowed to omit ``name``. A few older adapters also
+    echoed the symbol into that field, which is technically non-null but makes
+    the four ranking cards unreadable. Prices and indicators remain entirely
+    provider-owned; only the display label is enriched from the instrument
+    master.
+    """
+    if snapshot.is_empty() or repo is None or "symbol" not in snapshot.columns:
+        return snapshot
+    try:
+        instruments = None
+        if hasattr(repo, "get_instruments_asset"):
+            instruments = repo.get_instruments_asset("stock")
+        if (instruments is None or instruments.is_empty()) and hasattr(repo, "get_instruments"):
+            instruments = repo.get_instruments()
+        if (
+            instruments is None
+            or instruments.is_empty()
+            or not {"symbol", "name"}.issubset(instruments.columns)
+        ):
+            return snapshot
+        labels = instruments.select(["symbol", "name"]).unique(subset=["symbol"], keep="last")
+        result = snapshot.join(labels.rename({"name": "_instrument_name"}), on="symbol", how="left")
+        if "name" not in result.columns:
+            return result.rename({"_instrument_name": "name"})
+        symbol_text = pl.col("symbol").cast(pl.Utf8)
+        current_text = pl.col("name").cast(pl.Utf8, strict=False).str.strip_chars()
+        invalid = (
+            pl.col("name").is_null()
+            | (current_text == "")
+            | (current_text == symbol_text)
+            | (current_text == symbol_text.str.split(".").list.first())
+        )
+        return result.with_columns(
+            pl.when(invalid & pl.col("_instrument_name").is_not_null())
+            .then(pl.col("_instrument_name"))
+            .otherwise(pl.col("name"))
+            .alias("name")
+        ).drop("_instrument_name")
+    except Exception:
+        # Labels are presentation-only. A provider snapshot must remain usable
+        # even if the local instrument master is warming or unavailable.
+        return snapshot
+
+
 def _derive_dashboard_turnover_rate(snapshot: pl.DataFrame) -> pl.DataFrame:
     """Fill the canonical percent turnover from same-date volume and float.
 
@@ -880,7 +927,7 @@ def build_market_overview(
             and not dashboard_snapshot.frame.is_empty()
         ):
             live_date = dashboard_snapshot.snapshot_date
-            live_snapshot = dashboard_snapshot.frame.clone()
+            live_snapshot = _fill_live_snapshot_names(dashboard_snapshot.frame.clone(), repo)
             live_kind = dashboard_snapshot.kind
     # 本地管道(含收盘后快照补缺)可能比 provider 的 T+1 快照更新 —— 此时以本地为准,
     # 否则 provider 尚未发布当日数据时会把看板整体拖回旧交易日。

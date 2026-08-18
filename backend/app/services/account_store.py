@@ -110,6 +110,7 @@ class AccountStore:
             (3, migration_root / "003_registration_rate_limit.sql"),
             (4, migration_root / "004_user_ai_profiles.sql"),
             (5, migration_root / "005_user_preferences.sql"),
+            (6, migration_root / "006_user_roles.sql"),
         )
         with self._lock, self._connection() as conn:
             # Lock before reading user_version. Multiple server workers may
@@ -160,7 +161,9 @@ class AccountStore:
 
     @staticmethod
     def _identity(row: sqlite3.Row) -> UserIdentity:
-        return UserIdentity(id=str(row["id"]), name=str(row["name"]), phone=str(row["phone"]))
+        keys = row.keys()
+        role = str(row["role"]) if "role" in keys else "user"
+        return UserIdentity(id=str(row["id"]), name=str(row["name"]), phone=str(row["phone"]), role=role)
 
     def _create_session(self, conn: sqlite3.Connection, user_id: str) -> str:
         token = secrets.token_urlsafe(_TOKEN_BYTES)

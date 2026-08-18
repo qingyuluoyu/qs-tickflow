@@ -429,26 +429,30 @@ def set_instruments_schedule(hour: int, minute: int) -> dict:
 
 
 def get_enriched_batch_size() -> int:
-    """返回 enriched 全量计算每批 symbol 数量。"""
-    return max(1, min(10000, load().get("enriched_batch_size", 1000)))
+    """返回 enriched 全量计算每批 symbol 数量。服务器级。"""
+    from app.services import server_preferences
+    return max(1, min(10000, int(server_preferences.get("enriched_batch_size", 1000))))
 
 
 def set_enriched_batch_size(size: int) -> int:
-    """保存 enriched 全量计算批次大小。"""
+    """保存 enriched 全量计算批次大小(服务器级)。"""
+    from app.services import server_preferences
     size = max(10, min(6000, size))
-    save({"enriched_batch_size": size})
+    server_preferences.save({"enriched_batch_size": size})
     return size
 
 
 def get_index_daily_batch_size() -> int:
-    """返回指数日 K 同步每批 symbol 数量。"""
-    return max(1, min(10000, load().get("index_daily_batch_size", 100)))
+    """返回指数日 K 同步每批 symbol 数量。服务器级。"""
+    from app.services import server_preferences
+    return max(1, min(10000, int(server_preferences.get("index_daily_batch_size", 100))))
 
 
 def set_index_daily_batch_size(size: int) -> int:
-    """保存指数日 K 同步批次大小。"""
+    """保存指数日 K 同步批次大小(服务器级)。"""
+    from app.services import server_preferences
     size = max(1, min(10000, size))
-    save({"index_daily_batch_size": size})
+    server_preferences.save({"index_daily_batch_size": size})
     return size
 
 

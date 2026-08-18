@@ -78,3 +78,109 @@ def test_pipeline_switches_are_server_scoped(monkeypatch, tmp_path):
     stored = json.loads((tmp_path / "server_config.json").read_text(encoding="utf-8"))
     assert stored["pipeline_pull_etf"] is True
     assert stored["pipeline_schedule"] == {"hour": 16, "minute": 45}
+
+
+# ============================================================
+# AI 平台默认配置与误写入修复
+# ============================================================
+
+def _ai_master_key() -> str:
+    import base64
+    return base64.urlsafe_b64encode(b"0" * 32).decode("ascii")
+
+
+def _ai_create_user(data_dir, *, name: str, phone: str):
+    from app.services.account_store import get_account_store
+    result = get_account_store(data_dir).enter(name, phone, f"{phone}-password")
+    assert result is not None
+    return result.user
+
+
+def test_server_default_ai_profile_reads_shared_secrets(monkeypatch, tmp_path):
+    """平台默认 AI 配置: env 为空时回落共享 secrets.json (部署方的 deepseek),
+    任何用户登录都默认用它, 不需要往个人配置里拷贝。"""
+    import json
+    from app.config import settings
+    from app.services import ai_profiles
+    from app.services.user_context import reset_current_user, set_current_user
+    from app.services.account_store import get_account_store
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "user_secrets_master_key", _ai_master_key(), raising=False)
+    monkeypatch.setattr(settings, "ai_api_key", "")
+    monkeypatch.setattr(settings, "ai_base_url", "https://api.zhaji.dev/v1")
+    monkeypatch.setattr(settings, "ai_model", "gpt-5.5")
+    legacy_dir = tmp_path / "user_data"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "secrets.json").write_text(json.dumps({
+        "ai_provider": "openai_compat",
+        "ai_base_url": "https://api.deepseek.com",
+        "ai_api_key": "platform-deepseek-key",
+        "ai_model": "deepseek-chat",
+    }), encoding="utf-8")
+
+    user = _ai_create_user(tmp_path, name="u1", phone="u1-phone")
+    tokens = set_current_user(user, get_account_store(tmp_path).workspace(user.id))
+    try:
+        profile = ai_profiles.resolve_current_profile()
+    finally:
+        reset_current_user(tokens)
+
+    assert profile.source == "server_default"
+    assert profile.api_key == "platform-deepseek-key"
+    assert profile.model == "deepseek-chat"
+    # 且不得在个人账户里留下覆盖配置
+    from app.services.account_store import get_account_store as gas
+    assert gas(tmp_path).get_user_ai_profile(user.id) is None
+
+
+def test_legacy_ai_migration_skipped_in_multi_user_deployment(monkeypatch, tmp_path):
+    """多账户服务器: 共享 secrets.json 里的平台 key 绝不复制进新登录用户的
+    个人配置 (此前每个新用户首次解析都会被写入一份, 永远 pinned)。"""
+    import json
+    from app.config import settings
+    from app.services import ai_profiles
+    from app.services.user_context import reset_current_user, set_current_user
+    from app.services.account_store import get_account_store
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "user_secrets_master_key", _ai_master_key(), raising=False)
+    monkeypatch.setattr(settings, "ai_api_key", "")
+    legacy_dir = tmp_path / "user_data"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "secrets.json").write_text(json.dumps({
+        "ai_base_url": "https://api.deepseek.com",
+        "ai_api_key": "platform-deepseek-key",
+        "ai_model": "deepseek-chat",
+    }), encoding="utf-8")
+
+    _ai_create_user(tmp_path, name="first", phone="first-phone")
+    second = _ai_create_user(tmp_path, name="second", phone="second-phone")
+    tokens = set_current_user(second, get_account_store(tmp_path).workspace(second.id))
+    try:
+        profile = ai_profiles.resolve_current_profile()
+    finally:
+        reset_current_user(tokens)
+
+    assert profile.source == "server_default"
+    assert get_account_store(tmp_path).get_user_ai_profile(second.id) is None
+
+
+def test_require_admin_gate():
+    """服务器级写操作的管理员闸门。"""
+    from fastapi import HTTPException
+    from app.api.deps import require_admin
+
+    admin_req = SimpleNamespace(state=SimpleNamespace(
+        user=SimpleNamespace(id="a", is_admin=True)))
+    user_req = SimpleNamespace(state=SimpleNamespace(
+        user=SimpleNamespace(id="u", is_admin=False)))
+    anon_req = SimpleNamespace(state=SimpleNamespace(user=None))
+
+    assert require_admin(admin_req).id == "a"
+    for req in (user_req, anon_req):
+        try:
+            require_admin(req)
+            raise AssertionError("should have raised")
+        except HTTPException as e:
+            assert e.status_code in (401, 403)
