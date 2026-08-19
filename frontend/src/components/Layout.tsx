@@ -258,6 +258,10 @@ export function Layout() {
     queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(','), location.pathname === '/' ? 'dashboard' : 'provider'] as const,
     enabled: showSidebarQuotes && sidebarIndexes.length > 0,
     placeholderData: (prev) => prev,
+    // 主看板快照可能在运行中从自定义源切至备用源；此时原数据源没有
+    // SSE quote 事件可用于失效旧缓存，因此仅看板页按快照刷新间隔重新读取。
+    // /indices 读取的是后端已预加载的内存快照，不会新增外部行情请求。
+    refetchInterval: location.pathname === '/' ? 30_000 : false,
   })
 
   // SSE: 行情更新时自动刷新相关 queries + 告警通知

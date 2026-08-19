@@ -66,6 +66,19 @@ _CODEX_ENV_ALLOWLIST = (
 Message = dict[str, str]
 AiStreamEvent = dict[str, object]
 
+_STREAM_FIRST_EVENT_TIMEOUT = 20.0
+_STREAM_INACTIVITY_TIMEOUT = 45.0
+
+
+class AiStreamTimeoutError(RuntimeError):
+    """Raised when an AI streaming request stops making observable progress."""
+
+    def __init__(self, phase: str, timeout: float):
+        self.phase = phase
+        self.timeout = timeout
+        label = "首条响应" if phase == "first_event" else "连续响应"
+        super().__init__(f"AI 流式{label}超时 ({timeout:g}秒), 请检查流式接口或网络连接")
+
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 _COMPLETE_FINISH_REASONS = {"stop", "end_turn", "eos"}
 
@@ -208,6 +221,8 @@ async def stream_ai_text(
     temperature: float | None = 0.5,
     max_tokens: int = 4000,
     timeout: float = 180.0,
+    first_event_timeout: float | None = None,
+    inactivity_timeout: float | None = None,
 ) -> AsyncIterator[str]:
     """Yield text deltas from the configured provider.
 
@@ -223,6 +238,8 @@ async def stream_ai_text(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        first_event_timeout=first_event_timeout,
+        inactivity_timeout=inactivity_timeout,
     ):
         yield chunk
 
@@ -234,6 +251,8 @@ async def stream_ai_events(
     max_tokens: int = 6000,
     timeout: float = 180.0,
     max_continuations: int = 2,
+    first_event_timeout: float | None = None,
+    inactivity_timeout: float | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     """Yield structured reasoning/answer events with bounded continuation.
 
@@ -276,6 +295,8 @@ async def stream_ai_events(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout,
+            first_event_timeout=first_event_timeout,
+            inactivity_timeout=inactivity_timeout,
         ):
             event_type = event.get("type")
             if event_type == "reasoning_delta":
@@ -359,6 +380,8 @@ async def _stream_openai(
     temperature: float | None,
     max_tokens: int,
     timeout: float,
+    first_event_timeout: float | None = None,
+    inactivity_timeout: float | None = None,
 ) -> AsyncIterator[str]:
     profile = resolve_current_profile()
     if not profile.api_key:
@@ -368,45 +391,64 @@ async def _stream_openai(
     model = profile.model
     req_messages = list(messages)
 
-    async def _iter(stream):
-        async for chunk in stream:
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                continue
-            # 推理模型(如 step-3.7-flash / deepseek-r1 / o 系列)将内容放在
-            # reasoning 字段而非 content,两者都检查(getattr 兼容旧 SDK)。
-            text = delta.content or getattr(delta, "reasoning", "") or ""
-            if text:
-                yield text
-
+    first_timeout = _resolve_stream_timeout(first_event_timeout, _STREAM_FIRST_EVENT_TIMEOUT)
+    inactivity = _resolve_stream_timeout(inactivity_timeout, _STREAM_INACTIVITY_TIMEOUT)
+    kwargs = {
+        "model": model,
+        "messages": req_messages,
+        **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
+        "stream": True,
+    }
     try:
-        stream = await client.chat.completions.create(
-            model=model,
-            messages=req_messages,
-            **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
-            stream=True,
+        stream = await _await_stream_operation(
+            client.chat.completions.create(**kwargs),
+            first_timeout,
+            "first_event",
         )
     except Exception as exc:
         # 流尚未开始 yield, 可安全重建: 去掉 temperature 后重开 stream。
         if temperature is not None and _is_temperature_rejected(exc):
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=req_messages,
-                **_openai_kwargs(temperature=None, max_tokens=max_tokens),
-                stream=True,
+            kwargs.pop("temperature", None)
+            stream = await _await_stream_operation(
+                client.chat.completions.create(**kwargs),
+                first_timeout,
+                "first_event",
             )
         else:
             if _is_openai_transport_error(exc):
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
 
+    iterator = stream.__aiter__()
+    received_chunk = False
     try:
-        async for piece in _iter(stream):
-            yield piece
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    anext(iterator),
+                    timeout=first_timeout if not received_chunk else inactivity,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                phase = "first_event" if not received_chunk else "inactivity"
+                raise AiStreamTimeoutError(
+                    phase,
+                    first_timeout if not received_chunk else inactivity,
+                ) from exc
+            received_chunk = True
+            delta = chunk.choices[0].delta if chunk.choices else None
+            if not delta:
+                continue
+            text = delta.content or getattr(delta, "reasoning", "") or ""
+            if text:
+                yield text
     except Exception as exc:
         if _is_openai_transport_error(exc):
             raise RuntimeError(_format_openai_error(exc)) from exc
         raise
+    finally:
+        await _close_stream(stream)
 
 
 async def _stream_openai_events(
@@ -415,6 +457,8 @@ async def _stream_openai_events(
     temperature: float | None,
     max_tokens: int,
     timeout: float,
+    first_event_timeout: float | None = None,
+    inactivity_timeout: float | None = None,
 ) -> AsyncIterator[AiStreamEvent]:
     """Read one provider stream while retaining reasoning and finish metadata."""
     profile = resolve_current_profile()
@@ -434,19 +478,45 @@ async def _stream_openai_events(
         **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
         "stream": True,
     }
+    first_timeout = _resolve_stream_timeout(first_event_timeout, _STREAM_FIRST_EVENT_TIMEOUT)
+    inactivity = _resolve_stream_timeout(inactivity_timeout, _STREAM_INACTIVITY_TIMEOUT)
     try:
-        stream = await _open_stream(**kwargs)
+        stream = await _await_stream_operation(
+            _open_stream(**kwargs),
+            first_timeout,
+            "first_event",
+        )
     except Exception as exc:
         if temperature is not None and _is_temperature_rejected(exc):
             kwargs.pop("temperature", None)
-            stream = await _open_stream(**kwargs)
+            stream = await _await_stream_operation(
+                _open_stream(**kwargs),
+                first_timeout,
+                "first_event",
+            )
         else:
             if _is_openai_transport_error(exc):
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
 
+    iterator = stream.__aiter__()
+    received_chunk = False
     try:
-        async for chunk in stream:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    anext(iterator),
+                    timeout=first_timeout if not received_chunk else inactivity,
+                )
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError as exc:
+                phase = "first_event" if not received_chunk else "inactivity"
+                raise AiStreamTimeoutError(
+                    phase,
+                    first_timeout if not received_chunk else inactivity,
+                ) from exc
+            received_chunk = True
             choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
             if choice is None:
                 continue
@@ -469,6 +539,34 @@ async def _stream_openai_events(
         if _is_openai_transport_error(exc):
             raise RuntimeError(_format_openai_error(exc)) from exc
         raise
+    finally:
+        await _close_stream(stream)
+
+
+def _resolve_stream_timeout(value: float | None, fallback: float) -> float:
+    """Normalize configurable test/runtime timeouts to a positive bound."""
+    try:
+        resolved = float(fallback if value is None else value)
+    except (TypeError, ValueError):
+        resolved = fallback
+    return max(0.001, resolved)
+
+
+async def _await_stream_operation(awaitable, timeout: float, phase: str):
+    try:
+        return await asyncio.wait_for(awaitable, timeout=timeout)
+    except asyncio.TimeoutError as exc:
+        raise AiStreamTimeoutError(phase, timeout) from exc
+
+
+async def _close_stream(stream) -> None:
+    close = getattr(stream, "aclose", None)
+    if not close:
+        return
+    try:
+        await close()
+    except Exception:  # pragma: no cover - provider cleanup must not mask the root error
+        return
 
 
 def _openai_client(profile: ResolvedAiProfile, timeout: float):

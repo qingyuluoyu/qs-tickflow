@@ -34,7 +34,8 @@ CORE_INDEX_NAMES = {
 }
 CORE_INDEX_SYMBOLS = tuple(CORE_INDEX_NAMES.keys())
 
-_DIMENSION_SEP = re.compile(r"[、,，;；|/\s]+")
+_DIMENSION_SEP = re.compile(r"[、,，;；|/\s]+")  # noqa: RUF001
+_BUILTIN_DIMENSION_CONFIG_IDS = frozenset({"ext_gn_ths", "ext_hy_ths"})
 
 
 # ================================================================
@@ -299,6 +300,39 @@ def _fill_live_snapshot_names(snapshot: pl.DataFrame, repo) -> pl.DataFrame:
         # Labels are presentation-only. A provider snapshot must remain usable
         # even if the local instrument master is warming or unavailable.
         return snapshot
+
+
+def _fill_ranking_names(rows: list[dict], repo) -> list[dict]:
+    """Fill missing or symbol-echoed names on the small ranking payload."""
+    if not rows or repo is None:
+        return rows
+
+    symbols = []
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip()
+        current = str(row.get("name") or "").strip()
+        if symbol and (not current or current in {symbol, symbol.split(".", 1)[0]}):
+            symbols.append(symbol)
+    if not symbols:
+        return rows
+
+    try:
+        name_map = repo.get_name_map(list(dict.fromkeys(symbols)))
+    except Exception:
+        return rows
+    if not name_map:
+        return rows
+
+    result = []
+    for row in rows:
+        symbol = str(row.get("symbol") or "").strip()
+        current = str(row.get("name") or "").strip()
+        resolved = name_map.get(symbol)
+        if resolved and (not current or current in {symbol, symbol.split(".", 1)[0]}):
+            result.append({**row, "name": resolved})
+        else:
+            result.append(row)
+    return result
 
 
 def _derive_dashboard_turnover_rate(snapshot: pl.DataFrame) -> pl.DataFrame:
@@ -646,7 +680,7 @@ def _index_quotes(
                 """,
                 [*CORE_INDEX_SYMBOLS, as_of, as_of],
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             db_rows = []
         for symbol, dt, last_price, prev_close in db_rows:
             change_amount = None
@@ -713,9 +747,9 @@ def _read_ext_rows(data_dir, config: ExtConfig, dimension_field: str) -> list[di
     except TypeError:
         try:
             df = pl.read_parquet(files)
-        except Exception:  # noqa: BLE001
+        except Exception:
             return []
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
     if df.is_empty() or dimension_field not in df.columns:
         return []
@@ -780,16 +814,35 @@ def _dimension_rank(rows: list[dict], repo, kind: str, limit: int = 5, level: in
         quote_map[symbol.split(".", 1)[0]] = row
 
     from app.services.user_context import personal_data_root
-    data_root = personal_data_root(repo.store.data_dir)
-    store = ExtConfigStore(data_root)
+
+    shared_root = repo.store.data_dir
+    data_root = personal_data_root(shared_root)
+    if data_root == shared_root:
+        sources = [
+            (shared_root, config)
+            for config in ExtConfigStore(shared_root).load_all()
+        ]
+    else:
+        # Built-in concept/industry snapshots are server-owned shared data;
+        # custom extension tables remain isolated in the current workspace.
+        sources = [
+            (shared_root, config)
+            for config in ExtConfigStore(shared_root).load_all()
+            if config.id in _BUILTIN_DIMENSION_CONFIG_IDS
+        ]
+        sources.extend(
+            (data_root, config)
+            for config in ExtConfigStore(data_root).load_all()
+            if config.id not in _BUILTIN_DIMENSION_CONFIG_IDS
+        )
     groups: dict[str, dict[str, dict]] = {}
     group_sources: dict[str, str] = {}
-    for config in store.load_all():
+    for source_root, config in sources:
         field = _dimension_field(config, kind)
         if not field:
             continue
         source_field = f"{config.id}.{field}"
-        for ext_row in _read_ext_rows(data_root, config, field):
+        for ext_row in _read_ext_rows(source_root, config, field):
             quote = None
             for key in _symbol_keys(ext_row, config):
                 quote = quote_map.get(key)
@@ -871,11 +924,11 @@ def _pct_band_rows(values: list[float]) -> list[dict]:
     for label, low, high in bands:
         count = 0
         for v in values:
-            if low is None and v < high:
-                count += 1
-            elif high is None and v >= low:
-                count += 1
-            elif low is not None and high is not None and low <= v < high:
+            if (
+                (low is None and v < high)
+                or (high is None and v >= low)
+                or (low is not None and high is not None and low <= v < high)
+            ):
                 count += 1
         out.append({"label": label, "count": count, "pct": count / total * 100})
     return out
@@ -1079,7 +1132,7 @@ def build_market_overview(
         df = df.select([c for c in cols if c in df.columns])
         rows = df.to_dicts()
 
-    # 过滤真停牌（volume=0 且 change_pct=0），保留有涨跌幅的浮点误差股以对齐同花顺口径
+    # 过滤真停牌(volume=0 且 change_pct=0),保留有涨跌幅的浮点误差股以对齐同花顺口径
     if rows and "volume" in rows[0]:
         rows = [r for r in rows
                 if (_finite(r.get("volume")) or 0) > 0
@@ -1218,6 +1271,22 @@ def build_market_overview(
     else:
         emotion_label = "冰点"
 
+    ranking_groups = [
+        _top_rows(rows, "change_pct", True),
+        _top_rows(rows, "change_pct", False),
+        _top_rows(rows, "amount", True),
+        _top_rows(rows, "turnover_rate", True),
+    ]
+    filled_ranking_rows = _fill_ranking_names(
+        [row for group in ranking_groups for row in group],
+        repo,
+    )
+    filled_groups = []
+    offset = 0
+    for group in ranking_groups:
+        filled_groups.append(filled_ranking_rows[offset:offset + len(group)])
+        offset += len(group)
+
     return _json_safe({
         "as_of": str(as_of),
         "quote_status": status,
@@ -1257,10 +1326,10 @@ def build_market_overview(
         },
         "radar": radar,
         "emotion": {"score": emotion_score, "label": emotion_label},
-        "top_gainers": _top_rows(rows, "change_pct", True),
-        "top_losers": _top_rows(rows, "change_pct", False),
-        "turnover_leaders": _top_rows(rows, "amount", True),
-        "active_leaders": _top_rows(rows, "turnover_rate", True),
+        "top_gainers": filled_groups[0],
+        "top_losers": filled_groups[1],
+        "turnover_leaders": filled_groups[2],
+        "active_leaders": filled_groups[3],
         "concept_rank": concept_rank,
         "industry_rank": industry_rank,
     })

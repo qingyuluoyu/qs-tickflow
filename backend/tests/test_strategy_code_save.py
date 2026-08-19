@@ -74,6 +74,49 @@ def test_prepare_strategy_code_rejects_unknown_scoring_field():
         _prepare_strategy_code(req)
 
 
+def test_prepare_strategy_code_rejects_history_entrypoint_under_polars_backend():
+    code = _code("custom_bad_backend").replace(
+        'ENTRY_SIGNALS = []\n',
+        'EXECUTION_BACKEND = "polars_expr"\n'
+        'def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:\n'
+        '    return df\n',
+    ).replace(
+        'def filter(df: pl.DataFrame, params: dict) -> pl.Expr:\n'
+        '    return pl.lit(True)\n',
+        '',
+    )
+    req = StrategyCodeValidateRequest(
+        strategy_id="custom_bad_backend",
+        code=code,
+    )
+
+    with pytest.raises(ValueError, match=r"polars_expr.*filter_history.*python_history_legacy"):
+        _prepare_strategy_code(req)
+
+
+@pytest.mark.parametrize(
+    ("backend", "message"),
+    [
+        ("polars_expr", r"polars_expr.*filter_history"),
+        ("python_history_legacy", r"python_history_legacy.*filter_history.*filter"),
+    ],
+)
+def test_prepare_strategy_code_rejects_both_filter_entrypoints(backend, message):
+    code = _code("custom_both_entrypoints").replace(
+        'ENTRY_SIGNALS = []\n',
+        f'EXECUTION_BACKEND = "{backend}"\n'
+        'def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:\n'
+        '    return df\n',
+    )
+    req = StrategyCodeValidateRequest(
+        strategy_id="custom_both_entrypoints",
+        code=code,
+    )
+
+    with pytest.raises(ValueError, match=message):
+        _prepare_strategy_code(req)
+
+
 def test_save_strategy_code_creates_ai_strategy_in_ai_dir(tmp_path):
     request = _request(tmp_path)
     req = StrategyCodeSaveRequest(

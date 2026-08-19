@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle, Star } from 'lucide-react'
+import { Sparkles, LineChart, History as HistoryIcon, Loader2, ExternalLink, Bell, AlertTriangle, Star, Swords } from 'lucide-react'
 import { Badge, Button, Tooltip } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
 import { PageContainer } from '@/components/PageContainer'
@@ -11,6 +11,7 @@ import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { LastStockChip } from '@/components/LastStockChip'
 import { AnalysisKChart, type PriceLevel, type LevelType } from '@/components/stock-analysis/AnalysisKChart'
 import { PriceAlertDialog } from '@/components/stock-analysis/PriceAlertDialog'
+import { DebateDialog } from '@/components/stock-analysis/DebateDialog'
 import { StockInsightPanels } from '@/components/stock-analysis/StockInsightPanels'
 import { Modal } from '@/components/Modal'
 import { api } from '@/lib/api'
@@ -38,6 +39,7 @@ export function StockAnalysis() {
   const [confirmReport, setConfirmReport] = useState<{ id: string; created_at: string; focus: string } | null>(null)
   const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
   const [showPriceAlerts, setShowPriceAlerts] = useState(false)
+  const [showDebate, setShowDebate] = useState(false)
   const qc = useQueryClient()
   const { user } = useAuth()
   const { last: lastStock, remember: rememberStock } = useLastStock('stock-analysis')
@@ -84,6 +86,7 @@ export function StockAnalysis() {
     setName(nm)
     setConfirmReport(null)
     setShowPriceAlerts(false)
+    setShowDebate(false)
     rememberStock(sym, nm)
   }
 
@@ -172,6 +175,15 @@ export function StockAnalysis() {
                   点位提醒
                 </Button>
               </Tooltip>
+              <Button
+                size="xs"
+                variant="light"
+                color="blue"
+                onClick={() => setShowDebate(true)}
+                leftSection={<Swords className="h-3.5 w-3.5" />}
+              >
+                多空辩论
+              </Button>
             </>
           )}
         </div>
@@ -220,6 +232,15 @@ export function StockAnalysis() {
           symbol={symbol}
           name={name}
           onClose={() => setShowPriceAlerts(false)}
+        />
+      )}
+
+      {showDebate && symbol && (
+        <DebateDialog
+          key={symbol}
+          symbol={symbol}
+          name={name}
+          onClose={() => setShowDebate(false)}
         />
       )}
     </>

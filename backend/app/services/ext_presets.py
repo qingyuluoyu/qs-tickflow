@@ -6,10 +6,10 @@
   - 「已存在则跳过」: 绝不覆盖用户已有数据, 老用户零影响
   - 拉取失败只记 warning, 不阻断启动 (保持「没数据也能跑」)
 
-种子数据来源 (概念/行业各自独立配置):
+上游数据接口 (概念/行业各自独立配置):
   - 概念: https://shy313.com/api/plugins/market_flow/exports/ths-concepts
   - 行业: https://shy313.com/api/plugins/market_flow/exports/ths-industries
-作者更新数据只需改接口上的 JSON, 用户下次拉取自动同步, 无需发版。
+上游接口更新后,下一次拉取会同步新数据,无需发版。
 
 接入点: app.main.lifespan → ensure_builtin_presets(store.data_dir)
 """
@@ -29,7 +29,7 @@ from app.services.ext_data import (
 
 logger = logging.getLogger(__name__)
 
-# 种子数据源 (概念/行业各自独立配置, 作者维护)
+# 上游数据源 (概念/行业各自独立配置)
 _CONCEPT_DATA_URL = "https://shy313.com/api/plugins/market_flow/exports/ths-concepts"
 _INDUSTRY_DATA_URL = "https://shy313.com/api/plugins/market_flow/exports/ths-industries"
 

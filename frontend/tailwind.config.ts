@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss'
+import colors from 'tailwindcss/colors'
 import animate from 'tailwindcss-animate'
 
 // 设计语言 §6.0:暗色为主 + 电光蓝强调 + 等宽数字
@@ -23,6 +24,10 @@ export default {
         bear:       'hsl(var(--bear) / <alpha-value>)',
         warning:    'hsl(var(--warning) / <alpha-value>)',
         danger:     'hsl(var(--danger) / <alpha-value>)',
+        // 所有非涨跌语义的暖色统一为天蓝色，保留原有 class 契约。
+        orange: colors.sky,
+        amber: colors.sky,
+        yellow: colors.sky,
       },
       fontFamily: {
         sans: ['Inter', '"HarmonyOS Sans SC"', '"PingFang SC"', 'system-ui', 'sans-serif'],

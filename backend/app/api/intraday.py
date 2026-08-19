@@ -267,7 +267,13 @@ async def quote_stream(request: Request):
         finally:
             qs.unsubscribe(sub)
 
-    return EventSourceResponse(event_generator())
+    return EventSourceResponse(
+        event_generator(),
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/refresh")

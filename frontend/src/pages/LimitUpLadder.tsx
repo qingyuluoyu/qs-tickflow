@@ -17,6 +17,7 @@ import { SealedBadge } from '@/components/SealedBadge'
 import { Modal as MantineModal, ActionIcon, Button, NumberInput, SegmentedControl, Select, Switch, TextInput } from '@mantine/core'
 import { Modal } from '@/components/Modal'
 import { PageContainer } from '@/components/PageContainer'
+import { DataFreshnessNotice } from '@/components/DataFreshnessNotice'
 import type { ExtColumnDisplayConfig } from '@/lib/watchlist-columns'
 
 // ===== Ext 字段配置 =====
@@ -142,7 +143,7 @@ function fmtSealAmount(v: number): string {
 // ===== 板块标识 =====
 
 function boardTag(symbol: string): { label: string; cls: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '创', cls: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
+  if (/^(300|301)/.test(symbol)) return { label: '创', cls: 'text-[#0ea5e9] bg-[#0ea5e9]/12 border-[#0ea5e9]/25' }
   if (/^688/.test(symbol))       return { label: '科', cls: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
   if (/\.BJ$/.test(symbol))      return { label: '北', cls: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
   return null
@@ -1572,6 +1573,7 @@ export function LimitUpLadder() {
     return (
       <div className="flex flex-col h-full">
         <PageHeader title={direction === 'down' ? '连跌梯队' : '连板梯队'} />
+        <DataFreshnessNotice freshness={data?.data_freshness} snapshotDate={data?.as_of} label="连板数据" />
         <EmptyState icon={Flame} title={direction === 'down' ? '暂无连跌数据' : '暂无连板数据'} hint={direction === 'down' ? '该日期无跌停股或 enriched 数据未就绪' : '该日期无涨停股或 enriched 数据未就绪'} />
       </div>
     )
@@ -1729,6 +1731,7 @@ export function LimitUpLadder() {
 
       {/* 页体: 总览条 + 标签统计 + 梯队列表, 统一容器边距, 单滚动区 */}
       <PageContainer className="flex-1 overflow-y-auto flex flex-col gap-3">
+      <DataFreshnessNotice freshness={data?.data_freshness} snapshotDate={data?.as_of} label="连板数据" />
       {/* 总览条 + 日期 */}
       <OverviewBar tiers={tiers} dateValue={dateValue} onDateChange={setAsOf} filterKeys={filterKeys} bf={extFields.bf} direction={direction} />
 

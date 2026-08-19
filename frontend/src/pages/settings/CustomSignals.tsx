@@ -94,7 +94,7 @@ export function SettingsCustomSignalsPanel() {
             </p>
           </div>
           <Button
-            size="xs" color="yellow"
+            size="xs" color="blue"
             onClick={openNew}
             leftSection={<Plus className="h-3.5 w-3.5" />}
           >
@@ -173,12 +173,12 @@ export function SettingsCustomSignalsPanel() {
               <div className="flex items-center gap-2">
                 <Zap className="h-3.5 w-3.5 text-warning" />
                 <h3 className="text-sm font-medium text-foreground">自定义信号</h3>
-                <Badge size="xs" variant="light" color="yellow">可配置</Badge>
+                <Badge size="xs" variant="light" color="blue">可配置</Badge>
               </div>
               <p className="mt-1 text-xs text-muted">这些信号由你定义，可启用/停用，并在策略、回测与监控中作为 csg_* 信号使用。</p>
             </div>
             <Button
-              size="xs" variant="light" color="yellow"
+              size="xs" variant="light" color="blue"
               onClick={openNew}
               leftSection={<Plus className="h-3.5 w-3.5" />}
             >

@@ -693,7 +693,7 @@ export function Screener() {
             <Button
               size="xs"
               variant="light"
-              color="yellow"
+              color="blue"
               styles={CONTROL_STYLES}
               leftSection={<Sparkles className="h-3.5 w-3.5" />}
               onClick={() => { setBuilderMode('create'); setShowBuilder(true) }}

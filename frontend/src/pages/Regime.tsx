@@ -245,7 +245,7 @@ export function Regime() {
           itemStyle: { color: REGIME_STATE_COLORS.strong, opacity: 0.35 }, z: 1 },
         // 4 子维度曲线(右轴=综合分): 帮助理解综合分由什么驱动(点图例可切换)
         { name: '赚钱', type: 'line', data: profit, smooth: true, symbol: 'none', yAxisIndex: 1,
-          lineStyle: { ...subLineStyle, color: '#f59e0b' }, z: 2 },
+          lineStyle: { ...subLineStyle, color: '#0ea5e9' }, z: 2 },
         { name: '投机', type: 'line', data: speculation, smooth: true, symbol: 'none', yAxisIndex: 1,
           lineStyle: { ...subLineStyle, color: '#a855f7' }, z: 2 },
         { name: '抗跌', type: 'line', data: resilience, smooth: true, symbol: 'none', yAxisIndex: 1,
@@ -479,7 +479,7 @@ export function Regime() {
             </div>
             <div className="mt-2 space-y-1">
               {([
-                { label: '赚钱', val: latest.profit_score, color: '#f59e0b' },
+                { label: '赚钱', val: latest.profit_score, color: '#0ea5e9' },
                 { label: '投机', val: latest.speculation_score, color: '#a855f7' },
                 { label: '抗跌', val: latest.resilience_score, color: '#10b981' },
                 { label: '趋势', val: latest.trend_score, color: '#3b82f6' },

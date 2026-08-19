@@ -47,16 +47,16 @@ export interface PriceLevel {
 
 /** 价位组开关配置:label = 按钮文案,color = markLine 颜色 */
 export const LEVEL_GROUPS: { key: LevelType; label: string; color: string }[] = [
-  { key: 'sr',       label: '压力支撑',  color: '#F97316' },   // 橙(成交密集区,价量驱动)
+  { key: 'sr',       label: '压力支撑',  color: '#0EA5E9' },   // 天蓝(成交密集区,价量驱动)
   { key: 'pivot',    label: '枢轴点',    color: '#8B5CF6' },   // 紫
-  { key: 'extreme',  label: '前高前低',  color: '#EAB308' },   // 黄
-  { key: 'boll',     label: '布林带',    color: '#F97316' },   // 橙(MA20±2σ 曲线)
+  { key: 'extreme',  label: '前高前低',  color: '#0EA5E9' },   // 天蓝
+  { key: 'boll',     label: '布林带',    color: '#0EA5E9' },   // 天蓝(MA20±2σ 曲线)
   { key: 'keltner_s',label: 'Keltner短期',  color: '#06B6D4' },   // 青(MA20±2ATR 曲线)
   { key: 'keltner_m',label: 'Keltner中期',  color: '#22D3EE' },   // 浅青(MA60±2.5ATR 曲线)
   { key: 'keltner_l',label: 'Keltner长期',  color: '#67E8F9' },   // 更浅青(MA120±3ATR 曲线)
   { key: 'atr_stop', label: 'ATR波动通道',  color: '#EF4444' },   // 红(警示)
   { key: 'gap',      label: '缺口位',    color: '#EC4899' },   // 粉
-  { key: 'fib',      label: '斐波那契',  color: '#F59E0B' },   // 金
+  { key: 'fib',      label: '斐波那契',  color: '#0EA5E9' },   // 天蓝
   { key: 'round',    label: '整数关口',  color: '#71717A' },   // 灰(心理位,弱视觉)
 ]
 
@@ -65,9 +65,9 @@ export const LEVEL_GROUPS: { key: LevelType; label: string; color: string }[] = 
 //   group:      属于哪个价位开关组(开关该组即开关这条曲线)
 //   endLabel:   右侧端点标签(显示最新值的文字)
 const CURVE_DEFS: { alignedKey: string; group: LevelType; endLabel: string; color: string; dashed?: boolean }[] = [
-  { alignedKey: 'boll_upper',     group: 'boll',      endLabel: '布林上轨', color: '#F97316', dashed: true },
-  { alignedKey: 'boll_lower',     group: 'boll',      endLabel: '布林下轨', color: '#F97316', dashed: true },
-  { alignedKey: 'boll_mid',       group: 'boll',      endLabel: '布林中轨', color: '#FB923C', dashed: false },
+  { alignedKey: 'boll_upper',     group: 'boll',      endLabel: '布林上轨', color: '#0EA5E9', dashed: true },
+  { alignedKey: 'boll_lower',     group: 'boll',      endLabel: '布林下轨', color: '#0EA5E9', dashed: true },
+  { alignedKey: 'boll_mid',       group: 'boll',      endLabel: '布林中轨', color: '#38BDF8', dashed: false },
   { alignedKey: 'keltner_s_upper',group: 'keltner_s', endLabel: 'Keltner短上', color: '#06B6D4', dashed: true },
   { alignedKey: 'keltner_s_lower',group: 'keltner_s', endLabel: 'Keltner短下', color: '#06B6D4', dashed: true },
   { alignedKey: 'keltner_m_upper',group: 'keltner_m', endLabel: 'Keltner中上', color: '#22D3EE', dashed: true },
@@ -278,7 +278,7 @@ export function AnalysisKChart({
       .map(m => ({
         coord: [m.date, rows[dateIndex.get(m.date)!].high],
         symbol: 'pin', symbolSize: 32,
-        itemStyle: { color: m.color ?? '#EAB308' },
+        itemStyle: { color: m.color ?? '#0EA5E9' },
         label: { show: !!m.label, formatter: m.label ?? '', fontSize: 9, color: '#fff' },
       }))
 
@@ -288,7 +288,7 @@ export function AnalysisKChart({
       .map(r => [{
         xAxis: r.start, name: r.label ?? '',
         itemStyle: { color: r.color ?? 'rgba(234,179,8,0.08)' },
-        label: r.label ? { show: true, position: 'insideTop', distance: 6, color: '#EAB308', fontSize: 10 } : undefined,
+        label: r.label ? { show: true, position: 'insideTop', distance: 6, color: '#0EA5E9', fontSize: 10 } : undefined,
       }, { xAxis: r.end }])
 
     const series: any[] = [

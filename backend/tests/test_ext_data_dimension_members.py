@@ -1,7 +1,10 @@
+from datetime import date
+
 import polars as pl
 import pytest
 from fastapi import HTTPException
 
+from app.api import ext_data
 from app.api.ext_data import _filter_dimension_member_rows
 
 
@@ -32,3 +35,18 @@ def test_filter_dimension_member_rows_rejects_unknown_field() -> None:
 
     with pytest.raises(HTTPException, match="字段 '所属行业' 不存在"):
         _filter_dimension_member_rows(rows, "所属行业", "银行")
+
+
+def test_ext_data_freshness_marks_default_old_snapshot_but_not_explicit_history(monkeypatch):
+    monkeypatch.setattr(ext_data, "cn_today", lambda: date(2026, 8, 19))
+
+    stale = ext_data._data_freshness("2026-08-18 22:21:52", explicit_date=False)
+    historical = ext_data._data_freshness("2026-08-18", explicit_date=True)
+
+    assert stale == {
+        "snapshot_date": "2026-08-18",
+        "current_date": "2026-08-19",
+        "is_stale": True,
+        "calendar_basis": "weekday_fallback",
+    }
+    assert historical["is_stale"] is False

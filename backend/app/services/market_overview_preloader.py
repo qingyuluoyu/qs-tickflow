@@ -163,6 +163,71 @@ class MarketOverviewPreloader:
                 return
 
 
+def _is_current_realtime_snapshot(snapshot: DashboardSnapshot | None) -> bool:
+    """Return whether a snapshot can safely represent the current trading day."""
+    return bool(
+        snapshot is not None
+        and snapshot.status == "success"
+        and snapshot.kind.endswith(".realtime")
+        and snapshot.realtime_rows > 0
+        and snapshot.snapshot_date == cn_today()
+    )
+
+
+def make_dashboard_failover_fetcher(
+    primary_fetcher: Callable[[], DashboardSnapshot],
+    fallback_fetcher: Callable[[], DashboardSnapshot],
+) -> Callable[[], DashboardSnapshot]:
+    """Prefer a configured provider, with Sina as a current-session failover.
+
+    A configured provider may remain reachable but return an empty intraday
+    response.  During that failure mode the dashboard must use the existing
+    keyless Sina snapshot instead of displaying yesterday's completed daily
+    partition as today's market state.  A fallback is accepted only when it
+    has passed the same current-day realtime boundary; otherwise the primary
+    result is retained for the closed-session daily path and diagnostics.
+    """
+    last_failure: tuple[str, str, str | None] | None = None
+
+    def fetch() -> DashboardSnapshot:
+        nonlocal last_failure
+        primary: DashboardSnapshot | None = None
+        try:
+            primary = primary_fetcher()
+        except Exception as exc:
+            failure = ("primary", "error", type(exc).__name__)
+            if failure != last_failure:
+                logger.warning("dashboard primary snapshot unavailable; trying Sina: %s", failure[2])
+                last_failure = failure
+
+        if _is_current_realtime_snapshot(primary):
+            last_failure = None
+            return primary
+
+        try:
+            fallback = fallback_fetcher()
+        except Exception as exc:
+            if primary is not None:
+                return primary
+            return DashboardSnapshot.empty("sina", "error", type(exc).__name__)
+
+        if _is_current_realtime_snapshot(fallback):
+            if primary is not None:
+                failure = (primary.provider, primary.status, primary.error)
+                if failure != last_failure:
+                    logger.warning(
+                        "dashboard provider %s returned no current realtime snapshot (%s); using Sina failover",
+                        primary.provider,
+                        primary.status,
+                    )
+                    last_failure = failure
+            return fallback
+
+        return primary if primary is not None else fallback
+
+    return fetch
+
+
 def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
     if not records:
         return pl.DataFrame()

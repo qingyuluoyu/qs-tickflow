@@ -81,7 +81,7 @@ export function Settings() {
                   <Icon className="h-3.5 w-3.5 shrink-0" />
                   <span>{label}</span>
                   {badge && (
-                    <Badge size="xs" variant="light" color="yellow" className="ml-auto shrink-0 normal-case">
+                    <Badge size="xs" variant="light" color="blue" className="ml-auto shrink-0 normal-case">
                       {badge}
                     </Badge>
                   )}

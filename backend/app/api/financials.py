@@ -1,6 +1,7 @@
 """财务数据 API — 独立路由, Cap.FINANCIAL 门控。"""
 from __future__ import annotations
 
+import json
 import logging
 
 import polars as pl
@@ -216,8 +217,12 @@ async def analyze_financials(request: Request, req: AnalyzeRequest):
     data_dir = request.app.state.repo.store.data_dir
 
     async def stream_gen():
-        async for chunk in analyze_financials_stream(data_dir, req.symbol, req.focus):
-            yield chunk + "\n"
+        try:
+            async for chunk in analyze_financials_stream(data_dir, req.symbol, req.focus):
+                yield chunk + "\n"
+        except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免静默断流
+            logger.exception("financial analysis stream failed for %s: %s", req.symbol, exc)
+            yield json.dumps({"type": "error", "message": f"AI 财务分析失败：{exc}"}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(
         stream_gen(),

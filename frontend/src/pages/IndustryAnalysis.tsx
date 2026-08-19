@@ -20,6 +20,7 @@ import { EmptyState } from '@/components/EmptyState'
 import { AnalysisConfigDialog, DimensionHeatmap, PresetFetchState, type AnalysisFieldConfig } from '@/components/analysis-shared'
 import { DimensionMembersDialog, type DimensionMembersTarget } from '@/components/DimensionMembersDialog'
 import { RpsRotationDialog } from '@/components/RpsRotationDialog'
+import { DataFreshnessNotice } from '@/components/DataFreshnessNotice'
 import { api, type MarketSnapshotRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -442,7 +443,7 @@ export function IndustryAnalysis() {
               <Button
                 size="xs"
                 variant="light"
-                color="yellow"
+                color="blue"
                 leftSection={<Repeat className="h-3.5 w-3.5" />}
                 onClick={() => setShowRps(true)}
               >
@@ -469,6 +470,8 @@ export function IndustryAnalysis() {
           </div>
         }
       />
+
+      <DataFreshnessNotice freshness={rowsQuery.data?.data_freshness} snapshotDate={rowsQuery.data?.date} label="行业数据" />
 
       <div className="min-h-full bg-[radial-gradient(circle_at_12%_0%,rgba(245,158,11,0.12),transparent_28%),radial-gradient(circle_at_85%_8%,rgba(244,63,94,0.08),transparent_28%)]">
         <PageContainer className="mx-auto max-w-[1440px] space-y-5">

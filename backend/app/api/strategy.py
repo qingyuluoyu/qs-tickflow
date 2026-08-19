@@ -479,7 +479,7 @@ class BuildRequest(BaseModel):
     direction: str = "long"
     rules: str = ""
     strategy_id: str = ""
-    execution_backend: Literal["polars_expr", "matrix_native"] = "polars_expr"
+    execution_backend: Literal["polars_expr", "matrix_native", "python_history_legacy"] = "polars_expr"
     # step2 字段
     current_code: str = ""
     instruction: str = ""
@@ -619,11 +619,12 @@ def _prepare_strategy_code(req: StrategyCodeValidateRequest | StrategyCodeSaveRe
                 req.name.strip() or None,
                 req.description.strip() or None,
             )
-    # 安全校验始终执行 (此前 strict 字段可被客户端设 false 绕过, 已移除)
-    AIStrategyGenerator._validate_safety(code)
-    meta = AIStrategyGenerator._extract_meta(code)
-    AIStrategyGenerator._validate_meta_semantics(code, meta)
-    return {"code": code, "meta": meta}
+    # 校验和保存必须复用同一套入口契约。此前这里只校验安全/META,
+    # 导致不含 filter/filter_history 的脚本一路写盘, 到 engine.reload 才失败。
+    result = AIStrategyGenerator().validate_code(code)
+    if not result["valid"]:
+        raise ValueError(result["error"] or "策略代码校验失败")
+    return {"code": result["code"], "meta": result["meta"]}
 
 
 def _restore_strategy_file(path: Path, previous_code: str | None) -> None:

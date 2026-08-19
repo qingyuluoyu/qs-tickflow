@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import date
 from types import SimpleNamespace
@@ -20,6 +21,43 @@ class _FakeStream:
     async def _iterate(self):
         for chunk in self._chunks:
             yield chunk
+
+
+class _HangingStream:
+    def __init__(self):
+        self.closed = False
+        self._never = asyncio.Event()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        await self._never.wait()
+        raise StopAsyncIteration
+
+    async def aclose(self):
+        self.closed = True
+
+
+class _StallingStream:
+    def __init__(self, first):
+        self.first = first
+        self.closed = False
+        self._sent = False
+        self._never = asyncio.Event()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._sent:
+            self._sent = True
+            return self.first
+        await self._never.wait()
+        raise StopAsyncIteration
+
+    async def aclose(self):
+        self.closed = True
 
 
 def _chunk(*, content="", reasoning="", finish_reason=None):
@@ -74,6 +112,64 @@ async def test_stream_ai_events_separates_reasoning_from_answer(monkeypatch):
         {"type": "delta", "content": "真实回答"},
         {"type": "done", "complete": True, "truncated": False, "finish_reason": "stop", "continuations": 0},
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_ai_events_times_out_when_provider_never_emits_first_chunk(monkeypatch):
+    hanging = _HangingStream()
+    completions = SimpleNamespace(create=lambda **_kwargs: None)
+
+    async def create(**_kwargs):
+        return hanging
+
+    completions.create = create
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    with pytest.raises(ai_provider.AiStreamTimeoutError, match="首条响应"):
+        [event async for event in ai_provider.stream_ai_events(
+            [{"role": "user", "content": "问题"}],
+            max_tokens=100,
+            first_event_timeout=0.001,
+        )]
+
+    assert hanging.closed is True
+
+
+@pytest.mark.asyncio
+async def test_stream_ai_text_times_out_when_provider_stalls_between_chunks(monkeypatch):
+    first = _chunk(content="首段")
+    hanging = _StallingStream(first)
+
+    async def create(**_kwargs):
+        return hanging
+
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    completions = SimpleNamespace(create=create)
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    # The provider adapter must expose the bounded inactivity contract to callers.
+    with pytest.raises(ai_provider.AiStreamTimeoutError, match="连续响应"):
+        [chunk async for chunk in ai_provider._stream_openai(
+            [{"role": "user", "content": "问题"}],
+            temperature=0.5,
+            max_tokens=100,
+            timeout=1,
+            first_event_timeout=0.01,
+            inactivity_timeout=0.001,
+        )]
+
+    assert hanging.closed is True
 
 
 @pytest.mark.asyncio
@@ -165,7 +261,23 @@ async def test_stock_stream_keeps_reasoning_separate(monkeypatch, tmp_path):
 
     events = [json.loads(raw) async for raw in stock_analyzer.analyze_stock_stream(repo, tmp_path, "000001.SZ")]
 
-    assert [event["type"] for event in events] == ["meta", "reasoning_delta", "delta", "done"]
-    assert events[1]["content"] == "思考"
-    assert events[2]["content"] == "回答"
+    assert [event["type"] for event in events] == ["status", "meta", "reasoning_delta", "delta", "done"]
+    assert events[2]["content"] == "思考"
+    assert events[3]["content"] == "回答"
     assert events[-1]["truncated"] is False
+
+
+@pytest.mark.asyncio
+async def test_stock_stream_reports_preflight_failure_instead_of_closing_silently(monkeypatch, tmp_path):
+    repo = SimpleNamespace(resolve_asset_type=lambda _symbol: "stock")
+
+    def fail_before_ai(_repo, _symbol):
+        raise RuntimeError("行情读取失败")
+
+    monkeypatch.setattr(stock_analyzer, "_load_kline", fail_before_ai)
+    events = [json.loads(raw) async for raw in stock_analyzer.analyze_stock_stream(
+        repo, tmp_path, "000001.SZ",
+    )]
+
+    assert [event["type"] for event in events] == ["status", "error"]
+    assert "行情读取失败" in events[-1]["message"]

@@ -319,15 +319,7 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
         <h2 className="text-xl font-bold text-foreground">配置 TickFlow API Key</h2>
       </div>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed">
-        本项目基于 TickFlow 这款稳定的数据源为基座进行开发,正在适配其他第三方数据源。
-        如果有任何建议或意见,欢迎发送邮件至{' '}
-        <a
-          href="mailto:415333856@qq.com"
-          className="text-accent hover:underline font-medium"
-        >
-          415333856@qq.com
-        </a>
-        。
+        本项目基于 TickFlow 数据源进行开发，也支持由部署方按需接入其他第三方数据源。
       </p>
 
       {/* 档位对比说明 —— None 档 vs Free 档 */}
@@ -349,7 +341,7 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
           <div className="flex items-center gap-1.5">
             <span className="inline-flex h-[18px] items-center rounded px-1.5 text-[10px] font-bold font-mono bg-accent/15 text-accent">Free</span>
             <span className="text-xs font-medium text-foreground">注册免费获取</span>
-            <span className="inline-flex items-center rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm shadow-accent/30">推荐</span>
+            <span className="inline-flex items-center rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-white shadow-sm shadow-accent/30">免费</span>
           </div>
           <ul className="mt-2 space-y-1 text-[11px] text-secondary leading-relaxed">
             <li>· 无需付费,注册即享</li>
@@ -376,7 +368,7 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
         <span>
           Key 可在{' '}
           <a
-            href="https://tickflow.org/auth/register?ref=V3KDKGXPEA"
+            href="https://tickflow.org/"
             target="_blank"
             rel="noreferrer"
             className="text-warning hover:underline inline-flex items-baseline gap-0.5 font-medium"

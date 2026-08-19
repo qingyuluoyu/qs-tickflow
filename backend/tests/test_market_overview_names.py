@@ -68,3 +68,19 @@ def test_live_snapshot_replaces_symbol_echo_with_instrument_name():
     result = builder._fill_live_snapshot_names(snapshot, _Repo())
 
     assert result.get_column("name").to_list() == ["平安银行"]
+
+
+def test_ranking_rows_fill_missing_names_from_instrument_map():
+    rows = [
+        {"symbol": "300069.SZ", "name": None, "change_pct": 0.2},
+        {"symbol": "603986.SH", "name": "603986.SH", "amount": 99.3},
+    ]
+
+    class _NameMapRepo:
+        def get_name_map(self, symbols):
+            assert symbols == ["300069.SZ", "603986.SH"]
+            return {"300069.SZ": "金利华电", "603986.SH": "兆易创新"}
+
+    result = builder._fill_ranking_names(rows, _NameMapRepo())
+
+    assert [row["name"] for row in result] == ["金利华电", "兆易创新"]

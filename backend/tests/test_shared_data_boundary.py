@@ -100,15 +100,16 @@ def test_server_default_ai_profile_reads_shared_secrets(monkeypatch, tmp_path):
     """平台默认 AI 配置: env 为空时回落共享 secrets.json (部署方的 deepseek),
     任何用户登录都默认用它, 不需要往个人配置里拷贝。"""
     import json
+
     from app.config import settings
     from app.services import ai_profiles
-    from app.services.user_context import reset_current_user, set_current_user
     from app.services.account_store import get_account_store
+    from app.services.user_context import reset_current_user, set_current_user
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "user_secrets_master_key", _ai_master_key(), raising=False)
     monkeypatch.setattr(settings, "ai_api_key", "")
-    monkeypatch.setattr(settings, "ai_base_url", "https://api.zhaji.dev/v1")
+    monkeypatch.setattr(settings, "ai_base_url", "https://api.example.test/v1")
     monkeypatch.setattr(settings, "ai_model", "gpt-5.5")
     legacy_dir = tmp_path / "user_data"
     legacy_dir.mkdir(parents=True)
@@ -138,10 +139,11 @@ def test_legacy_ai_migration_skipped_in_multi_user_deployment(monkeypatch, tmp_p
     """多账户服务器: 共享 secrets.json 里的平台 key 绝不复制进新登录用户的
     个人配置 (此前每个新用户首次解析都会被写入一份, 永远 pinned)。"""
     import json
+
     from app.config import settings
     from app.services import ai_profiles
-    from app.services.user_context import reset_current_user, set_current_user
     from app.services.account_store import get_account_store
+    from app.services.user_context import reset_current_user, set_current_user
 
     monkeypatch.setattr(settings, "data_dir", tmp_path)
     monkeypatch.setattr(settings, "user_secrets_master_key", _ai_master_key(), raising=False)
@@ -169,6 +171,7 @@ def test_legacy_ai_migration_skipped_in_multi_user_deployment(monkeypatch, tmp_p
 def test_require_admin_gate():
     """服务器级写操作的管理员闸门。"""
     from fastapi import HTTPException
+
     from app.api.deps import require_admin
 
     admin_req = SimpleNamespace(state=SimpleNamespace(

@@ -42,3 +42,11 @@ test('移动端通过 Burger 打开抽屉式导航', () => {
   assert.match(layoutSource, /breakpoint:\s*'lg'/)
   assert.match(layoutSource, /collapsed:\s*\{\s*mobile:\s*!mobileOpened/)
 })
+
+test('看板侧栏指数定期刷新预加载快照', () => {
+  assert.match(
+    layoutSource,
+    /queryKey:\s*\[\.\.\.QK\.indexQuotes, 'sidebar',[\s\S]*?refetchInterval:\s*location\.pathname === '\/' \? 30_000 : false/,
+    '看板主快照切换数据源后，侧栏指数不能永久保留旧的 React Query 缓存',
+  )
+})

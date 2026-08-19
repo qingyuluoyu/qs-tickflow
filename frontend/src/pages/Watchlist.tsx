@@ -62,7 +62,7 @@ function turnoverColor(rate: number | null | undefined): string {
   if (rate == null || Number.isNaN(rate)) return 'text-muted'
   if (rate < 5)   return 'text-muted'
   if (rate < 10)  return 'text-[#d4a800]'
-  if (rate < 20)  return 'text-[#f97316]'
+  if (rate < 20)  return 'text-[#0ea5e9]'
   if (rate < 35)  return 'text-[#d94a3d]'
   return 'text-[#b84a8a]'
 }

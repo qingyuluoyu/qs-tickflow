@@ -77,7 +77,7 @@ export function FactorICChart({ result }: Props) {
           data: ma,
           smooth: true,
           symbol: 'none',
-          lineStyle: { color: '#f59e0b', width: 1.5 },
+          lineStyle: { color: '#0ea5e9', width: 1.5 },
           z: 10,
         },
       ],

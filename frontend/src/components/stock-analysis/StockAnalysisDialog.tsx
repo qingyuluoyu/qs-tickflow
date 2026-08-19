@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { ActionIcon, Modal as MantineModal, Tooltip } from '@mantine/core'
 import {
-  X, Sparkles, Loader2, AlertTriangle, Copy, Check, RefreshCw,
+  X, Sparkles, Loader2, AlertTriangle, Copy, Check, RefreshCw, Square,
   Settings2, Send, Wand2, Minimize2, Maximize2, History, LineChart, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
@@ -10,7 +10,7 @@ import { toast } from '@/lib/notify'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
 import {
   type ActiveTask, type HistoryReport,
-  minimizeDialog, closeDialog, startAnalysis,
+  minimizeDialog, closeDialog, startAnalysis, cancelAnalysis,
 } from '@/lib/stockAnalysisStore'
 
 /**
@@ -163,6 +163,15 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
                   <button onClick={minimizeDialog} title="最小化为气泡,后台继续生成"
                     className="p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-foreground transition-colors">
                     <Minimize2 className="h-4 w-4" />
+                  </button>
+                )}
+                {!isHistory && isWorking && task && 'id' in task && (
+                  <button
+                    onClick={() => cancelAnalysis(task.id)}
+                    title="停止生成"
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-sky-300 hover:bg-sky-500/10 transition-colors"
+                  >
+                    <Square className="h-3 w-3" />停止
                   </button>
                 )}
                 <Tooltip label={expanded ? '还原默认尺寸' : '放大至近全屏'} position="bottom">

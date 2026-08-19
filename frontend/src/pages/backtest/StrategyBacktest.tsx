@@ -663,7 +663,7 @@ function ScoringWeightRow({ name, weight, pct, editing, onChange }: {
           step={1}
           value={weight}
           onChange={onChange}
-          color="yellow"
+          color="blue"
           size="xs"
           label={null}
           className="flex-1"
@@ -1366,7 +1366,7 @@ export function StrategyBacktest() {
               <Gauge className={`h-3 w-3 ${highGranularity ? 'text-amber-400' : 'text-muted/50'}`} />
               <Switch
                 size="xs"
-                color="yellow"
+                color="blue"
                 checked={highGranularity}
                 disabled={!hasMinuteBatch}
                 onChange={() => toggleMinuteFill()}
@@ -2528,7 +2528,7 @@ export function StrategyBacktest() {
                             <Button
                               size="compact-xs"
                               variant="light"
-                              color="yellow"
+                              color="blue"
                               onClick={editingScoring ? saveScoringDraft : startScoringEdit}
                             >
                               {editingScoring ? '保存归权' : '调整权重'}

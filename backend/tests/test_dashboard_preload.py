@@ -9,6 +9,7 @@ from app.services.market_overview_preloader import (
     DashboardSnapshot,
     MarketOverviewPreloader,
     _normalise_realtime_frame,
+    make_dashboard_failover_fetcher,
     make_dashboard_snapshot_fetcher,
     make_sina_intraday_snapshot_fetcher,
 )
@@ -85,6 +86,45 @@ def test_preloader_refresh_is_single_flight():
     preloader = MarketOverviewPreloader(fetch, interval_s=30)
     assert preloader.refresh_once().status == "success"
     assert calls == 1
+
+
+def test_dashboard_failover_uses_sina_when_custom_realtime_snapshot_is_empty(monkeypatch):
+    trade_date = date(2026, 8, 19)
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: trade_date)
+    primary = DashboardSnapshot(
+        provider="teajoin",
+        kind="teajoin.daily",
+        status="empty",
+        snapshot_date=date(2026, 8, 18),
+        frame=pl.DataFrame([{"symbol": "000001.SZ", "close": 12.3}]),
+        fetched_at_ms=1.0,
+        error=None,
+        realtime_rows=0,
+    )
+    fallback = DashboardSnapshot(
+        provider="sina",
+        kind="sina.realtime",
+        status="success",
+        snapshot_date=trade_date,
+        frame=pl.DataFrame([{"symbol": "000001.SZ", "close": 12.5}]),
+        fetched_at_ms=2.0,
+        error=None,
+        realtime_rows=1,
+    )
+
+    result = make_dashboard_failover_fetcher(lambda: primary, lambda: fallback)()
+
+    assert result is fallback
+
+
+def test_dashboard_failover_preserves_primary_when_sina_is_not_current(monkeypatch):
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: date(2026, 8, 19))
+    primary = _snapshot("teajoin.daily", "empty", 12.3)
+    fallback = DashboardSnapshot.empty("sina", "empty")
+
+    result = make_dashboard_failover_fetcher(lambda: primary, lambda: fallback)()
+
+    assert result is primary
 
 
 def test_dashboard_snapshot_fetcher_is_callable_when_provider_has_no_realtime(monkeypatch):

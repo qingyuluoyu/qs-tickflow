@@ -131,6 +131,7 @@ async def lifespan(app: FastAPI):
         from app.services import preferences
         from app.services.market_overview_preloader import (
             MarketOverviewPreloader,
+            make_dashboard_failover_fetcher,
             make_dashboard_snapshot_fetcher,
             make_sina_intraday_snapshot_fetcher,
         )
@@ -148,6 +149,10 @@ async def lifespan(app: FastAPI):
             repo,
             interval_s=30.0,
         )
+        dashboard_failover_fetcher = make_dashboard_failover_fetcher(
+            provider_fetcher,
+            sina_fetcher,
+        )
 
         def dashboard_fetcher():
             # Re-evaluate server-scoped provider settings on each cycle so a
@@ -164,7 +169,7 @@ async def lifespan(app: FastAPI):
                     and custom_sources.provider_has_dataset(daily_provider, "daily")
                 )
             )
-            return provider_fetcher() if custom_dashboard_data else sina_fetcher()
+            return dashboard_failover_fetcher() if custom_dashboard_data else sina_fetcher()
 
         market_preloader = MarketOverviewPreloader(dashboard_fetcher, interval_s=30.0)
         app.state.market_overview_preloader = market_preloader

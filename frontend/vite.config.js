@@ -1,8 +1,26 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
+const malformedUriGuard = {
+    name: 'tickflow-malformed-uri-guard',
+    configureServer(server) {
+        // Vite decodes the URL before React can run. A pasted/truncated percent
+        // escape would otherwise throw inside viteTransformMiddleware.
+        server.middlewares.use((req, res, next) => {
+            try {
+                decodeURI(req.url ?? '/');
+                next();
+            }
+            catch {
+                res.statusCode = 400;
+                res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+                res.end('Bad Request: malformed URI');
+            }
+        });
+    },
+};
 export default defineConfig({
-    plugins: [react()],
+    plugins: [malformedUriGuard, react()],
     resolve: {
         alias: {
             '@': path.resolve(__dirname, './src'),
@@ -18,8 +36,8 @@ export default defineConfig({
                 // SSE 端点需要禁用缓冲
                 configure: (proxy) => {
                     proxy.on('proxyReq', (_proxyReq, req) => {
-                        if (req.url?.includes('/stream')) {
-                            _proxyReq.setHeader('Accept', 'text/event-stream');
+                        if (req.url?.includes('/stream') || req.url?.includes('/debate') || req.url?.includes('/analyze')) {
+                            _proxyReq.setHeader('Accept', 'application/x-ndjson');
                             _proxyReq.setHeader('Cache-Control', 'no-cache');
                             _proxyReq.setHeader('Connection', 'keep-alive');
                         }

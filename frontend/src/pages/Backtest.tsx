@@ -58,7 +58,7 @@ export function Backtest() {
               <Icon className="h-3.5 w-3.5" />
               {MODES[tab].title}
               {(tab === 'optimizer' || tab === 'walkforward') && (
-                <Badge size="xs" variant="light" color="orange" className="uppercase">
+                <Badge size="xs" variant="light" color="blue" className="uppercase">
                   Beta
                 </Badge>
               )}

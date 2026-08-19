@@ -22,6 +22,7 @@ from typing import AsyncIterator
 import polars as pl
 
 from app.indicators.levels import compute_levels, summarize_levels
+from app.market_time import cn_today
 from app.services.financial_sync import get_financial_df
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,9 @@ def _load_kline(repo, symbol: str) -> pl.DataFrame:
 
     repo: KlineRepository;走内存缓存,性能可控。
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
-    end = date.today()
+    end = cn_today()
     start = end - timedelta(days=_KLINE_WINDOW * 2)  # 多取一些保证交易日够
     # 按资产类型分流: ETF/指数走独立 enriched 存储 (无财务数据, 提示词已有兜底)
     df = repo.get_daily_asset(repo.resolve_asset_type(symbol), symbol, start, end)
@@ -296,33 +297,41 @@ async def analyze_stock_stream(
       {"type":"error","message":"..."}
       {"type":"done","complete":true|false,"truncated":false|true}
     """
-    # 1. 加载 K 线
-    df = _load_kline(repo, symbol)
-    if df.is_empty():
-        yield json.dumps({
-            "type": "error",
-            "message": f"标的 {symbol} 暂无日 K 数据,请先同步",
-        }, ensure_ascii=False)
-        return
-
-    # 2. 价位计算(基于 K 线)
-    levels = compute_levels(df)
-    close = float(df.tail(1)["close"][0]) if "close" in df.columns else None
-
-    # 3. 财务(辅助)
-    fins = _load_financials(data_dir, symbol)
-
-    # 4. meta
     yield json.dumps({
-        "type": "meta",
-        "symbol": symbol,
-        "summary": summarize_levels(levels, close),
-        "levels": levels,
-        "close": close,
+        "type": "status",
+        "message": "正在读取行情与价位数据…",
+        "padding": " " * 2048,
     }, ensure_ascii=False)
 
-    # 5+6. 构建提示词 + 流式调用 LLM(整体 try-except,任何异常都 yield error,避免前端卡死)
+    # Preflight and model execution share the same error boundary. A data
+    # adapter failure must become an NDJSON error event, never a silent EOF.
     try:
+        # 1. 加载 K 线
+        df = _load_kline(repo, symbol)
+        if df.is_empty():
+            yield json.dumps({
+                "type": "error",
+                "message": f"标的 {symbol} 暂无日 K 数据,请先同步",
+            }, ensure_ascii=False)
+            return
+
+        # 2. 价位计算(基于 K 线)
+        levels = compute_levels(df)
+        close = float(df.tail(1)["close"][0]) if "close" in df.columns else None
+
+        # 3. 财务(辅助)
+        fins = _load_financials(data_dir, symbol)
+
+        # 4. meta
+        yield json.dumps({
+            "type": "meta",
+            "symbol": symbol,
+            "summary": summarize_levels(levels, close),
+            "levels": levels,
+            "close": close,
+        }, ensure_ascii=False)
+
+        # 5+6. 构建提示词 + 流式调用 LLM
         from app.services.ai_provider import stream_ai_events
 
         kline_tail = _clean_rows(df, _KLINE_KEEP_COLS)
@@ -339,7 +348,7 @@ async def analyze_stock_stream(
         ):
             yield json.dumps(event, ensure_ascii=False)
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.exception("AI stock analysis failed for %s: %s", symbol, e)
         yield json.dumps({"type": "error", "message": f"AI 分析失败: {e}"}, ensure_ascii=False)
         return

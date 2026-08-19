@@ -6,8 +6,8 @@ import { useChartTheme } from '@/lib/theme'
 const GROUP_COLORS = [
   '#6366f1', // Q1 indigo
   '#8b5cf6', // Q2 violet
-  '#f59e0b', // Q3 amber
-  '#f97316', // Q4 orange
+  '#0ea5e9', // Q3 sky
+  '#38bdf8', // Q4 sky
   '#ef4444', // Q5 red
   '#ec4899', // Q6
   '#14b8a6', // Q7
@@ -55,8 +55,8 @@ export function FactorGroupNavChart({ result }: Props) {
         type: 'line',
         data: lsNav.map(r => r.value),
         symbol: 'none',
-        lineStyle: { color: '#fbbf24', width: 2, type: 'dashed' },
-        itemStyle: { color: '#fbbf24' },
+        lineStyle: { color: '#38bdf8', width: 2, type: 'dashed' },
+        itemStyle: { color: '#38bdf8' },
       })
     }
 
@@ -123,7 +123,7 @@ export function FactorGroupNavChart({ result }: Props) {
         ))}
         {result.long_short_nav?.length > 0 && (
           <span className="flex items-center gap-1 text-[10px] text-secondary">
-            <span className="w-2 h-0.5 rounded bg-yellow-400" style={{ borderTop: '2px dashed #fbbf24' }} />
+            <span className="w-2 h-0.5 rounded bg-sky-400" style={{ borderTop: '2px dashed #38bdf8' }} />
             多空
           </span>
         )}

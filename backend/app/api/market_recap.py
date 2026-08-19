@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -64,8 +65,12 @@ async def analyze_market(request: Request, req: AnalyzeRequest):
     sections = [s for s in (req.sections or []) if s in ALL_SECTIONS] or None
 
     async def stream_gen():
-        async for chunk in recap_market_stream(repo, quote_service, depth_service, as_of, req.focus, sections=sections):
-            yield chunk + "\n"
+        try:
+            async for chunk in recap_market_stream(repo, quote_service, depth_service, as_of, req.focus, sections=sections):
+                yield chunk + "\n"
+        except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免静默断流
+            logger.exception("market recap stream failed: %s", exc)
+            yield json.dumps({"type": "error", "message": f"AI 复盘失败：{exc}"}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(
         stream_gen(),

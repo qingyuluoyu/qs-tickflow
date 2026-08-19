@@ -54,7 +54,7 @@ export function StrategyNavChart({ result }: Props) {
     const navColor = '#3b82f6'
     const benchmarkColor = '#64748b'
     const drawdownColor = '#f04438'
-    const positionColor = '#f59e0b'
+    const positionColor = '#0ea5e9'
 
     return {
       animation: false,
@@ -266,7 +266,7 @@ export function StrategyNavChart({ result }: Props) {
               hidden.has('仓位') ? 'opacity-40' : 'opacity-100'
             }`}
           >
-            <span className="w-3 h-0.5 rounded bg-[#f59e0b]" />
+            <span className="w-3 h-0.5 rounded bg-[#0ea5e9]" />
             仓位
           </button>
         )}

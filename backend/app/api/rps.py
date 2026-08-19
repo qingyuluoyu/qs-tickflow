@@ -5,6 +5,9 @@
 """
 from __future__ import annotations
 
+import json
+import logging
+
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,6 +16,7 @@ from app.services import rps_rotation
 from app.services.concept_rotation_analyzer import analyze_rotation_stream
 
 router = APIRouter(prefix="/api/rps", tags=["rps"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/rotation")
@@ -61,10 +65,14 @@ async def analyze_rotation(request: Request, req: AnalyzeRequest):
     level = req.level if (kind == "industry" and req.level in (1, 2, 3)) else None
 
     async def stream_gen():
-        async for chunk in analyze_rotation_stream(
-            repo, days, req.focus, quote_service, depth_service, kind, level,
-        ):
-            yield chunk + "\n"
+        try:
+            async for chunk in analyze_rotation_stream(
+                repo, days, req.focus, quote_service, depth_service, kind, level,
+            ):
+                yield chunk + "\n"
+        except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免静默断流
+            logger.exception("rotation analysis stream failed for %s: %s", kind, exc)
+            yield json.dumps({"type": "error", "message": f"AI {kind} 轮动分析失败：{exc}"}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(
         stream_gen(),

@@ -68,6 +68,36 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   return res.json() as Promise<T>
 }
 
+function parseNdjsonLine(line: string): unknown {
+  try {
+    return JSON.parse(line)
+  } catch {
+    throw new Error('流式响应格式异常：收到无法解析的数据，请重试')
+  }
+}
+
+async function* readNdjsonStream(res: Response): AsyncGenerator<unknown> {
+  if (!res.body) throw new Error('响应无 body')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed) yield parseNdjsonLine(trimmed)
+    }
+  }
+  buf += decoder.decode()
+  const trimmed = buf.trim()
+  if (trimmed) yield parseNdjsonLine(trimmed)
+}
+
 // ===== Capabilities =====
 export interface CapabilityLimits {
   rpm: number | null
@@ -213,6 +243,25 @@ export interface StockLevels {
   /** dates 与 series 对齐;前端按自身 rows 的日期映射,缺失填 null */
   dates?: string[]
   series?: LevelSeries
+}
+
+export interface StockDebateEvent {
+  type: 'status' | 'dossier_progress' | 'dossier' | 'stage' | 'delta' | 'stage_done' | 'error' | 'done'
+  message?: string
+  title?: string
+  ok?: boolean
+  loaded?: number
+  total?: number
+  missing?: string[]
+  sections?: Array<{ title: string; source: string }>
+  stage?: string
+  label?: string
+  text?: string
+  content?: string
+  failed?: boolean
+  code?: string
+  stages?: Array<{ stage: string; content: string }>
+  failed_stages?: string[]
 }
 
 export interface AiStockReport {
@@ -596,7 +645,7 @@ export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
 
 export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
   strong: '#ef4444',      // 红(强)
-  lean_strong: '#f97316', // 橙
+  lean_strong: '#0ea5e9', // 天蓝
   range: '#6b7280',       // 灰
   lean_weak: '#3b82f6',   // 蓝
   weak: '#10b981',        // 绿(弱)
@@ -2213,31 +2262,15 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      // 按行分割(保留最后不完整的行在 buf)
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try {
-          yield JSON.parse(s)
-        } catch {
-          // 忽略无法解析的行
-        }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'meta' | 'delta' | 'error' | 'done'
+        symbol?: string
+        summary?: string
+        periods?: number
+        content?: string
+        message?: string
       }
-    }
-    // flush TextDecoder 中可能残留的 UTF-8 多字节序列,避免回答末尾被截掉。
-    buf += decoder.decode()
-    // 处理残余
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
@@ -2288,14 +2321,15 @@ export const api = {
    * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
    * meta 里额外带 levels(关键价位)供图表回放。
    */
-  async *stockAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
+  async *stockAnalyzeStream(symbol: string, focus?: string, signal?: AbortSignal): AsyncGenerator<{
+    type: 'status' | 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     symbol?: string
     summary?: string
     levels?: Record<LevelType, PriceLevel[]>
     close?: number | null
     content?: string
     message?: string
+    padding?: string
     complete?: boolean
     truncated?: boolean
     finish_reason?: string
@@ -2306,6 +2340,7 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol, focus: focus ?? '' }),
+      signal,
     })
     if (!res.ok) {
       let detail = ''
@@ -2316,24 +2351,54 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'status' | 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
+        symbol?: string
+        summary?: string
+        levels?: Record<LevelType, PriceLevel[]>
+        close?: number | null
+        content?: string
+        message?: string
+        padding?: string
+        complete?: boolean
+        truncated?: boolean
+        finish_reason?: string
+        continuations?: number
+        attempt?: number
       }
     }
-    buf += decoder.decode()
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
+  },
+
+  /**
+   * 个股多空辩论 — 当前项目服务端 AI 配置下的 NDJSON 流。
+   * 客户端只发送标准 symbol 和有界轮数，不发送 API Key / Base URL / 模型。
+   */
+  async *stockDebateStream(
+    symbol: string,
+    rounds: 1 | 2 = 1,
+    signal?: AbortSignal,
+  ): AsyncGenerator<StockDebateEvent> {
+    const res = await fetch('/api/stock-analysis/debate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, rounds }),
+      signal,
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const j = JSON.parse(await res.text())
+        detail = j.detail ?? j.message ?? ''
+      } catch { /* ignore */ }
+      const msg = detail || `${res.status} ${res.statusText}`
+      if (res.status !== 401) toast(msg, 'error')
+      throw new Error(msg)
+    }
+    if (!res.body) throw new Error('响应无 body')
+
+    for await (const event of readNdjsonStream(res)) {
+      yield event as StockDebateEvent
     }
   },
 
@@ -2385,39 +2450,38 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
+        as_of?: string
+        emotion_score?: number
+        emotion_label?: string
+        summary?: string
+        content?: string
+        message?: string
+        complete?: boolean
+        truncated?: boolean
+        finish_reason?: string
+        continuations?: number
+        attempt?: number
       }
-    }
-    buf += decoder.decode()
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
   /** AI 概念轮动分析 — 流式 NDJSON。 */
-  async *rotationAnalyzeStream(days: number, focus?: string, kind?: 'concept' | 'industry', level?: number): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+  async *rotationAnalyzeStream(days: number, focus?: string, kind?: 'concept' | 'industry', level?: number, signal?: AbortSignal): AsyncGenerator<{
+    type: 'status' | 'meta' | 'delta' | 'error' | 'done'
     days?: number
     summary?: string
     content?: string
     message?: string
+    padding?: string
   }> {
     const res = await fetch('/api/rps/rotation-analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ days, focus: focus ?? '', kind: kind ?? 'concept', level: level ?? null }),
+      signal,
     })
     if (!res.ok) {
       let detail = ''
@@ -2428,23 +2492,15 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'status' | 'meta' | 'delta' | 'error' | 'done'
+        days?: number
+        summary?: string
+        content?: string
+        message?: string
+        padding?: string
       }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
@@ -2624,23 +2680,8 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as StrategyBuildStreamEvent
     }
   },
 
@@ -2865,6 +2906,12 @@ export interface ExtDataRowsResult {
   label: string
   mode: 'snapshot' | 'timeseries'
   date: string | null
+  data_freshness?: {
+    snapshot_date: string | null
+    current_date: string
+    is_stale: boolean
+    calendar_basis?: string
+  }
   total: number
   limit: number
   fields: ExtDataField[]

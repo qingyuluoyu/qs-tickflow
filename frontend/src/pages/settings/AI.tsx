@@ -49,7 +49,6 @@ const PRESETS: { label: string; provider?: string; url: string; model: string; c
   { label: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.2', website: 'https://open.bigmodel.cn/', websiteLabel: 'open.bigmodel.cn', description: '智谱 AI 官方 OpenAI 兼容接口。' },
   { label: 'Kimi', url: 'https://api.moonshot.cn/v1', model: 'kimi-k2.7-code', website: 'https://platform.moonshot.cn/', websiteLabel: 'platform.moonshot.cn', description: '月之暗面 Moonshot 官方 OpenAI 兼容接口，支持超长上下文。' },
   { label: 'Codex CLI', provider: CODEX_PROVIDER, url: '', model: DEFAULT_CODEX_MODEL, codexCommand: CODEX_COMMAND, website: 'https://developers.openai.com/codex/noninteractive', websiteLabel: 'codex exec', description: '调用本机 Codex CLI 的 codex exec, 适合已登录 ChatGPT/Codex 的本地环境。' },
-  { label: '炸鸡中转站', url: 'https://api.zhaji.dev/v1', model: 'gpt-5.5', website: 'https://api.zhaji.dev', websiteLabel: 'api.zhaji.dev', description: 'OpenAI 兼容中转服务，适合直接使用国际模型。' },
 ]
 
 export function SettingsAIPanel() {
@@ -349,7 +348,7 @@ export function SettingsAIPanel() {
             <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="API 地址">
-                  <TextInput size="sm" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.zhaji.dev/v1" classNames={{ input: 'font-mono' }} />
+                  <TextInput size="sm" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" classNames={{ input: 'font-mono' }} />
                 </Field>
                 <Field label="模型">
                   <TextInput size="sm" value={model} onChange={e => setModel(e.target.value)} placeholder="gpt-5.6-sol" classNames={{ input: 'font-mono' }} />
