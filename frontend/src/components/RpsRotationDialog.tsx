@@ -211,7 +211,7 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
       onClose={onClose}
       labelledBy="rps-rotation-title"
       overlayClassName="bg-black/50"
-      panelClassName="w-[92vw] max-w-[1100px] h-[88vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
+      panelClassName="w-[94vw] max-w-[1265px] h-[94vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
     >
           {/* 标题栏 */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">

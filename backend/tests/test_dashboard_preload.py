@@ -496,6 +496,9 @@ def test_sina_intraday_fetcher_empty_snapshot_falls_back(monkeypatch):
 
 def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
     trade_date = date(2026, 8, 18)
+    # 与文件内其他用例一致: 把 preloader 的时钟钉在 trade_date,
+    # 否则隔天运行时代码会把 target_date 换成真实今天, 用例变成时间炸弹。
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: trade_date)
     monkeypatch.setattr(
         "app.services.market_overview_preloader.resolve_market_as_of",
         lambda: MarketAsOf(
@@ -556,6 +559,7 @@ def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
 def test_dashboard_fetcher_uses_completed_daily_snapshot_during_lunch(monkeypatch):
     trade_date = date(2026, 8, 18)
     completed_date = date(2026, 8, 17)
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: trade_date)
     monkeypatch.setattr(
         "app.services.market_overview_preloader.resolve_market_as_of",
         lambda: MarketAsOf(

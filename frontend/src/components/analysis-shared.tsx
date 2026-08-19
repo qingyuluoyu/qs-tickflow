@@ -227,7 +227,7 @@ export function DimensionHeatmap({
   quoteMap: Map<string, QuoteMap>
   selectedKey: string | null
   onSelect: (key: string | null) => void
-  colorScheme: 'blue' | 'amber'
+  colorScheme: 'blue' | 'sky'
 }) {
   const [showAll, setShowAll] = useState(false)
   // 收起时最大高度（约 3 行标签高度）
@@ -243,7 +243,7 @@ export function DimensionHeatmap({
   // 根据涨跌比渲染颜色强度
   const colors = colorScheme === 'blue'
     ? { up: [59, 130, 246], down: [96, 165, 250], bg: [30, 64, 175] }
-    : { up: [245, 158, 11], down: [251, 191, 36], bg: [180, 83, 9] }
+    : { up: [14, 165, 233], down: [56, 189, 248], bg: [7, 89, 133] }
 
   return (
     <div>
@@ -319,16 +319,16 @@ export function DimensionGroupSidebar({
   searchValue: string
   onSearchChange: (v: string) => void
   kindLabel: string
-  colorScheme: 'blue' | 'amber'
+  colorScheme: 'blue' | 'sky'
 }) {
   const q = searchValue.trim().toLowerCase()
   const filtered = q
     ? groups.filter(g => g.key.toLowerCase().includes(q))
     : groups
 
-  const accentColor = colorScheme === 'blue' ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'
-  const accentBg = colorScheme === 'blue' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)'
-  const accentBorder = colorScheme === 'blue' ? 'rgba(59,130,246,0.25)' : 'rgba(245,158,11,0.25)'
+  const accentColor = colorScheme === 'blue' ? 'rgba(59,130,246,0.7)' : 'rgba(14,165,233,0.7)'
+  const accentBg = colorScheme === 'blue' ? 'rgba(59,130,246,0.1)' : 'rgba(14,165,233,0.1)'
+  const accentBorder = colorScheme === 'blue' ? 'rgba(59,130,246,0.25)' : 'rgba(14,165,233,0.25)'
 
   return (
     <section className="rounded-card border border-border bg-surface overflow-hidden">

@@ -489,7 +489,7 @@ export function IndustryAnalysis() {
               quoteMap={heatmapQuoteMap}
               selectedKey={selectedKey}
               onSelect={key => key ? openMembers(key) : setSelectedKey(null)}
-              colorScheme="amber"
+              colorScheme="sky"
             />
           )}
 
@@ -694,7 +694,7 @@ function PulseList({
                   {Array.from({ length: 3 }).map((_, i) => {
                     const stock = leaders[i]
                     return stock ? (
-                      <span key={stock.symbol} title={stock.name || stock.symbol} onClick={e => { e.stopPropagation(); onStockClick(stock.symbol, stock.name || undefined) }} className={cn('flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] cursor-pointer hover:brightness-125', i === 0 ? 'bg-amber-300/10 text-foreground' : 'bg-elevated/60 text-secondary')}>
+                      <span key={stock.symbol} title={stock.name || stock.symbol} onClick={e => { e.stopPropagation(); onStockClick(stock.symbol, stock.name || undefined) }} className={cn('flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] cursor-pointer hover:brightness-125', i === 0 ? 'bg-sky-300/10 text-foreground' : 'bg-elevated/60 text-secondary')}>
                         <span className="flex min-w-0 items-center gap-1">
                           <span className="min-w-0 truncate font-medium">{stock.name || stock.symbol}</span>
                         </span>
@@ -751,7 +751,7 @@ function IndustryRail({
           className="mt-2"
           fullWidth
           size="xs"
-          color="orange"
+          color="cyan"
           value={sortMode}
           onChange={v => onSort(v as SortMode)}
           data={[
@@ -799,7 +799,7 @@ function IndustryFocus({ stat, onStockClick }: { stat: IndustryStat | null; onSt
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h3 className="truncate text-xl font-semibold text-foreground">{stat.key}</h3>
-              <Badge variant="light" color="orange" size="sm">强度 {stat.heatScore.toFixed(0)}</Badge>
+              <Badge variant="light" color="cyan" size="sm">强度 {stat.heatScore.toFixed(0)}</Badge>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
               <span>{stat.count} 只成分</span>
@@ -853,8 +853,8 @@ function IndustryFocus({ stat, onStockClick }: { stat: IndustryStat | null; onSt
                 <Table.Td className="font-mono text-foreground">{s.vol_ratio_5d != null ? s.vol_ratio_5d.toFixed(2) : '—'}</Table.Td>
                 <Table.Td>
                   <div className="flex items-center gap-2">
-                    <span className="w-9 font-mono text-amber-300">{s.leaderScore.toFixed(0)}</span>
-                    <div className="h-1.5 w-16 rounded-full bg-elevated"><div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.max(4, s.leaderScore)}%` }} /></div>
+                    <span className="w-9 font-mono text-sky-300">{s.leaderScore.toFixed(0)}</span>
+                    <div className="h-1.5 w-16 rounded-full bg-elevated"><div className="h-full rounded-full bg-sky-300" style={{ width: `${Math.max(4, s.leaderScore)}%` }} /></div>
                   </div>
                 </Table.Td>
               </Table.Tr>
@@ -875,16 +875,16 @@ function LeaderStage({ stocks, onStockClick }: { stocks: EnrichedStock[]; onStoc
   if (!stocks.length) return <div className="rounded-xl border border-border/60 bg-surface p-4 text-sm text-muted">暂无龙头候选</div>
   return (
     <div className="rounded-xl border border-border/60 bg-surface p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-amber-300">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-sky-300">
         <Crown className="h-3.5 w-3.5" />
         本行业三龙头
       </div>
       <div className="grid gap-2 md:grid-cols-3">
         {stocks.map((stock, idx) => (
-          <div key={stock.symbol} onClick={() => onStockClick(stock.symbol, stock.name || undefined)} className={cn('rounded-lg border p-3 cursor-pointer hover:brightness-110 transition-all', idx === 0 ? 'border-amber-400/25 bg-amber-400/[0.06]' : 'border-border/60 bg-base/35')}>
+          <div key={stock.symbol} onClick={() => onStockClick(stock.symbol, stock.name || undefined)} className={cn('rounded-lg border p-3 cursor-pointer hover:brightness-110 transition-all', idx === 0 ? 'border-sky-400/25 bg-sky-400/[0.06]' : 'border-border/60 bg-base/35')}>
             <div className="flex items-center justify-between gap-2">
-              <span className={cn('text-[10px] font-medium', idx === 0 ? 'text-amber-300' : 'text-muted')}>{idx === 0 ? '主龙头' : `辅龙 ${idx}`}</span>
-              <span className="font-mono text-[11px] text-amber-300">{stock.leaderScore.toFixed(0)}</span>
+              <span className={cn('text-[10px] font-medium', idx === 0 ? 'text-sky-300' : 'text-muted')}>{idx === 0 ? '主龙头' : `辅龙 ${idx}`}</span>
+              <span className="font-mono text-[11px] text-sky-300">{stock.leaderScore.toFixed(0)}</span>
             </div>
             <div className="mt-2 truncate text-sm font-medium text-foreground">{stock.name || stock.symbol}</div>
             <div className="mt-0.5 flex items-center justify-between text-[11px]">
@@ -909,11 +909,11 @@ function ScoreExplain({ stock }: { stock?: EnrichedStock }) {
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <Part label="动能" value={parts.momentum} cls="bg-rose-400" />
-        <Part label="换手" value={parts.turnover} cls="bg-orange-400" />
+        <Part label="换手" value={parts.turnover} cls="bg-sky-400" />
         <Part label="成交" value={parts.amount} cls="bg-blue-400" />
         <Part label="市值" value={parts.cap} cls="bg-cyan-400" />
         <Part label="量比" value={parts.volume} cls="bg-purple-400" />
-        <Part label="连板" value={parts.boards} cls="bg-amber-300" />
+        <Part label="连板" value={parts.boards} cls="bg-sky-300" />
       </div>
     </div>
   )
