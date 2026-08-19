@@ -24,6 +24,23 @@ def _get_quote_service(request: Request):
     return getattr(request.app.state, "quote_service", None)
 
 
+def _daily_provider_is_fail_closed() -> bool:
+    """Return whether the selected daily provider forbids cross-provider mixing."""
+    try:
+        from app.data_providers import custom as custom_sources
+        from app.services import preferences
+
+        provider_name = preferences.get_daily_data_provider()
+        if provider_name == "tickflow":
+            return False
+        provider = custom_sources.get_provider(provider_name)
+        return bool(getattr(getattr(provider, "config", None), "fail_closed", False))
+    except Exception:
+        # A selected custom provider that cannot be resolved is not safe to
+        # replace silently with the process quote cache.
+        return True
+
+
 def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | None = None) -> list[dict]:
     """实时指数缓存为空时，从本地指数日 K 取最近收盘价作为兜底。"""
     repo = getattr(request.app.state, "repo", None)
@@ -74,12 +91,14 @@ def _fallback_index_quotes_from_daily(request: Request, symbols: list[str] | Non
             "symbol": symbol,
             "name": None,
             "date": str(dt) if dt else None,
+            "as_of": str(dt) if dt else None,
             "last_price": float(last_price) if last_price is not None else None,
             "close": float(last_price) if last_price is not None else None,
             "prev_close": float(prev_close) if prev_close is not None else None,
             "change_amount": change_amount,
             "change_pct": change_pct,
             "source": "index_daily",
+            "is_realtime": False,
         })
     return out
 
@@ -169,6 +188,9 @@ def index_quotes(
         else _fallback_index_quotes_from_dashboard_source(request, symbol_list)
     )
     if custom_rows:
+        for row in custom_rows:
+            row.setdefault("as_of", row.get("date"))
+            row.setdefault("is_realtime", False)
         if local_mode:
             return {"rows": custom_rows, "count": len(custom_rows), "source": "index_daily"}
         from app.services import preferences
@@ -178,6 +200,9 @@ def index_quotes(
             "count": len(custom_rows),
             "source": f"{preferences.get_daily_data_provider()}.daily",
         }
+    if not local_mode and _daily_provider_is_fail_closed():
+        rows = _fallback_index_quotes_from_daily(request, symbol_list)
+        return {"rows": rows, "count": len(rows), "source": "index_daily"}
     qs = _get_quote_service(request)
     if not qs:
         rows = _fallback_index_quotes_from_daily(request, symbol_list)
@@ -187,6 +212,9 @@ def index_quotes(
     if not rows:
         rows = _fallback_index_quotes_from_daily(request, symbol_list)
         return {"rows": rows, "count": len(rows), "source": "index_daily"}
+    for row in rows:
+        row.setdefault("as_of", row.get("date"))
+        row.setdefault("is_realtime", True)
     return {"rows": rows, "count": len(rows), "source": "realtime"}
 
 

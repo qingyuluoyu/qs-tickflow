@@ -299,6 +299,15 @@ export function Data() {
   const isRunning = job.data?.status === 'running' || job.data?.status === 'pending'
   const isStarting = startSync.isPending
   const hasData = !!(s?.instruments?.rows || s?.daily?.rows)
+  const marketHealth = s?.market_data_health
+  const healthCoverage = (marketHealth?.checks?.coverage ?? {}) as {
+    requested?: number
+    available?: number
+    missing?: number
+    inactive?: number
+    unresolved?: number
+  }
+  const healthNeedsAttention = marketHealth?.status === 'degraded' || marketHealth?.status === 'unavailable'
   // none 档(无 key / 无效 key) → 禁用立即同步 (同步依赖付费档的批量端点)
   const isNoKey = settings.data?.mode === 'none'
   const indexOverviewStats = s ? {
@@ -688,6 +697,29 @@ export function Data() {
       />
 
       <PageContainer className="space-y-6">
+        {marketHealth && (
+          <div className={`flex items-start gap-2 rounded-card border px-3 py-2 text-xs ${
+            healthNeedsAttention
+              ? 'border-amber-300/70 bg-amber-50 text-amber-900'
+              : 'border-border bg-elevated/40 text-secondary'
+          }`}>
+            <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${healthNeedsAttention ? 'text-amber-600' : 'text-muted'}`} />
+            <div className="min-w-0 leading-relaxed">
+              <div className="font-medium">
+                行情数据截至 {marketHealth.freshness?.as_of ?? marketHealth.target_date ?? '未确认'}
+                {' · provider '} {marketHealth.freshness?.provider_date ?? marketHealth.provider_date ?? '未确认'}
+                {' · '}来源 {marketHealth.provider ?? '未确认'}
+                {healthNeedsAttention ? ' · 覆盖需要关注' : ' · 日期已对齐'}
+              </div>
+              <div className="mt-0.5 text-[11px] opacity-80">
+                请求 {healthCoverage.requested ?? 0} 只 · 可用 {healthCoverage.available ?? 0} 只 ·
+                未覆盖 {healthCoverage.missing ?? 0} 只（其中 inactive {healthCoverage.inactive ?? 0}，待复核 {healthCoverage.unresolved ?? 0}）。
+                未覆盖标的不以旧值补齐，避免把历史价格当作当日 A 股行情。
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* None 档提示 —— 非阻断: 无需 Key 也可获取历史日K, 仅实时行情等扩展能力受限 */}
         {isNoKey && (
           <div className="flex items-center gap-2 rounded-card border border-border bg-elevated/40 px-3 py-2 text-xs">

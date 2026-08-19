@@ -500,6 +500,10 @@ export interface IndexQuote {
   volume?: number | null
   amount?: number | null
   timestamp?: number | null
+  date?: string | null
+  as_of?: string | null
+  source?: string | null
+  is_realtime?: boolean
   [key: string]: any
 }
 
@@ -2831,6 +2835,15 @@ export interface DataStatus {
     provider_date: string | null
     persistence_status: string
     checked_job_id: string | null
+    freshness?: {
+      status: 'current' | 'waiting' | 'stale' | 'unavailable'
+      as_of: string | null
+      target_date: string | null
+      provider_date: string | null
+      daily_date: string | null
+      enriched_date: string | null
+      coverage: string
+    }
     checks: Record<string, unknown>
   }
   checked_at: string

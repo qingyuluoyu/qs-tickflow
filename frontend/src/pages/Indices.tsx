@@ -163,6 +163,14 @@ export function Indices() {
   const selectedQuotePct = selectedQuote?.change_pct ?? selectedQuote?.pct
 
   const chartRows = useMemo(() => toOHLC(daily.data?.rows ?? []), [daily.data?.rows])
+  const latestDaily = chartRows[chartRows.length - 1]
+  const dailyPct = latestDaily && chartRows.length > 1 && chartRows[chartRows.length - 2].close !== 0
+    ? (latestDaily.close - chartRows[chartRows.length - 2].close) / chartRows[chartRows.length - 2].close * 100
+    : null
+  const displayedQuoteValue = selectedQuoteValue ?? latestDaily?.close ?? null
+  const displayedQuotePct = selectedQuotePct ?? dailyPct
+  const displayedAsOf = selectedQuote?.as_of ?? selectedQuote?.date ?? latestDaily?.date ?? null
+  const displayedIsRealtime = selectedQuote?.is_realtime === true
   const selectedInfo = [...topRows, ...listRows].find(r => r.symbol === selectedSymbol) || daily.data?.index_info
   const minuteRows: MinuteKlineRow[] = minute.data?.rows ?? []
   const selectedIdx = selectedDate ? chartRows.findIndex(r => r.date === selectedDate) : -1
@@ -268,11 +276,13 @@ export function Indices() {
                   {selectedInfo?.name || selectedSymbol || '未选择指数'}
                 </h2>
                 {selectedSymbol && <span className="font-mono text-xs text-muted">{selectedSymbol}</span>}
-                {selectedSymbol && <span className="font-mono text-xs text-foreground">{fmtNum(selectedQuoteValue)}</span>}
-                {selectedSymbol && <span className={`font-mono text-xs ${Number(selectedQuotePct ?? 0) >= 0 ? 'text-bull' : 'text-bear'}`}>{fmtPct(selectedQuotePct)}</span>}
+                {selectedSymbol && <span className="font-mono text-xs text-foreground">{fmtNum(displayedQuoteValue)}</span>}
+                {selectedSymbol && <span className={`font-mono text-xs ${Number(displayedQuotePct ?? 0) >= 0 ? 'text-bull' : 'text-bear'}`}>{fmtPct(displayedQuotePct)}</span>}
               </div>
               <div className="mt-1 text-xs text-muted">
-                实时缓存 {quotes.data?.count ?? 0} 只指数 · 日K来源 {daily.data?.source ?? '--'}
+                {displayedIsRealtime ? '实时快照' : '日线收盘'}
+                {displayedAsOf ? ` · 截至 ${displayedAsOf}` : ''}
+                {' · '}实时缓存 {quotes.data?.count ?? 0} 只指数 · 日K来源 {daily.data?.source ?? '--'}
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs">

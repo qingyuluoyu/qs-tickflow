@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AppShell, Box, Burger, Group } from '@mantine/core'
@@ -47,26 +47,19 @@ import {
   Grid2X2,
   Crosshair,
   ChartNoAxesColumnIncreasing,
+  PieChart,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
-import { api, type IndexQuote } from '@/lib/api'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { toggleTheme, useTheme } from '@/lib/theme'
 import { setCurrentTotal as setAlertTotal, useUnreadAlerts } from '@/lib/monitorBadge'
 import { useAuth, useIsAdmin } from '@/lib/auth'
+import { canonicalNavRoute } from '@/lib/navRoutes'
 
 // 品牌色 — 只用于 logo / brand 区域,不影响功能语义色
 const BRAND = '#8B5CF6'
-
-const CORE_INDEXES = [
-  { symbol: '000001.SH', name: '上证指数' },
-  { symbol: '399001.SZ', name: '深证成指' },
-  { symbol: '399006.SZ', name: '创业板指' },
-  { symbol: '000680.SH', name: '科创综指' },
-] as const
-
-type CoreIndex = (typeof CORE_INDEXES)[number]
 
 const nav = [
   { to: '/',                label: '看板',     icon: Grid2X2, tone: 'blue' },
@@ -82,6 +75,7 @@ const nav = [
   { to: '/regime', label: '市场环境', icon: Gauge, tone: 'blue' },
   { to: '/review',      label: '复盘',   icon: BookOpenCheck, tone: 'purple' },
   { to: '/indices', label: '指数', icon: BarChart3, tone: 'orange' },
+  { to: '/asset-allocation', label: '资产配置', icon: PieChart, tone: 'purple' },
   { to: '/data',       label: '数据',   icon: Database, tone: 'blue' },
 ] as const
 
@@ -110,23 +104,6 @@ function ThemeToggle() {
   )
 }
 
-function fmtIndexValue(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return '--'
-  return Number(v).toFixed(2)
-}
-
-function fmtIndexPct(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return '--'
-  return `${Number(v) >= 0 ? '+' : ''}${Number(v).toFixed(2)}%`
-}
-
-function indexPctClass(v: number | null | undefined) {
-  if (v == null || Number.isNaN(Number(v))) return 'text-muted'
-  const n = Number(v)
-  if (n === 0) return 'text-foreground'
-  return n > 0 ? 'text-bull' : 'text-bear'
-}
-
 /** 监控中心未读徽标 — 仅在非监控页且有未读时显示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
@@ -139,36 +116,6 @@ function MonitorBadge({ active }: { active: boolean }) {
     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
       {unread > 99 ? '99+' : unread}
     </span>
-  )
-}
-
-function SidebarIndexQuotes({ rows, items }: { rows: IndexQuote[] | undefined; items: CoreIndex[] }) {
-  if (items.length === 0) return null
-  const quoteBySymbol = new Map((rows ?? []).map(q => [q.symbol, q]))
-  return (
-    <div className="mt-2 grid grid-cols-2 gap-1.5">
-      {items.map(item => {
-        const q = quoteBySymbol.get(item.symbol)
-        const value = q?.last_price ?? q?.close
-        const pct = q?.change_pct
-        return (
-          <NavLink
-            key={item.symbol}
-            to={`/indices?symbol=${encodeURIComponent(item.symbol)}`}
-            className="block rounded bg-elevated/60 px-2 py-1.5 transition-colors hover:bg-elevated"
-            title={`${item.name} ${item.symbol}`}
-          >
-            <div className="flex items-center justify-between gap-1">
-              <span className="text-[10px] text-secondary">{item.name}</span>
-              <span className={`text-[10px] font-mono ${indexPctClass(pct)}`}>{fmtIndexPct(pct)}</span>
-            </div>
-            <div className={`mt-0.5 truncate font-mono text-[10px] ${indexPctClass(pct)}`}>
-              {fmtIndexValue(value)}
-            </div>
-          </NavLink>
-        )
-      })}
-    </div>
   )
 }
 
@@ -236,7 +183,6 @@ export function Layout() {
   }, [isDataSyncing])
 
   const qc = useQueryClient()
-  const location = useLocation()
   const navigate = useNavigate()
   // 告警通知点击跳转监控中心 — 通知挂在 Router 之外, 在此注册 navigate
   useEffect(() => { registerAlertNavigator(navigate) }, [navigate])
@@ -244,26 +190,6 @@ export function Layout() {
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
   // Free 档监控限制提示: 可手动关闭, 不持久化 (刷新后恢复显示)
   const [dismissFreeHint, setDismissFreeHint] = useState(false)
-  const indicesPinned = prefs?.indices_nav_pinned ?? true
-  const sidebarIndexSymbols = prefs?.sidebar_index_symbols ?? CORE_INDEXES.map(p => p.symbol)
-  const sidebarIndexes = CORE_INDEXES.filter(item => sidebarIndexSymbols.includes(item.symbol))
-  // 卡片数据：固定显示时也拉取（即使实时行情关闭）
-  const showSidebarQuotes = indicesPinned || realtimeEnabled
-  const { data: sidebarIndexQuotes } = useQuery({
-    queryFn: () => api.indexQuotes(sidebarIndexes.map(p => p.symbol), {
-      // The dashboard shares the preloaded intraday snapshot with its main
-      // cards; other pages retain the existing provider-backed behaviour.
-      localOnly: location.pathname !== '/',
-    }),
-    queryKey: [...QK.indexQuotes, 'sidebar', sidebarIndexSymbols.join(','), location.pathname === '/' ? 'dashboard' : 'provider'] as const,
-    enabled: showSidebarQuotes && sidebarIndexes.length > 0,
-    placeholderData: (prev) => prev,
-    // 主看板快照可能在运行中从自定义源切至备用源；此时原数据源没有
-    // SSE quote 事件可用于失效旧缓存，因此仅看板页按快照刷新间隔重新读取。
-    // /indices 读取的是后端已预加载的内存快照，不会新增外部行情请求。
-    refetchInterval: location.pathname === '/' ? 30_000 : false,
-  })
-
   // SSE: 行情更新时自动刷新相关 queries + 告警通知
   useQuoteStream(realtimeEnabled, prefs?.sse_refresh_pages)
   // 实时 SSE 连接状态 — 断开时底部显示提示, 提示可能漏策略告警
@@ -301,13 +227,13 @@ export function Layout() {
   }, [alertsTotal])
 
   // 合并内置页面 + 可见的扩展分析菜单
-  type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; tone?: NavTone }
+  type NavItem = { to: string; label: string; icon: typeof Gauge; badge?: string; tone?: NavTone; external?: boolean }
   const analysisNav: NavItem[] = (analysisMenus?.items ?? [])
     .filter(m => m.visible)
     .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3, tone: 'blue' as const }))
 
   const allNav: NavItem[] = [...nav, ...analysisNav]
-  const savedOrder = prefs?.nav_order ?? []
+  const savedOrder = (prefs?.nav_order ?? []).map(canonicalNavRoute)
 
   const navItems = savedOrder.length > 0
     ? (() => {
@@ -320,7 +246,7 @@ export function Layout() {
       })()
     : allNav
 
-  const hiddenIds = new Set(prefs?.nav_hidden ?? [])
+  const hiddenIds = new Set((prefs?.nav_hidden ?? []).map(canonicalNavRoute))
   const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
 
   const handleToggle = async (enabled: boolean) => {
@@ -423,10 +349,11 @@ export function Layout() {
           </div>
 
           <nav className={cn('flex-1 min-h-0 overflow-y-auto py-3 space-y-0.5', navCollapsed ? 'w-full px-1' : 'w-full px-2')}>
-            {visibleNavItems.map(({ to, label, icon: Icon, badge, tone = 'blue' }) => (
+            {visibleNavItems.map(({ to, label, icon: Icon, badge, tone = 'blue', external }) => (
               <NavLink
                 key={to}
                 to={to}
+                reloadDocument={external}
                 onClick={closeMobile}
                 title={navCollapsed ? label : undefined}
                 className={({ isActive }) =>
@@ -538,9 +465,6 @@ export function Layout() {
                   <div className="text-warning/70">非交易时段，将在交易时间自动开启</div>
                 ) : null}
               </div>
-            )}
-            {showSidebarQuotes && !isWatchlistMode && (!isNoneTier || !!realtimeProviderName) && (
-              <SidebarIndexQuotes rows={sidebarIndexQuotes?.rows} items={sidebarIndexes} />
             )}
           </div>
 

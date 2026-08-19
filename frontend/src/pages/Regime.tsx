@@ -21,6 +21,7 @@ import {
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useIsAdmin } from '@/lib/auth'
+import { useDataStatus } from '@/lib/useSharedQueries'
 import { useChartTheme } from '@/lib/theme'
 import { toast } from '@/lib/notify'
 import { Modal } from '@/components/Modal'
@@ -124,6 +125,7 @@ export function Regime() {
     queryFn: () => api.regimeCoverage(),
     staleTime: 5 * 60 * 1000,
   })
+  const dataStatus = useDataStatus({ staleTime: 60_000 })
 
   const days = resolveDays(range, coverage.data)
   const histRange = resolveHistoryRange(range, coverage.data)
@@ -143,6 +145,9 @@ export function Regime() {
 
   const rows: RegimeRow[] = history.data?.rows ?? []
   const latest = rows.length > 0 ? rows[rows.length - 1] : null
+  const enrichedLatest = dataStatus.data?.enriched?.latest_date ?? null
+  const regimeLatestDate = coverage.data?.latest_date ?? latest?.date ?? null
+  const regimeIsBehind = !!enrichedLatest && !!regimeLatestDate && regimeLatestDate < enrichedLatest
 
   // ── 当前势头: 末尾连续同态天数 + score 5日斜率(改善/恶化) + 上次弱势距今 ──
   const momentum = useMemo(() => {
@@ -430,6 +435,16 @@ export function Regime() {
           </div>
         }
       />
+
+      {regimeIsBehind && (
+        <div className="flex items-start gap-2 rounded-card border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            市场环境计算滞后：最新环境为 {regimeLatestDate}，但股票 enriched 日线已到 {enrichedLatest}。
+            当前图表不会把旧环境状态当成最新结论；管理员可点击“重算”补齐。
+          </span>
+        </div>
+      )}
 
       {/* ── 最新日概览 (4 个指标卡, 去掉与看板重复的涨停/涨跌/成交额) ── */}
       {latest ? (

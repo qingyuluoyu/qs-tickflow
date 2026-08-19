@@ -23,6 +23,7 @@ import { Link } from 'react-router-dom'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
+import { canonicalNavRoute } from '@/lib/navRoutes'
 import { accountStorage } from '@/lib/storage'
 
 interface NavEntry {
@@ -30,6 +31,7 @@ interface NavEntry {
   label: string
   type: 'builtin' | 'analysis'
   visible: boolean
+  external?: boolean
 }
 
 const BUILTIN_PAGES: NavEntry[] = [
@@ -45,6 +47,7 @@ const BUILTIN_PAGES: NavEntry[] = [
   { id: '/review', label: '复盘', type: 'builtin', visible: true },
   { id: '/financials', label: '财务分析', type: 'builtin', visible: true },
   { id: '/indices', label: '指数', type: 'builtin', visible: true },
+  { id: '/asset-allocation', label: '资产配置', type: 'builtin', visible: true },
   { id: '/monitor', label: '监控中心', type: 'builtin', visible: true },
   { id: '/data', label: '数据', type: 'builtin', visible: true },
 ]
@@ -115,14 +118,15 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
       </div>
       <div className="flex justify-center">
         {entry.type === 'builtin' ? (
-          <ActionIcon
-            component={Link}
-            to={entry.id}
-            variant="subtle" color="gray"
-            title="打开页面"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </ActionIcon>
+          entry.external ? (
+            <ActionIcon component="a" href={entry.id} variant="subtle" color="gray" title="打开页面">
+              <ExternalLink className="h-3.5 w-3.5" />
+            </ActionIcon>
+          ) : (
+            <ActionIcon component={Link} to={entry.id} variant="subtle" color="gray" title="打开页面">
+              <ExternalLink className="h-3.5 w-3.5" />
+            </ActionIcon>
+          )
         ) : (
           <ActionIcon
             component={Link}
@@ -166,7 +170,7 @@ export function SettingsMenuSettingsPanel() {
   }))
 
   const allEntries = useMemo(() => {
-    const saved = prefs?.nav_order ?? []
+    const saved = (prefs?.nav_order ?? []).map(canonicalNavRoute)
     const entryMap = new Map<string, NavEntry>()
     for (const e of BUILTIN_PAGES) entryMap.set(e.id, e)
     for (const e of analysisEntries) entryMap.set(e.id, e)
@@ -188,7 +192,7 @@ export function SettingsMenuSettingsPanel() {
     return ordered
   }, [prefs?.nav_order, analysisEntries])
 
-  const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
+  const hiddenSet = useMemo(() => new Set((prefs?.nav_hidden ?? []).map(canonicalNavRoute)), [prefs?.nav_hidden])
 
   // Local order state for optimistic drag updates
   const [localOrder, setLocalOrder] = useState<string[] | null>(null)
