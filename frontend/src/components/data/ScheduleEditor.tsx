@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Button, NumberInput } from '@mantine/core'
 
 export function ScheduleEditor({ value, onSave, loading, hint }: {
   value: { hour: number; minute: number }
@@ -16,27 +17,39 @@ export function ScheduleEditor({ value, onSave, loading, hint }: {
     onSave(h, m)
   }
 
+  const inputCls = 'rounded-btn bg-base border-border font-mono text-center'
+
   return (
     <div className="flex items-center gap-2 pt-1.5">
       <span className="text-[10px] text-muted">每日</span>
-      <input
-        type="number" min={0} max={23} value={h}
-        onChange={e => setH(Math.max(0, Math.min(23, Number(e.target.value))))}
-        className="w-12 px-1.5 py-1 rounded-btn bg-base border border-border text-xs font-mono text-foreground text-center"
+      <NumberInput
+        size="xs"
+        w={48}
+        hideControls
+        min={0} max={23}
+        value={h}
+        onChange={v => setH(Math.max(0, Math.min(23, Number(v) || 0)))}
+        classNames={{ input: inputCls }}
       />
       <span className="text-xs text-muted">:</span>
-      <input
-        type="number" min={0} max={59} value={m}
-        onChange={e => setM(Math.max(0, Math.min(59, Number(e.target.value))))}
-        className="w-12 px-1.5 py-1 rounded-btn bg-base border border-border text-xs font-mono text-foreground text-center"
+      <NumberInput
+        size="xs"
+        w={48}
+        hideControls
+        min={0} max={59}
+        value={m}
+        onChange={v => setM(Math.max(0, Math.min(59, Number(v) || 0)))}
+        classNames={{ input: inputCls }}
       />
-      <button
+      <Button
+        size="compact-xs"
+        variant="light"
         onClick={handleSave}
-        disabled={loading || (h === value.hour && m === value.minute)}
-        className="px-2.5 py-1 rounded-btn bg-accent/15 text-accent text-[11px] font-medium hover:bg-accent/25 disabled:opacity-40 transition-colors"
+        loading={loading}
+        disabled={h === value.hour && m === value.minute}
       >
-        {loading ? '保存中…' : '保存'}
-      </button>
+        保存
+      </Button>
       <span className="text-[10px] text-muted">工作日自动执行{hint ? ` · ${hint}` : ''}</span>
     </div>
   )

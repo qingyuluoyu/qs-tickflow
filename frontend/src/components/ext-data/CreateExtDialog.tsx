@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import { api, type ExtDataDetectUrlResult, type ExtDataField } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { Modal as MantineModal } from '@mantine/core'
 
 type SourceMode = 'url' | 'file' | 'manual'
 
@@ -27,7 +27,6 @@ type MappingChoice = {
 
 export function CreateExtDialog({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
-  const backdrop = useDialogBackdrop(onClose)
   const [sourceMode, setSourceMode] = useState<SourceMode>('url')
   const [id, setId] = useState('')
   const [label, setLabel] = useState('')
@@ -309,15 +308,20 @@ export function CreateExtDialog({ onClose }: { onClose: () => void }) {
     : []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" {...backdrop} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 12 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className="relative rounded-2xl border border-border bg-surface shadow-2xl mx-4 w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden"
-      >
+    <MantineModal
+      opened
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.6, blur: 4 }}
+      classNames={{
+        content: 'relative rounded-2xl border border-border bg-surface shadow-2xl mx-4 w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
         <div className="px-6 pt-5 pb-4">
           <div className="flex items-center justify-between">
             <div>
@@ -781,7 +785,6 @@ export function CreateExtDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </div>
-      </motion.div>
-    </div>
+    </MantineModal>
   )
 }

@@ -17,6 +17,11 @@ class UserIdentity:
     id: str
     name: str
     phone: str
+    role: str = "user"
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
 
 
 _current_user: ContextVar[UserIdentity | None] = ContextVar("tickflow_current_user", default=None)

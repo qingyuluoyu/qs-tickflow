@@ -5,7 +5,9 @@ import asyncio
 import concurrent.futures as _cf
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import Depends, APIRouter, HTTPException, Request
+
+from app.api.deps import require_admin
 
 from app.api.data import invalidate_storage_cache
 from app.jobs import daily_pipeline
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
 
-@router.post("/run")
+@router.post("/run", dependencies=[Depends(require_admin)])
 async def run_now(request: Request) -> dict:
     """异步触发盘后管道,立即返回 job_id。客户端轮询 /jobs/{id} 拿进度。
 
@@ -86,7 +88,7 @@ def get_job(job_id: str) -> dict:
     return j
 
 
-@router.post("/jobs/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel", dependencies=[Depends(require_admin)])
 def cancel_job(job_id: str) -> dict:
     """手动取消一个 running 的 job。"""
     j = job_store.get(job_id)

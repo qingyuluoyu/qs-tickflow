@@ -245,22 +245,32 @@ def _sync_shares_for_symbols(
     derived = _shares_from_custom_metrics(data_dir, symbols)
     if not derived.is_empty():
         logger.info("sync_shares reusing %d TeaJoin daily_basic metric rows", len(derived))
-        return _write_table("shares", derived, data_dir)
-    existing = get_financial_df(data_dir, "shares")
-    if existing.is_empty() or not {"symbol", "period_end"} <= set(existing.columns):
-        return _sync_table("shares", symbols, data_dir, capset, latest_only=False)
-
-    existing_symbols = set(existing["symbol"].drop_nulls().to_list())
-    missing_symbols = [symbol for symbol in symbols if symbol not in existing_symbols]
-    missing_history = (
-        _fetch_table("shares", missing_symbols, capset, latest_only=False)
-        if missing_symbols
-        else pl.DataFrame()
-    )
-    current_symbols = [symbol for symbol in symbols if symbol in existing_symbols]
-    latest = _fetch_table("shares", current_symbols, capset, latest_only=True)
-    merged = _merge_share_history(existing, missing_history, latest)
-    return _write_table("shares", merged, data_dir)
+        rows = _write_table("shares", derived, data_dir)
+    else:
+        existing = get_financial_df(data_dir, "shares")
+        if existing.is_empty() or not {"symbol", "period_end"} <= set(existing.columns):
+            rows = _sync_table("shares", symbols, data_dir, capset, latest_only=False)
+        else:
+            existing_symbols = set(existing["symbol"].drop_nulls().to_list())
+            missing_symbols = [symbol for symbol in symbols if symbol not in existing_symbols]
+            missing_history = (
+                _fetch_table("shares", missing_symbols, capset, latest_only=False)
+                if missing_symbols
+                else pl.DataFrame()
+            )
+            current_symbols = [symbol for symbol in symbols if symbol in existing_symbols]
+            latest = _fetch_table("shares", current_symbols, capset, latest_only=True)
+            merged = _merge_share_history(existing, missing_history, latest)
+            rows = _write_table("shares", merged, data_dir)
+    # 股本同步后回填 instruments 维表(自定义数据源的 instruments 不带股本,
+    # 缺股本会让回测 basic_filter 的市值下限过滤掉全部标的)
+    if rows > 0:
+        try:
+            from app.services.instrument_sync import backfill_shares_from_financials
+            backfill_shares_from_financials(data_dir)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("instruments shares backfill failed: %s", e)
+    return rows
 
 
 def sync_metrics(data_dir: Path, capset: CapabilitySet) -> int:

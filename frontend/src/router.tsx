@@ -68,6 +68,7 @@ const Settings = lazyRoute(() => import('./pages/Settings').then(m => ({ default
 const Indices = lazyRoute(() => import('./pages/Indices').then(m => ({ default: m.Indices })))
 const Regime = lazyRoute(() => import('./pages/Regime').then(m => ({ default: m.Regime })))
 const Dev = lazyRoute(() => import('./pages/Dev').then(m => ({ default: m.Dev })))
+const AssetAllocation = lazyRoute(() => import('./pages/AssetAllocation').then(m => ({ default: m.AssetAllocation })))
 
 const isQingshu101Host = typeof window !== 'undefined'
   && /^qingshu101(?:\.|$)/i.test(window.location.hostname)
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
           { path: 'monitor', element: <Monitor /> },
           { path: 'limit-ladder', element: <LimitUpLadder /> },
           { path: 'indices', element: <Indices /> },
+          { path: 'asset-allocation', element: <AssetAllocation /> },
           { path: 'regime', element: <Regime /> },
           { path: 'branding', element: <Branding /> },
           { path: 'settings', element: <Settings /> },

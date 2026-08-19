@@ -95,7 +95,7 @@ function buildLimitUpMarkers(rows: KlineRow[]): ChartMarker[] {
       markers.push({ date, kind: 'neutral', above: true, color: '#8B5CF6', label: '炸' })
     } else if (r.signal_limit_up) {
       const boards: number = r.consecutive_limit_ups ?? 1
-      markers.push({ date, kind: 'buy', above: true, color: '#FACC15', label: boards <= 1 ? '板' : String(boards) })
+      markers.push({ date, kind: 'buy', above: true, color: '#38BDF8', label: boards <= 1 ? '板' : String(boards) })
     }
   }
   return markers
@@ -251,7 +251,7 @@ export function StockDailyKChart({
               onClick={() => setShowMarkers(v => !v)}
               className={`ml-auto px-2 py-0.5 rounded text-[10px] font-mono cursor-pointer transition-colors ${
                 showMarkers
-                  ? 'text-[#FACC15] bg-[#FACC15]/10'
+                  ? 'text-[#38BDF8] bg-[#38BDF8]/10'
                   : 'bg-elevated text-muted hover:text-secondary'
               }`}
             >

@@ -136,7 +136,9 @@ def set_realtime_quote_interval(interval: float) -> float:
 
 
 def get_minute_sync_enabled() -> bool:
-    return load().get("minute_sync_enabled", False)
+    # 服务器级: 分钟线同步由全局管道执行, 与请求用户无关
+    from app.services import server_preferences
+    return bool(server_preferences.get("minute_sync_enabled", False))
 
 
 def get_minute_intraday_refresh() -> bool:
@@ -219,7 +221,8 @@ def get_monitor_ext_fields() -> dict:
 
 
 def get_minute_sync_days() -> int:
-    return max(1, min(30, load().get("minute_sync_days", 5)))
+    from app.services import server_preferences
+    return max(1, min(30, int(server_preferences.get("minute_sync_days", 5))))
 
 
 def get_minute_sync_segment_days() -> int:
@@ -229,7 +232,8 @@ def get_minute_sync_segment_days() -> int:
     段越小内存峰值越低但总耗时越长(限速 sleep 随段数线性增加);
     物理上限 ~41 交易日(TickFlow 单次 10000 根 / 一天 241 根 ≈ 41 天),max=30 留出余量。
     """
-    return max(5, min(30, load().get("minute_sync_segment_days", 20)))
+    from app.services import server_preferences
+    return max(5, min(30, int(server_preferences.get("minute_sync_segment_days", 20))))
 
 
 # ===== 数据源选择 (默认 TickFlow；第一阶段仅日K切换入口) =====
@@ -293,23 +297,26 @@ def get_pipeline_pull_a_share() -> bool:
 
 
 def get_pipeline_pull_etf() -> bool:
-    """是否拉取 ETF 日K。默认 False(标的多,首次较慢)。"""
-    return load().get("pipeline_pull_etf", False)
+    """是否拉取 ETF 日K。默认 False(标的多,首次较慢)。服务器级开关。"""
+    from app.services import server_preferences
+    return bool(server_preferences.get("pipeline_pull_etf", False))
 
 
 def get_pipeline_pull_index() -> bool:
-    """是否拉取指数日K。默认 True。"""
-    return load().get("pipeline_pull_index", True)
+    """是否拉取指数日K。默认 True。服务器级开关。"""
+    from app.services import server_preferences
+    return bool(server_preferences.get("pipeline_pull_index", True))
 
 
 def get_pipeline_regime_enabled() -> bool:
-    """盘后管道是否自动计算市场环境(regime)。默认 False。
+    """盘后管道是否自动计算市场环境(regime)。默认 False。服务器级开关。
 
     regime 是本地聚合计算(非拉取), 首次/regime 表为空时需全量回填多日,
     内存与耗时较高, 故默认关闭; 用户可在数据页「市场环境」卡片设置里开启,
     或直接在该页面点「重算」手动触发(不受此开关影响)。
     """
-    return load().get("pipeline_regime_enabled", False)
+    from app.services import server_preferences
+    return bool(server_preferences.get("pipeline_regime_enabled", False))
 
 
 # regime 全量回填分批参数范围:
@@ -324,11 +331,12 @@ _REGIME_WARMUP_DAYS_MAX = 90
 
 
 def get_regime_batch_days() -> int:
-    """regime 全量回填每批目标交易日数。默认 60(约一季度)。
+    """regime 全量回填每批目标交易日数。默认 60(约一季度)。服务器级。
 
     超过此天数的范围会被切成多批, 每批独立算指标后拼接, 控制内存峰值。
     """
-    v = load().get("regime_batch_days", 60)
+    from app.services import server_preferences
+    v = server_preferences.get("regime_batch_days", 60)
     try:
         return max(_REGIME_BATCH_DAYS_MIN, min(_REGIME_BATCH_DAYS_MAX, int(v)))
     except (TypeError, ValueError):
@@ -336,11 +344,12 @@ def get_regime_batch_days() -> int:
 
 
 def get_regime_warmup_days() -> int:
-    """regime 分批每批的 warmup 前缀日历天数。默认 40。
+    """regime 分批每批的 warmup 前缀日历天数。默认 40。服务器级。
 
     用于预热 ma20 等滚动窗口指标, 使每批边界计算正确。必须 > 20 交易日。
     """
-    v = load().get("regime_warmup_days", 40)
+    from app.services import server_preferences
+    v = server_preferences.get("regime_warmup_days", 40)
     try:
         return max(_REGIME_WARMUP_DAYS_MIN, min(_REGIME_WARMUP_DAYS_MAX, int(v)))
     except (TypeError, ValueError):
@@ -360,79 +369,90 @@ def get_pipeline_pull_types() -> dict:
 
 
 def set_pipeline_pull_types(cfg: dict) -> dict:
-    """批量保存拉取开关。只接受白名单内的布尔字段。"""
+    """批量保存拉取开关(服务器级)。只接受白名单内的布尔字段。"""
+    from app.services import server_preferences
     updates = {
         k: bool(v) for k, v in cfg.items()
         if k in _PIPELINE_PULL_KEYS and v is not None
     }
-    save(updates)
+    server_preferences.save(updates)
     return get_pipeline_pull_types()
 
 
 def get_pipeline_index_symbols() -> str:
-    """指数自定义拉取代码(逗号/换行/空格分隔)。空串表示全量。"""
-    return str(load().get("pipeline_index_symbols", "") or "").strip()
+    """指数自定义拉取代码(逗号/换行/空格分隔)。空串表示全量。服务器级。"""
+    from app.services import server_preferences
+    return str(server_preferences.get("pipeline_index_symbols", "") or "").strip()
 
 
 def set_pipeline_index_symbols(symbols: str) -> str:
-    """保存指数自定义代码,返回规范化后的字符串。"""
-    save({"pipeline_index_symbols": symbols})
+    """保存指数自定义代码(服务器级),返回规范化后的字符串。"""
+    from app.services import server_preferences
+    server_preferences.save({"pipeline_index_symbols": symbols})
     return get_pipeline_index_symbols()
 
 
 def get_pipeline_schedule() -> dict:
-    """返回盘后管道调度时间 {"hour": 15, "minute": 30}。"""
-    d = load().get("pipeline_schedule", {"hour": 15, "minute": 30})
+    """返回盘后管道调度时间 {"hour": 15, "minute": 30}。服务器级。"""
+    from app.services import server_preferences
+    d = server_preferences.get("pipeline_schedule", {"hour": 15, "minute": 30})
     return {"hour": d.get("hour", 15), "minute": d.get("minute", 30)}
 
 
 def set_pipeline_schedule(hour: int, minute: int) -> dict:
+    from app.services import server_preferences
     h = max(0, min(23, hour))
     m = max(0, min(59, minute))
     # 盘后不早于 15:00
     if h * 60 + m < 15 * 60:
         h, m = 15, 0
-    save({"pipeline_schedule": {"hour": h, "minute": m}})
+    server_preferences.save({"pipeline_schedule": {"hour": h, "minute": m}})
     return {"hour": h, "minute": m}
 
 
 def get_instruments_schedule() -> dict:
-    """返回盘前标的维表调度时间 {"hour": 9, "minute": 10}。"""
-    d = load().get("instruments_schedule", {"hour": 9, "minute": 10})
+    """返回盘前标的维表调度时间 {"hour": 9, "minute": 10}。服务器级。"""
+    from app.services import server_preferences
+    d = server_preferences.get("instruments_schedule", {"hour": 9, "minute": 10})
     return {"hour": d.get("hour", 9), "minute": d.get("minute", 10)}
 
 
 def set_instruments_schedule(hour: int, minute: int) -> dict:
+    from app.services import server_preferences
     h = max(0, min(23, hour))
     m = max(0, min(59, minute))
     # 盘前不晚于 09:15
     if h * 60 + m > 9 * 60 + 15:
         h, m = 9, 15
-    save({"instruments_schedule": {"hour": h, "minute": m}})
+    server_preferences.save({"instruments_schedule": {"hour": h, "minute": m}})
     return {"hour": h, "minute": m}
 
 
 def get_enriched_batch_size() -> int:
-    """返回 enriched 全量计算每批 symbol 数量。"""
-    return max(1, min(10000, load().get("enriched_batch_size", 1000)))
+    """返回 enriched 全量计算每批 symbol 数量。服务器级。"""
+    from app.services import server_preferences
+    return max(1, min(10000, int(server_preferences.get("enriched_batch_size", 1000))))
 
 
 def set_enriched_batch_size(size: int) -> int:
-    """保存 enriched 全量计算批次大小。"""
+    """保存 enriched 全量计算批次大小(服务器级)。"""
+    from app.services import server_preferences
     size = max(10, min(6000, size))
-    save({"enriched_batch_size": size})
+    server_preferences.save({"enriched_batch_size": size})
     return size
 
 
 def get_index_daily_batch_size() -> int:
-    """返回指数日 K 同步每批 symbol 数量。"""
-    return max(1, min(10000, load().get("index_daily_batch_size", 100)))
+    """返回指数日 K 同步每批 symbol 数量。服务器级。"""
+    from app.services import server_preferences
+    return max(1, min(10000, int(server_preferences.get("index_daily_batch_size", 100))))
 
 
 def set_index_daily_batch_size(size: int) -> int:
-    """保存指数日 K 同步批次大小。"""
+    """保存指数日 K 同步批次大小(服务器级)。"""
+    from app.services import server_preferences
     size = max(1, min(10000, size))
-    save({"index_daily_batch_size": size})
+    server_preferences.save({"index_daily_batch_size": size})
     return size
 
 
@@ -456,13 +476,15 @@ def set_depth_polling_interval(interval: float) -> float:
 
 
 def get_depth_finalize_time() -> dict:
-    """盘后 sealed 定版时间 {"hour": 15, "minute": 2}。范围 15:01~18:00。"""
-    d = load().get("depth_finalize_time", {"hour": 15, "minute": 2})
+    """盘后 sealed 定版时间 {"hour": 15, "minute": 2}。范围 15:01~18:00。服务器级。"""
+    from app.services import server_preferences
+    d = server_preferences.get("depth_finalize_time", {"hour": 15, "minute": 2})
     return {"hour": d.get("hour", 15), "minute": d.get("minute", 2)}
 
 
 def set_depth_finalize_time(hour: int, minute: int) -> dict:
-    """保存盘后 sealed 定版时间,强制范围 15:01~18:00。"""
+    """保存盘后 sealed 定版时间(服务器级),强制范围 15:01~18:00。"""
+    from app.services import server_preferences
     h = max(0, min(23, hour))
     m = max(0, min(59, minute))
     # 下限 15:01, 上限 18:00
@@ -470,7 +492,7 @@ def set_depth_finalize_time(hour: int, minute: int) -> dict:
         h, m = 15, 1
     if h * 60 + m > 18 * 60:
         h, m = 18, 0
-    save({"depth_finalize_time": {"hour": h, "minute": m}})
+    server_preferences.save({"depth_finalize_time": {"hour": h, "minute": m}})
     return {"hour": h, "minute": m}
 
 

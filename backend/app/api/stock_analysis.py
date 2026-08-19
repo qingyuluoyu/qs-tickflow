@@ -11,8 +11,10 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import math
+import re
 from datetime import date, timedelta
 
 import polars as pl
@@ -21,12 +23,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.indicators.levels import compute_levels, summarize_levels
-from app.services import stock_reports
+from app.services import stock_debate, stock_reports
 from app.services.stock_analyzer import analyze_stock_stream
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/stock-analysis", tags=["stock-analysis"])
+_DEBATE_SYMBOL_RE = re.compile(r"^\d{6}\.(?:SH|SZ|BJ)$")
 
 
 def _to_float_list(series: pl.Series) -> list:
@@ -156,7 +159,7 @@ async def analyze_stock(request: Request, req: AnalyzeRequest):
     """AI 个股四维分析 — NDJSON 流式返回。
 
     组合 K 线(技术指标)+ 财务表 + 关键价位 → 客观技术分析提示词 →
-    流式调用 LLM → 逐 chunk 以 NDJSON 推给前端(每行一个 JSON)。
+    流式调用 LLM → 分离思考草稿和最终回答,并逐行以 NDJSON 推给前端。
     """
     if not req.symbol:
         raise HTTPException(400, "symbol 不能为空")
@@ -167,6 +170,41 @@ async def analyze_stock(request: Request, req: AnalyzeRequest):
     async def stream_gen():
         async for chunk in analyze_stock_stream(repo, data_dir, req.symbol, req.focus):
             yield chunk + "\n"
+
+    return StreamingResponse(
+        stream_gen(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+class DebateRequest(BaseModel):
+    """个股多空辩论请求；模型配置不由客户端传入。"""
+
+    symbol: str
+    rounds: int = 1
+
+
+@router.post("/debate")
+async def debate_stock(request: Request, req: DebateRequest):
+    """多空辩论 — 复用当前 stock-analysis 的服务端 AI 与行情边界，流式 NDJSON。"""
+    symbol = req.symbol.strip().upper()
+    if not _DEBATE_SYMBOL_RE.fullmatch(symbol):
+        raise HTTPException(400, "symbol 格式应为 000001.SZ / 600000.SH / 8xxxxx.BJ")
+    if req.rounds not in (1, 2):
+        raise HTTPException(400, "rounds 只能是 1 或 2")
+
+    repo = request.app.state.repo
+
+    async def stream_gen():
+        try:
+            async for event in stock_debate.run_debate_stream(
+                repo, repo.store.data_dir, symbol, req.rounds,
+            ):
+                yield json.dumps(event, ensure_ascii=False, default=str) + "\n"
+        except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免前端只看到连接断开
+            logger.exception("stock debate stream failed for %s: %s", symbol, exc)
+            yield json.dumps({"type": "error", "message": f"多空辩论失败：{exc}"}, ensure_ascii=False) + "\n"
 
     return StreamingResponse(
         stream_gen(),
@@ -188,6 +226,9 @@ class SaveReportRequest(BaseModel):
     summary: str = ""
     close: float | None = None
     levels: dict | None = None
+    reasoning: str = ""
+    complete: bool = True
+    truncated: bool = False
 
 
 @router.get("/reports")
@@ -207,6 +248,9 @@ def save_report(request: Request, req: SaveReportRequest):
         "summary": req.summary,
         "close": req.close,
         "levels": req.levels,
+        "reasoning": req.reasoning,
+        "complete": req.complete,
+        "truncated": req.truncated,
     })
     return {"ok": True, "report": report}
 

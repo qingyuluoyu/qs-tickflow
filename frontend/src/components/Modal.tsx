@@ -1,41 +1,31 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
+import { Modal as MantineModal } from '@mantine/core'
 
 /**
- * 共享模态对话框原语 — 统一处理可访问性:
- * - role="dialog" + aria-modal + aria-labelledby / aria-label
- * - ESC 关闭
- * - 打开时把焦点移入对话框 (initialFocusRef 或首个可聚焦元素)
- * - Tab / Shift+Tab 焦点陷阱 (焦点不会跑出对话框)
- * - 关闭时把焦点还给打开前的元素
- * - 点击遮罩关闭 (可用 closeOnBackdrop 关闭)
+ * 共享模态对话框原语 — 基于 Mantine Modal 实现:
+ * - role="dialog" + aria-modal 由 Mantine 提供
+ * - ESC 关闭 / Tab 焦点陷阱 / 关闭后还原焦点 / 点击遮罩关闭 均由 Mantine 内置处理
+ *   (遮罩与面板是兄弟节点, 面板内拖选文本松开在遮罩上不会误关 — 无需手写防穿透)
  *
- * 视觉: 提供居中遮罩 + 面板容器, 面板样式由 panelClassName 定制。
+ * 视觉: panelClassName 定制面板 (尺寸/背景/圆角等);
+ * overlayClassName 仅保留透明度/模糊语义 (旧的 fixed/flex 布局类由 Mantine 接管, 会被忽略)。
  */
 export interface ModalProps {
   onClose: () => void
   children: ReactNode
-  /** 对话框标题元素 id (用于 aria-labelledby) */
+  /** 对话框标题元素 id (用于 aria-labelledby; 标题元素仍由调用方渲染) */
   labelledBy?: string
   /** 无可见标题时的无障碍名称 */
   ariaLabel?: string
   /** 面板 className (尺寸/背景/圆角等) */
   panelClassName?: string
-  /** 遮罩 className (覆盖默认居中/背景) */
+  /** 遮罩 className (仅解析 bg-black/40 透明度与 backdrop-blur 语义) */
   overlayClassName?: string
-  /** 打开时聚焦的元素; 不传则聚焦面板内首个可聚焦元素 */
-  initialFocusRef?: React.RefObject<HTMLElement>
+  /** 打开时聚焦的元素; 不传则 Mantine 焦点陷阱聚焦面板内首个可聚焦元素 */
+  initialFocusRef?: React.RefObject<HTMLElement | null>
   /** 点击遮罩是否关闭 (默认 true) */
   closeOnBackdrop?: boolean
 }
-
-const FOCUSABLE = [
-  'a[href]',
-  'button:not([disabled])',
-  'textarea:not([disabled])',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',')
 
 export function Modal({
   onClose,
@@ -43,106 +33,48 @@ export function Modal({
   labelledBy,
   ariaLabel,
   panelClassName = 'w-[92vw] max-w-lg bg-surface border border-border rounded-card shadow-xl',
-  overlayClassName = 'fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm',
+  overlayClassName,
   initialFocusRef,
   closeOnBackdrop = true,
 }: ModalProps) {
-  const panelRef = useRef<HTMLDivElement>(null)
-  // 记录鼠标按下时是否落在遮罩(而非面板)上。
-  // 仅当 mousedown 和 mouseup 都在遮罩时才视为"点击遮罩关闭",
-  // 避免在面板内拖选文本时鼠标移出面板边缘导致误关 (拖拽穿透)。
-  const mouseDownOnBackdrop = useRef(false)
-  // onClose 存 ref: 焦点陷阱/ESC effect 只在挂载时装一次。否则父级每次重渲染 (或未 memo 的
-  // onClose) 都让 effect 重跑, requestAnimationFrame(focusFirst) 会在每次输入后把焦点抢回
-  // 面板首个元素, 导致对话框内文本框无法输入。
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
+  // Mantine 仅在挂载了 Modal.Title 时才输出 aria-labelledby; 这里直接在内容元素上
+  // 补齐, 保持原有 labelledBy 契约 (可见标题元素由调用方渲染, id 即 labelledBy)。
+  const contentRef = (el: HTMLDivElement | null) => {
+    if (!labelledBy) return
+    el?.querySelector('[role="dialog"]')?.setAttribute('aria-labelledby', labelledBy)
+  }
 
+  // initialFocusRef: Mantine 焦点陷阱默认聚焦首个可聚焦元素; 传了 ref 则改聚焦它
   useEffect(() => {
-    // 记住打开前的焦点, 关闭时还原
-    const prevActive = document.activeElement as HTMLElement | null
-
-    // 初始聚焦
-    const focusFirst = () => {
-      if (initialFocusRef?.current) {
-        initialFocusRef.current.focus()
-        return
-      }
-      const panel = panelRef.current
-      if (!panel) return
-      const first = panel.querySelector<HTMLElement>(FOCUSABLE)
-      ;(first ?? panel).focus()
-    }
-    // 等一帧确保内容已挂载
-    const raf = requestAnimationFrame(focusFirst)
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.stopPropagation()
-        onCloseRef.current()
-        return
-      }
-      if (e.key !== 'Tab') return
-      const panel = panelRef.current
-      if (!panel) return
-      const nodes = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
-        .filter(el => el.offsetParent !== null || el === document.activeElement)
-      if (nodes.length === 0) {
-        e.preventDefault()
-        panel.focus()
-        return
-      }
-      const first = nodes[0]
-      const last = nodes[nodes.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (e.shiftKey) {
-        if (active === first || !panel.contains(active)) {
-          e.preventDefault()
-          last.focus()
-        }
-      } else {
-        if (active === last || !panel.contains(active)) {
-          e.preventDefault()
-          first.focus()
-        }
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown, true)
-    return () => {
-      cancelAnimationFrame(raf)
-      document.removeEventListener('keydown', onKeyDown, true)
-      // 还原焦点
-      prevActive?.focus?.()
-    }
-    // 只在挂载时装一次: onClose 走 ref, initialFocusRef 为稳定 ref 对象, 无需进依赖。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    if (!initialFocusRef) return
+    const raf = requestAnimationFrame(() => initialFocusRef.current?.focus())
+    return () => cancelAnimationFrame(raf)
+  }, [initialFocusRef])
 
   return (
-    <div
-      className={overlayClassName}
-      onMouseDown={(e) => {
-        // 仅记录"按下时确实在遮罩上"; 在面板内按下时记 false。
-        mouseDownOnBackdrop.current = e.target === e.currentTarget
+    <MantineModal
+      opened
+      onClose={onClose}
+      ref={contentRef}
+      withCloseButton={false}
+      closeOnClickOutside={closeOnBackdrop}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{
+        backgroundOpacity: overlayClassName?.includes('bg-black/40') ? 0.4 : 0.5,
+        blur: overlayClassName && !overlayClassName.includes('backdrop-blur') ? 0 : 4,
       }}
-      onClick={closeOnBackdrop ? (e) => {
-        // 只有按下和松开都在遮罩上才关闭, 避免拖选文本误关。
-        if (mouseDownOnBackdrop.current && e.target === e.currentTarget) onClose()
-      } : undefined}
+      classNames={{
+        content: panelClassName,
+        // 面板为 flex 列布局时让 body 撑满高度, 保持头部/底部固定、内容区内部滚动
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      // 宽度完全交给 panelClassName 的 w-*/max-w-* 控制 (默认 flex-basis 会覆盖 width)
+      styles={{ content: { flex: '0 1 auto' } }}
+      attributes={ariaLabel && !labelledBy ? { content: { 'aria-label': ariaLabel } } : undefined}
     >
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={labelledBy}
-        aria-label={labelledBy ? undefined : ariaLabel}
-        tabIndex={-1}
-        className={`outline-none ${panelClassName}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
+      {children}
+    </MantineModal>
   )
 }

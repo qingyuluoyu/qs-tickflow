@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback, type ReactElement } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Repeat, Sparkles, ArrowDownUp, RefreshCw, AlertCircle } from 'lucide-react'
+import { X, Repeat, Sparkles, ArrowDownUp, RefreshCw, AlertCircle, Square } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -61,27 +61,58 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
   const [analyzing, setAnalyzing] = useState(false)       // 生成中
   const [analysisError, setAnalysisError] = useState('')  // 错误信息
   const [analysisMeta, setAnalysisMeta] = useState<{ summary?: string } | null>(null)
+  const [analysisStatus, setAnalysisStatus] = useState('')
   const [focus, setFocus] = useState('')                  // 用户追加的关注点
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const closeDialog = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    onClose()
+  }, [onClose])
 
   const runAnalysis = useCallback(async (daysParam: number, focusParam: string) => {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
     setAnalyzing(true)
     setAnalysis('')
     setAnalysisError('')
     setAnalysisMeta(null)
+    setAnalysisStatus('正在连接后端…')
     try {
       const lv = kind === 'industry' ? level : undefined
-      for await (const ev of api.rotationAnalyzeStream(daysParam, focusParam, kind, lv)) {
-        if (ev.type === 'meta') setAnalysisMeta({ summary: ev.summary })
+      let sawDone = false
+      let sawError = false
+      for await (const ev of api.rotationAnalyzeStream(daysParam, focusParam, kind, lv, controller.signal)) {
+        if (ev.type === 'status') setAnalysisStatus(ev.message ?? '')
+        else if (ev.type === 'meta') setAnalysisMeta({ summary: ev.summary })
         else if (ev.type === 'delta') setAnalysis(a => a + (ev.content ?? ''))
-        else if (ev.type === 'error') setAnalysisError(ev.message ?? '未知错误')
-        // done: 无操作
+        else if (ev.type === 'error') { sawError = true; setAnalysisError(ev.message ?? '未知错误') }
+        else if (ev.type === 'done') sawDone = true
+      }
+      if (!sawDone && !sawError && !controller.signal.aborted) {
+        setAnalysisError('轮动分析连接在完成前断开，请重试')
       }
     } catch (e) {
-      setAnalysisError(e instanceof Error ? e.message : String(e))
+      if (controller.signal.aborted) setAnalysisStatus('已中止')
+      else setAnalysisError(e instanceof Error ? e.message : String(e))
     } finally {
-      setAnalyzing(false)
+      if (abortRef.current === controller) {
+        abortRef.current = null
+        setAnalyzing(false)
+      }
     }
   }, [kind, level])
+
+  const stopAnalysis = useCallback(() => {
+    abortRef.current?.abort()
+    abortRef.current = null
+    setAnalyzing(false)
+    setAnalysisStatus('已中止')
+  }, [])
 
   // 数据请求: React Query 缓存, 同 (kind, level, days) 5 分钟内重开秒开
   const lvParam = kind === 'industry' ? level : undefined
@@ -153,7 +184,7 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
   }, [selected, dates, columns])
 
   const renderRows = useMemo(() => {
-    const rows: JSX.Element[] = []
+    const rows: ReactElement[] = []
     for (let displayIdx = visibleRange.start; displayIdx < visibleRange.end; displayIdx++) {
       const rawIdx = getRowIndex(displayIdx)
       const cells = dates.map((d) => {
@@ -208,10 +239,10 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
 
   return (
     <Modal
-      onClose={onClose}
+      onClose={closeDialog}
       labelledBy="rps-rotation-title"
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      panelClassName="w-[92vw] max-w-[1100px] h-[88vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
+      overlayClassName="bg-black/50"
+      panelClassName="w-[94vw] max-w-[1265px] h-[94vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
     >
           {/* 标题栏 */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
@@ -239,7 +270,7 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
                 </div>
               )}
             </div>
-            <button aria-label="关闭" onClick={onClose} className="p-1 rounded hover:bg-elevated transition-colors cursor-pointer">
+            <button aria-label="关闭" onClick={closeDialog} className="p-1 rounded hover:bg-elevated transition-colors cursor-pointer">
               <X className="h-4 w-4 text-muted" />
             </button>
           </div>
@@ -250,8 +281,8 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
             <div className="flex items-center gap-2 px-4 py-1.5 bg-elevated/30 shrink-0">
               <Sparkles className={cn('h-3.5 w-3.5 text-accent/60', analyzing && 'animate-pulse')} />
               <span className="text-[11px] text-muted shrink-0">AI 轮动分析</span>
-              {analysisMeta?.summary && (
-                <span className="text-[11px] text-accent/80 truncate">{analysisMeta.summary}</span>
+              {(analysisMeta?.summary || analysisStatus) && (
+                <span className="text-[11px] text-accent/80 truncate">{analysisMeta?.summary || analysisStatus}</span>
               )}
               <div className="flex items-center gap-1.5 ml-auto">
                 <input
@@ -263,17 +294,16 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
                   className="w-28 px-2 py-0.5 text-[11px] bg-elevated/50 border border-border rounded-btn text-foreground placeholder:text-muted/50 focus:outline-none focus:border-accent/40 disabled:opacity-50"
                 />
                 <button
-                  onClick={() => runAnalysis(days, focus)}
-                  disabled={analyzing}
+                  onClick={() => analyzing ? stopAnalysis() : runAnalysis(days, focus)}
                   className={cn(
                     'inline-flex items-center gap-1 px-2 py-0.5 rounded-btn text-[11px] transition-colors cursor-pointer border',
                     analyzing
-                      ? 'opacity-60 cursor-not-allowed border-border text-muted'
+                      ? 'border-sky-400/30 text-sky-300 hover:bg-sky-500/10'
                       : 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/20',
                   )}
                 >
                   {analyzing
-                    ? <><RefreshCw className="h-3 w-3 animate-spin" />分析中</>
+                    ? <><Square className="h-3 w-3" />中止分析</>
                     : analysis
                       ? <><RefreshCw className="h-3 w-3" />重新分析</>
                       : <><Sparkles className="h-3 w-3" />生成分析</>}

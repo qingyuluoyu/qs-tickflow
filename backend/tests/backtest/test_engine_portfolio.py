@@ -68,6 +68,23 @@ def test_max_exposure_sets_target_position_and_caps_count():
     assert result.stats["max_exposure"] <= 0.61
 
 
+def test_position_simulation_returns_a_valid_zero_trade_result_without_entries():
+    panel = _panel(["A"], days=3)
+    entries = _mask(panel, set())
+    exits = _mask(panel, set())
+
+    result = _engine().simulate_portfolio(
+        panel,
+        entries,
+        exits,
+        MatcherConfig(matching="close_t", fees_pct=0, slippage_bps=0, initial_capital=100_000),
+    )
+
+    assert result.stats.get("error") is None
+    assert result.trades == []
+    assert result.equity_curve[-1]["value"] == 100_000
+
+
 def test_one_price_limit_up_blocks_buy():
     panel = _panel(
         ["A"],

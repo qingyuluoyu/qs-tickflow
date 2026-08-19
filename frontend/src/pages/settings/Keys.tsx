@@ -1,36 +1,37 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
+import { Badge, Button, PasswordInput, Popover } from '@mantine/core'
 import {
   Key,
-  Eye,
-  EyeOff,
   Trash2,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
   Activity,
-  ExternalLink,
   Loader2,
   Save,
   Check,
   HelpCircle,
 } from 'lucide-react'
 import { api } from '@/lib/api'
+import { useIsAdmin } from '@/lib/auth'
 import { useCapabilities, useSettings } from '@/lib/useSharedQueries'
 import { QK } from '@/lib/queryKeys'
 import { CAP_LABELS, tierTextStyle, tierStyle, tierBaseName, ALL_TIERS, TierTag } from '@/lib/capability-labels'
+import { Modal } from '@/components/Modal'
 
 // ===== 导出为 Panel 组件 (由 Settings.tsx 嵌入) =====
 
 export function SettingsKeysPanel() {
   const qc = useQueryClient()
+  // tickflow-key 增删为服务器级写操作(后端管理员闸门),普通用户只读状态
+  const isAdmin = useIsAdmin()
 
   const settings = useSettings()
   const caps = useCapabilities()
 
   const [keyInput, setKeyInput] = useState('')
-  const [revealing, setRevealing] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [saved, setSaved] = useState(false)
 
@@ -73,19 +74,9 @@ export function SettingsKeysPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6 max-w-5xl">
         {/* ========== 左列: Key 配置 ========== */}
         <div className="space-y-6">
-          <Card icon={Key} title="TickFlow API Key">
+          <Card icon={Key} title="数据接口密钥">
             <p className="text-sm text-secondary leading-relaxed mb-4">
-              在{' '}
-              <a
-                href="https://tickflow.org/auth/register?ref=V3KDKGXPEA"
-                target="_blank"
-                rel="noreferrer"
-                className="text-accent hover:underline inline-flex items-baseline gap-0.5"
-              >
-                tickflow.org
-                <ExternalLink className="h-3 w-3 self-center" />
-              </a>{' '}
-              注册获取。API Key 存放为本地文件,不会上传任何第三方,请妥善保管。
+              可选配置你自己的数据接口密钥。密钥仅保存在当前账户的加密配置中，不会在页面明文展示。
             </p>
 
             {/* 当前状态 */}
@@ -113,19 +104,20 @@ export function SettingsKeysPanel() {
                   )}
                 </div>
               </div>
-              {(mode === 'api_key' || mode === 'free') && (
-                <button
+              {isAdmin && (mode === 'api_key' || mode === 'free') && (
+                <Button
+                  size="xs" variant="subtle" color="red"
                   onClick={() => setConfirmClear(true)}
                   disabled={clear.isPending}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated text-secondary hover:text-danger text-xs transition-colors duration-150 ease-smooth disabled:opacity-50 shrink-0"
+                  leftSection={<Trash2 className="h-3 w-3" />}
                 >
-                  <Trash2 className="h-3 w-3" />
                   清除
-                </button>
+                </Button>
               )}
             </div>
 
-            {/* 输入 */}
+            {/* 输入 (仅管理员可保存/替换密钥) */}
+            {isAdmin && (
             <form
               onSubmit={(e) => {
                 e.preventDefault()
@@ -133,32 +125,22 @@ export function SettingsKeysPanel() {
               }}
               className="space-y-2"
             >
-              <div className="relative">
-                <input
-                  type={revealing ? 'text' : 'password'}
-                  placeholder={mode === 'none' ? '粘贴 TickFlow API Key' : '粘贴新 Key 替换当前'}
-                  value={keyInput}
-                  onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
-                  className="w-full px-3 py-2 pr-9 rounded-input bg-base border border-border text-sm font-mono focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth"
-                />
-                <button
-                  type="button"
-                  onClick={() => setRevealing((v) => !v)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors duration-150 ease-smooth"
-                  tabIndex={-1}
-                  aria-label={revealing ? '隐藏' : '显示'}
-                >
-                  {revealing ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <button
+              <PasswordInput
+                placeholder={mode === 'none' ? '粘贴接口密钥' : '粘贴新密钥替换当前'}
+                value={keyInput}
+                onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
+                size="sm"
+                classNames={{ input: 'font-mono' }}
+              />
+              <Button
                 type="submit"
+                size="md"
+                fullWidth
                 disabled={save.isPending || (!keyInput.trim() && !saved)}
-                className="w-full h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all"
+                leftSection={save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
               >
-                {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
                 {save.isPending ? '保存中...' : saved ? '已保存' : '保存并检测'}
-              </button>
+              </Button>
 
               {/* 检测中提示 —— 成功/失败后自动消失 */}
               {save.isPending && (
@@ -178,6 +160,7 @@ export function SettingsKeysPanel() {
                 </div>
               )}
             </form>
+            )}
 
             {save.isError && (
               <div className="mt-3 text-xs text-danger">
@@ -209,14 +192,14 @@ export function SettingsKeysPanel() {
             icon={Activity}
             title="订阅档位"
             right={
-              <button
+              <Button
+                size="xs" variant="subtle" color="gray"
                 onClick={() => redetect.mutate()}
                 disabled={redetect.isPending}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated hover:bg-elevated/80 text-xs text-secondary transition-colors duration-150 ease-smooth disabled:opacity-50"
+                leftSection={<RefreshCw className={`h-3 w-3 ${redetect.isPending ? 'animate-spin' : ''}`} />}
               >
-                <RefreshCw className={`h-3 w-3 ${redetect.isPending ? 'animate-spin' : ''}`} />
                 重新检测
-              </button>
+              </Button>
             }
           >
             {caps.data ? (
@@ -308,35 +291,31 @@ export function SettingsKeysPanel() {
         </div>
       </div>
 
-      {/* 确认清除 Key 弹窗 */}
+      {/* 确认清除 Key 弹窗 (Mantine Modal) */}
       {confirmClear && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmClear(false)}
-          />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-2">清除 API Key</h3>
-            <p className="text-xs text-secondary mb-5">
-              清除后将退回 None 档(仅历史日K),需要重新输入 Key 才能恢复。
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setConfirmClear(false)}
-                className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => { setConfirmClear(false); clear.mutate() }}
-                disabled={clear.isPending}
-                className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {clear.isPending ? '清除中...' : '确认清除'}
-              </button>
-            </div>
+        <Modal
+          onClose={() => setConfirmClear(false)}
+          ariaLabel="清除 API Key"
+          panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
+          overlayClassName="bg-black/60 backdrop-blur-sm"
+        >
+          <h3 className="text-sm font-medium text-foreground mb-2">清除 API Key</h3>
+          <p className="text-xs text-secondary mb-5">
+            清除后将关闭扩展接口能力，历史行情仍可继续使用。
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="default" onClick={() => setConfirmClear(false)}>
+              取消
+            </Button>
+            <Button
+              size="sm" color="red" variant="light"
+              onClick={() => { setConfirmClear(false); clear.mutate() }}
+              disabled={clear.isPending}
+            >
+              {clear.isPending ? '清除中...' : '确认清除'}
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   )
@@ -351,31 +330,33 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
   const currentBase = tierBaseName(currentLabel)
 
   return (
-    <div className="relative inline-flex items-center">
-      <HelpCircle
-        className="h-4 w-4 text-muted/60 cursor-help hover:text-muted transition-colors"
-        onClick={() => setOpen(v => !v)}
-      />
-      <AnimatePresence>
-        {open && (
-          <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-            <motion.div
-              initial={{ opacity: 0, y: -4, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -4, scale: 0.95 }}
-              transition={{ duration: 0.15 }}
-              className="absolute top-full left-0 mt-1 z-50 w-72 bg-surface border border-border rounded-lg shadow-xl p-3.5 text-[11px] leading-relaxed"
-              onClick={e => e.stopPropagation()}
-            >
-              {/* 档位 tag 横排 */}
-              <div className="flex items-center gap-1.5 mb-3">
-                {ALL_TIERS.map(t => (
-                  <div key={t} className={`flex flex-col items-center gap-1 ${t === currentBase ? '' : 'opacity-60'}`}>
-                    <TierTag label={t} />
-                  </div>
-                ))}
-              </div>
+    <Popover
+      opened={open}
+      onChange={setOpen}
+      position="bottom-start"
+      width={288}
+      offset={4}
+      withinPortal
+      shadow="xl"
+      transitionProps={{ duration: 150 }}
+      classNames={{ dropdown: 'bg-surface border border-border rounded-lg p-3.5 text-[11px] leading-relaxed' }}
+    >
+      <Popover.Target>
+        <span className="inline-flex items-center" onClick={() => setOpen(v => !v)}>
+          <HelpCircle
+            className="h-4 w-4 text-muted/60 cursor-help hover:text-muted transition-colors"
+          />
+        </span>
+      </Popover.Target>
+      <Popover.Dropdown>
+        {/* 档位 tag 横排 */}
+        <div className="flex items-center gap-1.5 mb-3">
+          {ALL_TIERS.map(t => (
+            <div key={t} className={`flex flex-col items-center gap-1 ${t === currentBase ? '' : 'opacity-60'}`}>
+              <TierTag label={t} />
+            </div>
+          ))}
+        </div>
 
               {/* 每档说明 */}
               <div className="space-y-1 mb-3 pb-3 border-b border-border">
@@ -384,7 +365,7 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
                   return (
                     <div key={t} className="flex items-center gap-2">
                       <span className="h-1.5 w-1.5 rounded-full shrink-0" style={s.dotStyle} />
-                      <span className="font-mono font-bold w-12 shrink-0" style={s.labelTextStyle}>{t === 'none' ? 'None' : t}</span>
+                      <span className="font-mono font-bold w-12 shrink-0" style={s.labelTextStyle}>{t === 'none' ? '未配置' : t}</span>
                       <span className="text-secondary">{s.desc}</span>
                     </div>
                   )
@@ -398,14 +379,11 @@ function TierHelpPopover({ currentLabel }: { currentLabel: string }) {
               {/* 检测说明 */}
               <div className="text-secondary space-y-1.5">
                 <div className="font-medium text-foreground">档位检测说明</div>
-                <p>保存 Key 后系统会在付费端点逐一试探数据能力:连单只日K都拿不到则判为「None」(不存 Key);有日K但无复权因子则判为「Free」;有复权因子再按代表能力判定 Starter/Pro/Expert。</p>
-                <p className="text-muted">None 档与 Free 档运行时都走免费数据通道(仅历史日K),区别仅在于是否保存了 Key。付费档走付费端点,享有实时行情等完整能力。</p>
+                <p>保存密钥后系统会自动检测可用的数据能力，并只展示当前账户可使用的功能。</p>
+                <p className="text-muted">未配置密钥时仍可使用本地历史行情；扩展能力是否可用以检测结果为准。</p>
               </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
-    </div>
+      </Popover.Dropdown>
+    </Popover>
   )
 }
 
@@ -426,9 +404,9 @@ function Card({ icon: Icon, title, badge, right, children }: CardProps) {
           <Icon className="h-4 w-4 text-secondary" />
           <h2 className="text-sm font-medium text-foreground">{title}</h2>
           {badge && (
-            <span className="px-1.5 py-0.5 text-[10px] font-mono rounded bg-elevated text-muted">
+            <Badge size="xs" variant="light" color="gray" className="font-mono normal-case">
               {badge}
-            </span>
+            </Badge>
           )}
         </div>
         {right}

@@ -49,6 +49,8 @@ class DatasetConfig:
     # 这类不接受通用 start_time/end_time 顶层字段的上游。
     start_body_path: str = ""
     end_body_path: str = ""
+    # 精确查询某个交易日时使用的嵌套路径, 如 "params.trade_date".
+    trade_date_body_path: str = ""
     # 部分日频源严格要求 YYYY-MM-DD，不接受 ISO 时间戳。
     date_only: bool = False
     date_format: str = ""
@@ -134,6 +136,7 @@ def _dataset_from_dict(raw: dict[str, Any]) -> DatasetConfig:
         symbols_body_path=str(raw.get("symbols_body_path", "") or ""),
         start_body_path=str(raw.get("start_body_path", "") or ""),
         end_body_path=str(raw.get("end_body_path", "") or ""),
+        trade_date_body_path=str(raw.get("trade_date_body_path", "") or ""),
         date_only=bool(raw.get("date_only", False)),
         date_format=str(raw.get("date_format", "") or ""),
         daily_url_by_asset_type={

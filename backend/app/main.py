@@ -9,11 +9,12 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
-from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, qingshu101, regime, rps, screener, settings as settings_api, signals, stock_analysis, strategy, watchlist
+from app.api import analysis, auth as auth_api, backtest, data, ext_data, financials, indices, intraday, kline, market_recap, monitor_rules, alerts, overview, pipeline, qingshu101, regime, rps, screener, settings as settings_api, signals, stock_analysis, stock_insight, strategy, watchlist, watchlist_news as watchlist_news_api
 from app.api.routes import router as core_router
 from app.config import settings
 from app.jobs import daily_pipeline
@@ -85,6 +86,34 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("custom data sources init failed: %s", e)
 
+    # Prefer an operator-provided VibePublic API configuration; when it is
+    # absent, the maintained Vibe-Research public-source adapter is used.
+    # Invalid configuration remains fail-closed and must not affect
+    # market-data startup.
+    try:
+        from app.data_providers import news_registry
+        from app.services.watchlist_news import WatchlistNewsService
+
+        news_registry.load()
+        app.state.watchlist_news_service = WatchlistNewsService(
+            provider=news_registry.get_provider(),
+        )
+        from app.services.watchlist_news_preloader import WatchlistNewsPreloader
+
+        news_preloader = WatchlistNewsPreloader(
+            account_store=account_store,
+            shared_root=store.data_dir,
+            service=app.state.watchlist_news_service,
+            interval_s=300.0,
+        )
+        app.state.watchlist_news_preloader = news_preloader
+        news_preloader.start()
+        logger.info("watchlist news provider: %s", news_registry.status().get("name"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("VibePublic news provider init failed: %s", e)
+        app.state.watchlist_news_service = None
+        app.state.watchlist_news_preloader = None
+
     # Provider selection and background refresh settings are server-scoped.
     # Migrate only the old shared preferences file; never choose a provider
     # from an authenticated user's private workspace.
@@ -94,22 +123,59 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("server preferences migration failed: %s", e)
 
-    # 看板行情预加载: provider 请求在后台每 30 秒执行, 访问 /api/overview/market
-    # 不再同步等待 TeaJoin。预加载器只缓存全市场快照, 不缓存用户维度排名, 保持账户隔离。
+    # 看板使用独立的快照预加载器: 盘中读取已配置 provider 的当日实时快照,
+    # 收盘/休市读取 provider 的最近完整日线; 只有没有可用自定义行情能力时
+    # 才回退新浪盘中快照。所有快照只保存在内存,不污染历史日K分区。
     try:
+        from app.data_providers import custom as custom_sources
+        from app.services import preferences
         from app.services.market_overview_preloader import (
             MarketOverviewPreloader,
+            make_dashboard_failover_fetcher,
             make_dashboard_snapshot_fetcher,
+            make_sina_intraday_snapshot_fetcher,
         )
 
-        dashboard_preloader = MarketOverviewPreloader(
-            make_dashboard_snapshot_fetcher(),
+        def _dashboard_stock_symbols() -> list[str]:
+            instruments = repo.get_instruments()
+            if instruments.is_empty() or "symbol" not in instruments.columns:
+                return []
+            return instruments.get_column("symbol").drop_nulls().unique().to_list()
+
+        provider_fetcher = make_dashboard_snapshot_fetcher(daily_refresh_s=30.0)
+        sina_fetcher = make_sina_intraday_snapshot_fetcher(
+            _dashboard_stock_symbols,
+            lambda: list(QuoteService.CORE_INDEX_SYMBOLS),
+            repo,
             interval_s=30.0,
         )
-        app.state.market_overview_preloader = dashboard_preloader
-        dashboard_preloader.start()
+        dashboard_failover_fetcher = make_dashboard_failover_fetcher(
+            provider_fetcher,
+            sina_fetcher,
+        )
+
+        def dashboard_fetcher():
+            # Re-evaluate server-scoped provider settings on each cycle so a
+            # provider change takes effect without restarting the process.
+            realtime_provider = preferences.get_realtime_data_provider()
+            daily_provider = preferences.get_daily_data_provider()
+            custom_dashboard_data = (
+                (
+                    realtime_provider != "tickflow"
+                    and custom_sources.provider_has_dataset(realtime_provider, "realtime")
+                )
+                or (
+                    daily_provider != "tickflow"
+                    and custom_sources.provider_has_dataset(daily_provider, "daily")
+                )
+            )
+            return dashboard_failover_fetcher() if custom_dashboard_data else sina_fetcher()
+
+        market_preloader = MarketOverviewPreloader(dashboard_fetcher, interval_s=30.0)
+        app.state.market_overview_preloader = market_preloader
+        market_preloader.start()
     except Exception as e:  # noqa: BLE001
-        logger.warning("dashboard market preloader not started: %s", e)
+        logger.warning("dashboard intraday preloader not started: %s", e)
         app.state.market_overview_preloader = None
 
     # 全局行情服务
@@ -169,7 +235,7 @@ async def lifespan(app: FastAPI):
 
     # 扩展数据定时拉取: 在预设配置就绪后启动, 自动调度 enabled 的预设。
     from app.services.ext_pull import pull_scheduler
-    pull_scheduler.start(store.data_dir)
+    pull_scheduler.start()
     pull_scheduler.refresh(store.data_dir)
     app.state.pull_scheduler = pull_scheduler
 
@@ -347,6 +413,14 @@ async def lifespan(app: FastAPI):
         custom_sources.close_all()
     except Exception:  # noqa: BLE001
         logger.warning("custom data source shutdown failed", exc_info=True)
+    news_preloader = getattr(app.state, "watchlist_news_preloader", None)
+    if news_preloader:
+        news_preloader.stop()
+    try:
+        from app.data_providers import news_registry
+        news_registry.close()
+    except Exception:  # noqa: BLE001
+        logger.warning("VibePublic news provider shutdown failed", exc_info=True)
     dsvc = getattr(app.state, "depth_service", None)
     if dsvc:
         dsvc.stop_polling()
@@ -366,6 +440,10 @@ app = FastAPI(
 # The product uses HttpOnly cookies, so wildcard browser origins are unsafe and
 # cannot authenticate correctly. Same-origin needs no CORS headers; operators
 # may opt into a bounded list for a separately hosted trusted frontend.
+# 出口带宽是部署瓶颈: 文本资源 (JS/CSS/JSON) gzip 后体积降 60-80%。
+# minimum_size 避免小响应压缩开销; streaming/SSE 响应不受影响 (starlette 自动跳过)。
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 if settings.cors_origin_list:
     app.add_middleware(
         CORSMiddleware,
@@ -393,6 +471,9 @@ async def security_headers_middleware(request: Request, call_next):
         )
     if request.url.path.startswith(("/api/auth/", "/api/qingshu101/")):
         response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/assets/"):
+        # vite 产物文件名带内容 hash, 可永久缓存 — 带宽受限环境的关键优化
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     if auth_api._is_https(request):  # noqa: SLF001 - shared trusted-proxy policy
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
@@ -458,6 +539,7 @@ app.include_router(auth_api.router)
 app.include_router(qingshu101.router)
 app.include_router(kline.router)
 app.include_router(watchlist.router)
+app.include_router(watchlist_news_api.router)
 app.include_router(screener.router)
 app.include_router(backtest.router)
 app.include_router(intraday.router)
@@ -477,6 +559,7 @@ app.include_router(signals.router)
 app.include_router(monitor_rules.router)
 app.include_router(alerts.router)
 app.include_router(rps.router)
+app.include_router(stock_insight.router)
 
 
 # 能力门控异常 → 403(而非默认 500)
@@ -502,9 +585,14 @@ if _static.exists():
     def spa_fallback(full_path: str):  # noqa: ARG001
         """所有未匹配路径回退到 index.html — React Router 接管。
 
+        dist 根目录下的真实文件 (brand-icon.png / favicon.svg 等) 优先直接返回。
         index.html 禁止缓存 (Cache-Control: no-store), 确保浏览器每次拿到
         最新版本引用的 JS/CSS 文件名 (assets 带 hash, 可长缓存)。
         """
+        if full_path:
+            candidate = (_static / full_path).resolve()
+            if candidate.is_file() and candidate.is_relative_to(_static.resolve()):
+                return FileResponse(candidate)
         index = _static / "index.html"
         if index.exists():
             return FileResponse(

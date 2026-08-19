@@ -492,8 +492,13 @@ class StrategyEngine:
             if filter_fn is not None or filter_history_fn is not None:
                 raise ValueError("matrix_native strategy must not declare filter or filter_history")
         elif execution_backend == "polars_expr":
-            if filter_fn is None or filter_history_fn is not None:
-                raise ValueError("polars_expr strategy must declare only filter")
+            if filter_history_fn is not None:
+                raise ValueError(
+                    "polars_expr strategy must declare only filter; "
+                    "use python_history_legacy for filter_history"
+                )
+            if filter_fn is None:
+                raise ValueError("polars_expr strategy must declare filter")
         elif execution_backend == "composite":
             # 叠加策略是声明式的: 不含业务代码, 仅通过 META["children"] 引用其他策略。
             # 引用合法性(子策略存在/非嵌套/asset_types 一致/数量上限)延后到
@@ -508,7 +513,10 @@ class StrategyEngine:
                 )
             composite_spec = _parse_composite_children(meta.get("children"))
         elif filter_history_fn is None or filter_fn is not None:
-            raise ValueError("python_history_legacy strategy must declare only filter_history")
+            raise ValueError(
+                "python_history_legacy strategy must declare only filter_history; "
+                "use polars_expr for filter"
+            )
 
         return StrategyDef(
             meta=meta,

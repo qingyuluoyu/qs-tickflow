@@ -1,7 +1,7 @@
 """AI 概念轮动分析 — 从概念涨幅排名矩阵提炼主线/新晋/退潮信号。
 
 数据来源:
-  - rps_rotation.build_rps_rotation: 概念涨幅排名矩阵 (N 日 × ~387 概念)
+  - rps_rotation.build_rps_rotation: 概念涨幅排名矩阵 (N 日 x ~387 概念)
   - market_overview_builder.build_market_overview: 大盘背景 (指数/情绪/涨停)
 
 架构 (复刻 market_recap):
@@ -318,14 +318,33 @@ async def analyze_rotation_stream(
         kind: "concept"(概念) 或 "industry"(行业)。
         level: 行业层级(1/2/3), 仅 kind=industry 有效。
     """
-    from app.services.rps_rotation import build_rps_rotation
     from app.services.market_overview_builder import build_market_overview
+    from app.services.rps_rotation import build_rps_rotation
 
     dim = _dim_label(kind)
     page = "行业分析" if kind == "industry" else "概念分析"
 
-    # 1. 取轮动矩阵
-    rotation = build_rps_rotation(repo, days, kind, level)
+    # Flush a visible connection state before the synchronous matrix and
+    # market-background preparation. This keeps a slow local data read from
+    # looking like a dead AI request in the browser.
+    yield json.dumps({
+        "type": "status",
+        "message": f"正在准备{dim}轮动数据…",
+        "padding": " " * 2048,
+    }, ensure_ascii=False)
+
+    # 1. 取轮动矩阵。矩阵构建失败时也必须保持 NDJSON 协议完整, 不能让
+    #    异常在第一个事件前逃出 StreamingResponse, 导致前端只能看到网络失败。
+    try:
+        rotation = build_rps_rotation(repo, days, kind, level)
+    except Exception:
+        logger.exception("%s rotation matrix build failed", kind)
+        yield json.dumps({
+            "type": "error",
+            "message": f"{dim}轮动数据生成失败,请稍后重试",
+        }, ensure_ascii=False)
+        return
+
     dates = rotation.get("dates") or []
     columns = rotation.get("columns") or {}
 
@@ -342,7 +361,7 @@ async def analyze_rotation_stream(
     # 3. 大盘背景 (失败不阻断, 降级为空)
     try:
         overview = build_market_overview(repo, quote_service, depth_service)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("rotation analyze: 大盘背景获取失败, 降级为空: %s", e)
         overview = {}
 
@@ -355,7 +374,7 @@ async def analyze_rotation_stream(
 
     # 5. 构建 prompt + 流式调用 LLM
     try:
-        from app.services.ai_provider import stream_ai_text, ai_configured
+        from app.services.ai_provider import ai_configured, stream_ai_text
 
         if not ai_configured():
             yield json.dumps({
@@ -375,7 +394,7 @@ async def analyze_rotation_stream(
         ):
             yield json.dumps({"type": "delta", "content": delta}, ensure_ascii=False)
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.exception("AI %s rotation analyze failed: %s", kind, e)
         yield json.dumps({"type": "error", "message": f"AI 轮动分析失败: {e}"}, ensure_ascii=False)
 

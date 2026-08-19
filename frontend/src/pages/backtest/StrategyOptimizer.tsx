@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Play, Square, Trophy } from 'lucide-react'
+import { Badge, Button, Progress, Select, Table } from '@mantine/core'
 import { api, type StrategyDetail } from '@/lib/api'
 import { fmtPct } from '@/lib/format'
 import { EmptyState } from '@/components/EmptyState'
@@ -14,7 +15,6 @@ import {
 } from '@/lib/optimizerTask'
 import { buildDefaultOverrides } from '@/lib/strategyOverrides'
 import {
-  INPUT_CLS,
   OBJECTIVES,
   GRID_MAX_COMBINATIONS,
   useParamSweep,
@@ -71,7 +71,7 @@ export function StrategyOptimizer() {
   const progress = task?.progress
 
   return (
-    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[320px_minmax(0,1fr)] h-full min-h-0 overflow-hidden">
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(15rem,2fr)_minmax(0,5fr)] h-full min-h-0 overflow-hidden">
       {/* ── 配置面板 ── */}
       <div className="space-y-3 rounded-card border border-border bg-surface p-4 overflow-y-auto min-h-0">
         <div>
@@ -81,9 +81,13 @@ export function StrategyOptimizer() {
 
         <div>
           <label className="mb-1.5 block text-xs font-medium text-secondary">优化目标</label>
-          <select value={objective} onChange={e => setObjective(e.target.value)} className={INPUT_CLS}>
-            {OBJECTIVES.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
+          <Select
+            size="xs"
+            value={objective}
+            onChange={v => v && setObjective(v)}
+            allowDeselect={false}
+            data={OBJECTIVES.map(o => ({ value: o.id, label: o.label }))}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -99,30 +103,36 @@ export function StrategyOptimizer() {
 
         <div>
           <label className="mb-1.5 block text-xs font-medium text-secondary">模式</label>
-          <select value={mode} onChange={e => setMode(e.target.value as any)} className={INPUT_CLS}>
-            <option value="position">组合仓位</option>
-            <option value="full">全量独立</option>
-          </select>
+          <Select
+            size="xs"
+            value={mode}
+            onChange={v => v && setMode(v as 'position' | 'full')}
+            allowDeselect={false}
+            data={[
+              { value: 'position', label: '组合仓位' },
+              { value: 'full', label: '全量独立' },
+            ]}
+          />
         </div>
 
         <SweepParamList params={sweep.params} sweeps={sweep.sweeps} updateSweep={sweep.updateSweep} />
         <CombosHint show={!!sweep.strategyId} combos={sweep.combos} gridError={sweep.gridError} />
 
         {task?.isPending ? (
-          <button onClick={stopOptimize} className="inline-flex w-full items-center justify-center gap-1.5 rounded-btn bg-red-500/90 px-3 py-2 text-xs font-medium text-white hover:bg-red-500">
-            <Square className="h-3.5 w-3.5" /> 停止
-          </button>
+          <Button fullWidth size="xs" color="red" leftSection={<Square className="h-3.5 w-3.5" />} onClick={stopOptimize}>
+            停止
+          </Button>
         ) : (
-          <button onClick={onRun} disabled={!canRun} className="inline-flex w-full items-center justify-center gap-1.5 rounded-btn bg-accent px-3 py-2 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed">
-            <Play className="h-3.5 w-3.5" /> 开始优化
-          </button>
+          <Button fullWidth size="xs" leftSection={<Play className="h-3.5 w-3.5" />} disabled={!canRun} onClick={onRun}>
+            开始优化
+          </Button>
         )}
       </div>
 
       {/* ── 结果面板 ── */}
       <div className="min-h-0 rounded-card border border-border bg-surface p-4 overflow-y-auto">
         {task?.error && (
-          <div className="mb-3 rounded-input border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{task.error}</div>
+          <div className="mb-3 rounded-input border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">{task.error}</div>
         )}
 
         {task?.isPending && progress && (
@@ -131,9 +141,11 @@ export function StrategyOptimizer() {
               <span>进度 {progress.done}/{progress.total}</span>
               <span>当前最优: {progress.best_score != null ? progress.best_score.toFixed(3) : '—'}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-elevated">
-              <div className="h-full bg-accent transition-all" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} />
-            </div>
+            <Progress
+              size="sm"
+              radius="xl"
+              value={progress.total ? (progress.done / progress.total) * 100 : 0}
+            />
           </div>
         )}
 
@@ -150,7 +162,9 @@ export function StrategyOptimizer() {
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {Object.entries(result.best_params).map(([k, v]) => (
-                    <span key={k} className="rounded-full border border-border bg-surface px-2 py-0.5 text-[11px]">{k}: {String(v)}</span>
+                    <Badge key={k} variant="outline" color="gray" size="sm" className="normal-case font-normal">
+                      {k}: {String(v)}
+                    </Badge>
                   ))}
                 </div>
               </div>
@@ -161,40 +175,40 @@ export function StrategyOptimizer() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-border text-secondary">
-                    <th className="px-2 py-1.5 text-left">#</th>
-                    <th className="px-2 py-1.5 text-left">参数</th>
-                    <th className="px-2 py-1.5 text-right">{result.objective}</th>
-                    <th className="px-2 py-1.5 text-right">夏普</th>
-                    <th className="px-2 py-1.5 text-right">索提诺</th>
-                    <th className="px-2 py-1.5 text-right">总收益</th>
-                    <th className="px-2 py-1.5 text-right">最大回撤</th>
-                    <th className="px-2 py-1.5 text-right">胜率</th>
-                    <th className="px-2 py-1.5 text-right">交易数</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table verticalSpacing={4} horizontalSpacing="xs" highlightOnHover className="text-xs">
+                <Table.Thead>
+                  <Table.Tr className="text-secondary">
+                    <Table.Th className="text-left font-normal">#</Table.Th>
+                    <Table.Th className="text-left font-normal">参数</Table.Th>
+                    <Table.Th className="text-right font-normal">{result.objective}</Table.Th>
+                    <Table.Th className="text-right font-normal">夏普</Table.Th>
+                    <Table.Th className="text-right font-normal">索提诺</Table.Th>
+                    <Table.Th className="text-right font-normal">总收益</Table.Th>
+                    <Table.Th className="text-right font-normal">最大回撤</Table.Th>
+                    <Table.Th className="text-right font-normal">胜率</Table.Th>
+                    <Table.Th className="text-right font-normal">交易数</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
                   {result.results.slice(0, 50).map(r => (
-                    <tr key={r.rank} className="border-b border-border/40 hover:bg-elevated/50">
-                      <td className="px-2 py-1.5 text-secondary">{r.rank}</td>
-                      <td className="px-2 py-1.5">
+                    <Table.Tr key={r.rank}>
+                      <Table.Td className="text-secondary">{r.rank}</Table.Td>
+                      <Table.Td>
                         {r.error
-                          ? <span className="text-red-400">失败: {r.error.slice(0, 40)}</span>
+                          ? <span className="text-danger">失败: {r.error.slice(0, 40)}</span>
                           : <span className="text-foreground">{Object.entries(r.params).map(([k, v]) => `${k}=${v}`).join(', ')}</span>}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-medium">{r.objective_raw != null ? r.objective_raw.toFixed(3) : '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.sharpe ?? '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.sortino ?? '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.total_return != null ? fmtPct(r.stats.total_return) : '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.max_drawdown != null ? fmtPct(r.stats.max_drawdown) : '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.win_rate != null ? fmtPct(r.stats.win_rate) : '—'}</td>
-                      <td className="px-2 py-1.5 text-right">{r.stats?.n_trades ?? '—'}</td>
-                    </tr>
+                      </Table.Td>
+                      <Table.Td className="text-right font-medium">{r.objective_raw != null ? r.objective_raw.toFixed(3) : '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.sharpe ?? '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.sortino ?? '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.total_return != null ? fmtPct(r.stats.total_return) : '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.max_drawdown != null ? fmtPct(r.stats.max_drawdown) : '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.win_rate != null ? fmtPct(r.stats.win_rate) : '—'}</Table.Td>
+                      <Table.Td className="text-right">{r.stats?.n_trades ?? '—'}</Table.Td>
+                    </Table.Tr>
                   ))}
-                </tbody>
-              </table>
+                </Table.Tbody>
+              </Table>
               {result.results.length > 50 && (
                 <div className="mt-2 text-center text-[11px] text-secondary">
                   仅显示前 50 组 · 共 {result.results.length} 组

@@ -5,6 +5,7 @@
  */
 import { useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { Badge } from '@mantine/core'
 import { BarChart3, Database, Key, Radio, SlidersHorizontal, Sparkles, Settings2, Zap } from 'lucide-react'
 import { SettingsKeysPanel } from './settings/Keys'
 import { SettingsAIPanel } from './settings/AI'
@@ -15,6 +16,8 @@ import { SettingsSystemPanel } from './settings/System'
 import { SettingsCustomSignalsPanel } from './settings/CustomSignals'
 import { SettingsDataSourcesPanel } from './settings/DataSources'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
+import { useIsAdmin } from '@/lib/auth'
 import { cn } from '@/lib/cn'
 
 import type { ComponentType } from 'react'
@@ -30,10 +33,10 @@ type TabDef = {
 }
 
 const TABS: readonly TabDef[] = [
-  { key: 'account',    label: 'TickFlow',   icon: Key,       panel: SettingsKeysPanel },
+  { key: 'account',    label: '账户与接口', icon: Key,       panel: SettingsKeysPanel },
   { key: 'ai',         label: 'AI 设置',    icon: Sparkles,  panel: SettingsAIPanel },
   { key: 'monitoring', label: '实时监控',   icon: Radio,     panel: SettingsMonitoringPanel },
-  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel, badge: 'beta' },
+  { key: 'data-sources', label: '数据源',     icon: Database,  panel: SettingsDataSourcesPanel },
   { key: 'ext-pages',  label: '扩展页面',   icon: BarChart3, panel: SettingsExtPagesPanel },
   { key: 'signals',    label: '信号库',     icon: Zap,       panel: SettingsCustomSignalsPanel },
   { key: 'menus',      label: '菜单设置',   icon: SlidersHorizontal, panel: SettingsMenuSettingsPanel },
@@ -44,8 +47,12 @@ type TabKey = (typeof TABS)[number]['key']
 
 export function Settings() {
   const [searchParams, setSearchParams] = useSearchParams()
+  // 数据源面板为纯服务器级管理功能(增删/重载/插件/切换 provider 均要求管理员),
+  // 普通用户隐藏整个入口,避免看到必然 403 的操作
+  const isAdmin = useIsAdmin()
+  const tabs = isAdmin ? TABS : TABS.filter((t) => t.key !== 'data-sources')
   const tabParam = searchParams.get('tab') as TabKey | null
-  const activeTab = TABS.find((t) => t.key === tabParam) ?? TABS[0]
+  const activeTab = tabs.find((t) => t.key === tabParam) ?? tabs[0]
   const highlight = searchParams.get('highlight') ?? ''
 
   return (
@@ -55,12 +62,12 @@ export function Settings() {
         subtitle="管理账户、数据刷新策略和高级功能配置。"
       />
 
-      <div className="px-8 py-6">
-        <div className="flex gap-6 items-stretch">
-          {/* ===== 竖向 Tab 侧栏（内容垂直居中） ===== */}
-          <nav className="w-36 shrink-0">
-            <div className="flex flex-col gap-0.5 justify-center min-h-[60vh] sticky top-6">
-              {TABS.map(({ key, label, icon: Icon, badge }) => (
+      <PageContainer>
+        <div className="flex flex-col gap-4 lg:flex-row lg:gap-6 lg:items-stretch">
+          {/* ===== 竖向 Tab 侧栏（内容垂直居中; 窄屏横排堆叠到顶部） ===== */}
+          <nav className="shrink-0 lg:w-36">
+            <div className="flex flex-row flex-wrap gap-0.5 lg:min-h-[60vh] lg:flex-col lg:flex-nowrap lg:justify-center lg:sticky lg:top-6">
+              {tabs.map(({ key, label, icon: Icon, badge }) => (
                 <button
                   key={key}
                   onClick={() => setSearchParams({ tab: key }, { replace: true })}
@@ -74,9 +81,9 @@ export function Settings() {
                   <Icon className="h-3.5 w-3.5 shrink-0" />
                   <span>{label}</span>
                   {badge && (
-                    <span className="ml-auto inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400 shrink-0">
+                    <Badge size="xs" variant="light" color="blue" className="ml-auto shrink-0 normal-case">
                       {badge}
-                    </span>
+                    </Badge>
                   )}
                 </button>
               ))}
@@ -96,7 +103,7 @@ export function Settings() {
             : <activeTab.panel />}
           </motion.div>
         </div>
-      </div>
+      </PageContainer>
     </>
   )
 }

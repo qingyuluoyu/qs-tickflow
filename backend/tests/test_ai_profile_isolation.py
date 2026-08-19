@@ -24,6 +24,16 @@ def _bind(user, data_dir: Path):
     return set_current_user(user, get_account_store(data_dir).workspace(user.id))
 
 
+def test_platform_default_is_deepseek_flash_without_requiring_a_key_in_source():
+    from app.config import Settings
+
+    defaults = Settings(_env_file=None)
+    assert defaults.ai_provider == "openai_compat"
+    assert defaults.ai_base_url == "https://api.deepseek.com"
+    assert defaults.ai_model == "deepseek-v4-flash"
+    assert defaults.ai_api_key == ""
+
+
 def test_each_user_resolves_only_its_own_ai_override(monkeypatch, tmp_path: Path):
     from app.services import ai_profiles
 
@@ -144,6 +154,35 @@ def test_legacy_personal_ai_configuration_is_copied_once_to_the_encrypted_store(
     assert profile.source == "user_override"
     assert profile.model == "legacy-model"
     assert profile.api_key == "legacy-private-key"
+
+
+def test_clearing_override_with_legacy_config_does_not_resurrect(monkeypatch, tmp_path: Path):
+    """显式删除个人覆盖后, 旧版 secrets.json 不得在下次读取时复活覆盖配置。"""
+    from app import secrets_store
+    from app.services import ai_profiles
+
+    monkeypatch.setattr(settings, "data_dir", tmp_path)
+    monkeypatch.setattr(settings, "user_secrets_master_key", _master_key(), raising=False)
+    monkeypatch.setattr(settings, "ai_api_key", "server-api-key")
+    monkeypatch.setattr(settings, "ai_model", "server-model")
+    user = _create_user(tmp_path, name="Alice", phone="alice-phone")
+
+    tokens = _bind(user, tmp_path)
+    try:
+        secrets_store.save({
+            "ai_provider": "openai_compat",
+            "ai_base_url": "https://8.8.8.8/v1",
+            "ai_api_key": "legacy-private-key",
+            "ai_model": "legacy-model",
+        })
+        assert ai_profiles.resolve_current_profile().source == "user_override"
+
+        ai_profiles.clear_current_override()
+
+        assert ai_profiles.resolve_current_profile().source == "server_default"
+        assert not ai_profiles.has_current_override()
+    finally:
+        reset_current_user(tokens)
 
 
 def test_updating_a_personal_model_without_a_new_key_preserves_its_encrypted_key(monkeypatch, tmp_path: Path):

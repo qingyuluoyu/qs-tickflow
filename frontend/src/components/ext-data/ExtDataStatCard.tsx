@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import { Settings, Tag, Upload, Code, RefreshCw, CheckCircle2, Loader2, Pencil, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { api, type ExtDataConfig } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -257,25 +258,18 @@ export function ExtDataStatCard({ config, onDelete, deleting, onEdit }: {
         )}
       </AnimatePresence>
 
-      {/* 删除二次确认弹窗 */}
-      <AnimatePresence>
-        {showDelete && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => !deleting && setShowDelete(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
-            >
+      {/* 删除二次确认弹窗 (Mantine Modal: ESC/遮罩点击/焦点管理内置; 删除中禁止关闭) */}
+      <MantineModal
+        opened={showDelete}
+        onClose={() => { if (!deleting) setShowDelete(false) }}
+        withCloseButton={false}
+        centered
+        padding={0}
+        transitionProps={{ duration: 150 }}
+        overlayProps={{ backgroundOpacity: 0.6, blur: 4 }}
+        classNames={{ content: 'relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6' }}
+        styles={{ content: { flex: '0 1 auto' } }}
+      >
               <div className="flex items-start gap-3">
                 <div className="shrink-0 h-10 w-10 rounded-full bg-danger/12 flex items-center justify-center">
                   <AlertTriangle className="h-5 w-5 text-danger" />
@@ -306,10 +300,7 @@ export function ExtDataStatCard({ config, onDelete, deleting, onEdit }: {
                   {deleting ? '删除中…' : '确认删除'}
                 </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      </MantineModal>
     </div>
   )
 }

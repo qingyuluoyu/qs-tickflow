@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Badge, Button } from '@mantine/core'
 import { Check, Database, Plus, RefreshCw, Zap, FileWarning } from 'lucide-react'
 import { api, type DataSourceItem, type PluginDataSourceItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { DataSourceEditor } from './DataSourceEditor'
+import { Modal } from '@/components/Modal'
 
 const DATASET_LABEL: Record<string, string> = {
   daily: '日K',
@@ -143,14 +145,14 @@ export function SettingsDataSourcesPanel() {
               {sources.data?.config_dir}
             </span>
           </div>
-          <button
+          <Button
+            size="xs" variant="subtle" color="gray"
             onClick={() => reload.mutate()}
             disabled={reload.isPending}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn text-xs text-muted hover:text-foreground hover:bg-elevated transition-colors disabled:opacity-50"
+            leftSection={<RefreshCw className={`h-3 w-3 ${reload.isPending ? 'animate-spin' : ''}`} />}
           >
-            <RefreshCw className={`h-3 w-3 ${reload.isPending ? 'animate-spin' : ''}`} />
             重新加载
-          </button>
+          </Button>
         </div>
 
         {/* 当前数据源状态 */}
@@ -158,7 +160,7 @@ export function SettingsDataSourcesPanel() {
           <span className="text-[10px] uppercase tracking-widest text-muted">服务器当前</span>
           <span className="h-2 w-2 rounded-full bg-accent animate-pulse" />
           <span className="text-sm font-medium text-foreground">
-            {activeName === 'tickflow' ? 'TickFlow' : customList.find(s => s.name === activeName)?.display_name || activeName}
+            {activeName === 'tickflow' ? '默认行情服务' : customList.find(s => s.name === activeName)?.display_name || activeName}
           </span>
         </div>
 
@@ -198,10 +200,10 @@ export function SettingsDataSourcesPanel() {
                     {item.display_name}
                   </span>
                   {item.name === 'tickflow' && (
-                    <span className="text-[9px] text-muted/50 uppercase tracking-wider shrink-0">内置</span>
+                    <Badge size="xs" variant="light" color="gray" className="shrink-0">默认</Badge>
                   )}
                   {pluginNames.has(item.name) && (
-                    <span className="text-[9px] text-muted/50 uppercase tracking-wider shrink-0">插件</span>
+                    <Badge size="xs" variant="light" color="gray" className="shrink-0 uppercase">插件</Badge>
                   )}
                   {/* 右侧操作区: 插件未安装→安装按钮; 已激活→使用中; 否则→使用/卸载 */}
                   {pluginUnavailable ? (
@@ -210,13 +212,14 @@ export function SettingsDataSourcesPanel() {
                         <RefreshCw className="h-2.5 w-2.5 animate-spin" /> 安装中...
                       </span>
                     ) : (
-                      <button
+                      <Button
+                        size="compact-xs" variant="light"
                         onClick={(e) => { e.stopPropagation(); installMut.mutate(item.name) }}
                         disabled={installMut.isPending}
-                        className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
+                        leftSection={<Zap className="h-2.5 w-2.5" />}
                       >
-                        <Zap className="h-2.5 w-2.5" /> 安装
-                      </button>
+                        安装
+                      </Button>
                     )
                   ) : isActive ? (
                     <span className="inline-flex items-center gap-0.5 text-[9px] text-accent shrink-0">
@@ -225,34 +228,34 @@ export function SettingsDataSourcesPanel() {
                   ) : plugin ? (
                     /* 已安装插件: 使用 + 卸载 */
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
+                      <Button
+                        size="compact-xs" variant="light"
                         onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
                         disabled={switchProvider.isPending}
-                        className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                       >
                         使用
-                      </button>
+                      </Button>
                       {uninstalling ? (
                         <RefreshCw className="h-2.5 w-2.5 animate-spin text-muted" />
                       ) : (
-                        <button
+                        <Button
+                          size="compact-xs" variant="subtle" color="red"
                           onClick={(e) => { e.stopPropagation(); uninstallMut.mutate(item.name) }}
                           disabled={uninstallMut.isPending}
-                          className="text-[10px] text-muted/50 hover:text-danger transition-colors disabled:opacity-40"
                           title="卸载依赖"
                         >
                           卸载
-                        </button>
+                        </Button>
                       )}
                     </div>
                   ) : (
-                    <button
+                    <Button
+                      size="compact-xs" variant="light"
                       onClick={(e) => { e.stopPropagation(); switchProvider.mutate(item.name) }}
                       disabled={switchProvider.isPending}
-                      className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-accent/10 text-accent hover:bg-accent/20 transition-colors disabled:opacity-50"
                     >
                       使用
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {item.name !== 'tickflow' && item.datasets.length > 0 && (
@@ -265,7 +268,7 @@ export function SettingsDataSourcesPanel() {
                   </div>
                 )}
                 {item.name === 'tickflow' && (
-                  <div className="text-[10px] text-muted/60 ml-3.5">日K · 除权 · 实时 · 分钟K</div>
+                  <div className="text-[10px] text-muted/60 ml-3.5">历史行情 · 实时行情 · 分钟行情</div>
                 )}
                 {/* 未安装插件显示安装命令提示 */}
                 {pluginUnavailable && plugin?.install_hint && (
@@ -308,7 +311,7 @@ export function SettingsDataSourcesPanel() {
           <span className="text-muted/30">·</span>
           <span>点「使用」切换为当前数据源</span>
           <span className="text-muted/30">·</span>
-          <span>未启用的数据集自动回退 TickFlow</span>
+          <span>未启用的数据集自动使用默认服务</span>
         </div>
       </section>
 
@@ -356,35 +359,31 @@ export function SettingsDataSourcesPanel() {
         </motion.div>
       </AnimatePresence>
 
-      {/* 删除确认弹窗 */}
+      {/* 删除确认弹窗 (Mantine Modal) */}
       {confirmDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            onClick={() => setConfirmDelete(null)}
-          />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-2">删除数据源</h3>
-            <p className="text-xs text-secondary mb-5">
-              确认删除「{customList.find(s => s.name === confirmDelete)?.display_name || confirmDelete}」? 该数据源的配置文件将被移除,此操作不可撤销。
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => setConfirmDelete(null)}
-                className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => remove.mutate(confirmDelete)}
-                disabled={remove.isPending}
-                className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {remove.isPending ? '删除中...' : '确认删除'}
-              </button>
-            </div>
+        <Modal
+          onClose={() => setConfirmDelete(null)}
+          ariaLabel="删除数据源"
+          panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
+          overlayClassName="bg-black/60 backdrop-blur-sm"
+        >
+          <h3 className="text-sm font-medium text-foreground mb-2">删除数据源</h3>
+          <p className="text-xs text-secondary mb-5">
+            确认删除「{customList.find(s => s.name === confirmDelete)?.display_name || confirmDelete}」? 该数据源的配置文件将被移除,此操作不可撤销。
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="default" onClick={() => setConfirmDelete(null)}>
+              取消
+            </Button>
+            <Button
+              size="sm" color="red" variant="light"
+              onClick={() => remove.mutate(confirmDelete)}
+              disabled={remove.isPending}
+            >
+              {remove.isPending ? '删除中...' : '确认删除'}
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
@@ -416,13 +415,9 @@ function PluginDetail({ plugin, isActive, onSwitch, switching }: {
             <Check className="h-3.5 w-3.5" /> 当前使用中
           </span>
         ) : (
-          <button
-            onClick={onSwitch}
-            disabled={switching}
-            className="px-3 py-1.5 rounded-btn bg-accent/10 text-accent hover:bg-accent/20 text-xs font-medium transition-colors disabled:opacity-50"
-          >
+          <Button size="xs" variant="light" onClick={onSwitch} disabled={switching}>
             切换为当前数据源
-          </button>
+          </Button>
         )}
       </div>
     </section>
@@ -438,7 +433,7 @@ function TickFlowDetail({ active, onSwitch, switching }: { active: boolean; onSw
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base font-semibold text-foreground">TickFlow</h2>
+            <h2 className="text-base font-semibold text-foreground">默认行情服务</h2>
             <span className="text-[10px] text-muted/60 uppercase tracking-wider border border-border rounded px-1.5 py-0.5">内置默认</span>
             {active && (
               <span className="inline-flex items-center gap-1 text-[10px] text-accent bg-accent/10 px-1.5 py-0.5 rounded">
@@ -447,7 +442,7 @@ function TickFlowDetail({ active, onSwitch, switching }: { active: boolean; onSw
             )}
           </div>
           <p className="text-xs text-secondary mt-1.5 leading-relaxed">
-            项目默认数据源。日K、除权因子、实时行情、分钟K均由 TickFlow 提供,无需额外配置。
+            项目默认行情服务，覆盖历史行情、实时行情与分钟行情，无需额外配置。
           </p>
         </div>
       </div>
@@ -467,14 +462,14 @@ function TickFlowDetail({ active, onSwitch, switching }: { active: boolean; onSw
       </div>
 
       {!active && (
-        <button
+        <Button
+          size="sm"
           onClick={onSwitch}
           disabled={switching}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-btn bg-accent text-white text-sm font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors"
+          leftSection={<Zap className="h-3.5 w-3.5" />}
         >
-          <Zap className="h-3.5 w-3.5" />
           切换为当前数据源
-        </button>
+        </Button>
       )}
     </section>
   )

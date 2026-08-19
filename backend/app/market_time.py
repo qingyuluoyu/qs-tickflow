@@ -6,7 +6,10 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, time as dt_time, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
+from datetime import time as dt_time
+from enum import StrEnum
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -16,6 +19,123 @@ _MORNING_START = dt_time(9, 30)
 _MORNING_END = dt_time(11, 30)
 _AFTERNOON_START = dt_time(13, 0)
 _AFTERNOON_END = dt_time(15, 0)
+
+
+class MarketSession(StrEnum):
+    """A 股北京时间交易阶段。
+
+    ``MORNING``/``AFTERNOON`` are continuous-auction windows. ``LUNCH`` is
+    the midday break; ``PREOPEN`` and ``POST_CLOSE`` are closed for trades but
+    are useful when deciding whether a daily candle is complete.
+    """
+
+    PREOPEN = "preopen"
+    MORNING = "morning"
+    LUNCH = "lunch"
+    AFTERNOON = "afternoon"
+    POST_CLOSE = "post_close"
+    CLOSED = "closed"
+
+
+@dataclass(frozen=True)
+class MarketAsOf:
+    """Resolved exchange date/cutoff used by current-data endpoints.
+
+    ``daily_date`` is the last date whose daily bar is allowed in calculations.
+    During a live session it intentionally remains the previous completed
+    trading day; ``intraday_date`` carries the current date for minute/realtime
+    data, which prevents partial daily candles from leaking into indicators.
+    """
+
+    current_date: date
+    daily_date: date
+    intraday_date: date | None
+    session: MarketSession
+    cutoff_time: str
+    is_partial: bool
+    observed_at: datetime
+
+
+def _as_cn_datetime(value: datetime | None) -> datetime:
+    """Normalize an optional timestamp to timezone-aware Beijing time."""
+    current = value or datetime.now(CN_TZ)
+    if current.tzinfo is None:
+        return current.replace(tzinfo=CN_TZ)
+    return current.astimezone(CN_TZ)
+
+
+def _previous_weekday(value: date) -> date:
+    result = value - timedelta(days=1)
+    while result.weekday() >= 5:
+        result -= timedelta(days=1)
+    return result
+
+
+def resolve_market_as_of(
+    now: datetime | None = None,
+    *,
+    is_trading_day: bool | None = None,
+) -> MarketAsOf:
+    """Resolve the safe A-share daily/intraday cutoff for ``now``.
+
+    The optional ``is_trading_day`` argument is intended for an exchange
+    calendar result. When omitted, weekends are treated as closed and
+    weekdays follow the normal A-share schedule. A provider can pass ``False``
+    for a weekday holiday without changing the time rules in this module.
+    """
+    observed = _as_cn_datetime(now)
+    current_date = observed.date()
+    weekday_open = current_date.weekday() < 5
+    trading_day = weekday_open if is_trading_day is None else bool(is_trading_day)
+    if not trading_day:
+        return MarketAsOf(
+            current_date=current_date,
+            daily_date=_previous_weekday(current_date),
+            intraday_date=None,
+            session=MarketSession.CLOSED,
+            cutoff_time="00:00:00",
+            is_partial=False,
+            observed_at=observed,
+        )
+
+    current_time = observed.time()
+    if current_time < _MORNING_START:
+        return MarketAsOf(
+            current_date=current_date,
+            daily_date=_previous_weekday(current_date),
+            intraday_date=None,
+            session=MarketSession.PREOPEN,
+            cutoff_time=_MORNING_START.isoformat(),
+            is_partial=False,
+            observed_at=observed,
+        )
+    if current_time < _MORNING_END:
+        session = MarketSession.MORNING
+    elif current_time < _AFTERNOON_START:
+        session = MarketSession.LUNCH
+    elif current_time < _AFTERNOON_END:
+        session = MarketSession.AFTERNOON
+    else:
+        return MarketAsOf(
+            current_date=current_date,
+            daily_date=current_date,
+            intraday_date=current_date,
+            session=MarketSession.POST_CLOSE,
+            cutoff_time=_AFTERNOON_END.isoformat(),
+            is_partial=False,
+            observed_at=observed,
+        )
+
+    cutoff = current_time.replace(microsecond=0).isoformat()
+    return MarketAsOf(
+        current_date=current_date,
+        daily_date=_previous_weekday(current_date),
+        intraday_date=current_date,
+        session=session,
+        cutoff_time=cutoff,
+        is_partial=True,
+        observed_at=observed,
+    )
 
 
 def cn_now() -> datetime:

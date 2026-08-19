@@ -185,14 +185,15 @@ class PullScheduler:
     """
 
     def __init__(self) -> None:
-        self._tasks: dict[str, asyncio.Task] = {}
+        # 任务键 = (数据根, 配置 id): 账户模式下共享根与个人工作区各自调度,
+        # 互不见对方的配置, 也不会把对方的任务当作"已删除"取消。
+        self._tasks: dict[tuple[str, str], asyncio.Task] = {}
         self._running = False
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    def start(self, data_dir) -> None:
+    def start(self) -> None:
         """启动调度（在 lifespan startup 调用，主事件循环内）。"""
         self._running = True
-        self._data_dir = data_dir
         try:
             self._loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -221,8 +222,12 @@ class PullScheduler:
         logger.info("PullScheduler stopped")
 
     def refresh(self, data_dir) -> None:
-        """重新加载配置，更新调度任务（增/删/改）。线程安全。"""
-        self._data_dir = data_dir
+        """重新加载配置，更新调度任务（增/删/改）。线程安全。
+
+        只增删属于该 data_dir 的任务: 共享根(内置预设)与个人工作区
+        的调度互不影响, 避免账户模式下跨用户串号/互踩。
+        """
+        root = str(data_dir)
         store = ExtConfigStore(data_dir)
         configs = store.load_all()
 
@@ -233,40 +238,46 @@ class PullScheduler:
             if not config.pull or not config.pull.enabled or not config.pull.url:
                 continue
             active_ids.add(config.id)
-            if config.id not in self._tasks:
+            if (root, config.id) not in self._tasks:
                 new_configs.append(config)
 
-        # 需要移除的 id (快照当前 task 字典的键, 避免遍历时改字典)
-        remove_ids = [cid for cid in list(self._tasks) if cid not in active_ids]
+        # 需要移除的键 — 仅限当前 data_dir 下的任务
+        # (快照当前 task 字典的键, 避免遍历时改字典)
+        remove_keys = [
+            key for key in list(self._tasks)
+            if key[0] == root and key[1] not in active_ids
+        ]
 
         # 所有对 _tasks 的修改都提交到主循环里执行, 保证线程安全
         def _apply() -> None:
             for config in new_configs:
-                if config.id not in self._tasks:  # 二次校验, 防重复
-                    self._tasks[config.id] = self._loop.create_task(
-                        self._run_loop(config)
+                key = (root, config.id)
+                if key not in self._tasks:  # 二次校验, 防重复
+                    self._tasks[key] = self._loop.create_task(
+                        self._run_loop(config, data_dir)
                     )
                     logger.info(
-                        "PullScheduler: scheduled %s (every %d min)",
-                        config.id, config.pull.schedule_minutes,
+                        "PullScheduler: scheduled %s @%s (every %d min)",
+                        config.id, root, config.pull.schedule_minutes,
                     )
-            for cid in remove_ids:
-                task = self._tasks.pop(cid, None)
+            for key in remove_keys:
+                task = self._tasks.pop(key, None)
                 if task is not None:
                     task.cancel()
-                    logger.info("PullScheduler: removed %s", cid)
+                    logger.info("PullScheduler: removed %s @%s", key[1], root)
 
         self._submit(_apply)
 
-    async def _run_loop(self, config: ExtConfig) -> None:
+    async def _run_loop(self, config: ExtConfig, data_dir) -> None:
         """单个配置的定时拉取循环。
 
         策略: 启用后立即执行一次, 之后按 interval 循环。
         每次循环重读最新配置 (fresh), interval 取自 fresh.pull.schedule_minutes,
         这样用户中途修改间隔也能立即生效 (无需重启)。
+        data_dir 在任务创建时绑定, 不随全局状态变化 (账户隔离)。
         """
         try:
-            initial_delay = seconds_until_next_pull(config, self._data_dir)
+            initial_delay = seconds_until_next_pull(config, data_dir)
             if initial_delay > 0:
                 logger.info(
                     "PullScheduler: %s snapshot is fresh, next refresh in %.0fs",
@@ -276,7 +287,7 @@ class PullScheduler:
                 await asyncio.sleep(initial_delay)
             while self._running:
                 # 每轮重读最新配置 — 用户可能修改了 url / interval / enabled
-                store = ExtConfigStore(self._data_dir)
+                store = ExtConfigStore(data_dir)
                 fresh = store.get(config.id)
                 if not fresh or not fresh.pull or not fresh.pull.enabled:
                     break
@@ -284,7 +295,7 @@ class PullScheduler:
 
                 # 先执行一次 (启用即拉取, 让用户立刻看到生效)
                 try:
-                    n, d = await fetch_and_ingest(fresh, self._data_dir)
+                    n, d = await fetch_and_ingest(fresh, data_dir)
                     fresh.pull.last_run = datetime.now(timezone.utc).isoformat()
                     fresh.pull.last_status = "success"
                     fresh.pull.last_message = f"{n} rows @ {d}"

@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { Badge, SegmentedControl } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { FactorBacktest } from './backtest/FactorBacktest'
 import { StrategyBacktest } from './backtest/StrategyBacktest'
 import { StrategyOptimizer } from './backtest/StrategyOptimizer'
@@ -42,33 +44,29 @@ export function Backtest() {
   const [activeTab, setActiveTab] = useState<Tab>('strategy')
 
   const modeSwitch = (
-    <div className="inline-flex rounded-btn border border-border bg-surface/80 p-0.5 shadow-sm">
-      {(['factor', 'strategy', 'optimizer', 'walkforward'] as const).map(tab => {
+    <SegmentedControl
+      size="xs"
+      value={activeTab}
+      onChange={v => setActiveTab(v as Tab)}
+      className="max-w-full overflow-x-auto"
+      data={(['factor', 'strategy', 'optimizer', 'walkforward'] as const).map(tab => {
         const Icon = TAB_ICONS[tab]
-        const active = activeTab === tab
-        return (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`inline-flex items-center gap-1.5 rounded-[5px] px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer ${
-              active
-                ? 'bg-accent text-white shadow-sm'
-                : 'text-secondary hover:bg-elevated hover:text-foreground'
-            }`}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            {MODES[tab].title}
-            {(tab === 'optimizer' || tab === 'walkforward') && (
-              <span className={`rounded border px-1 py-px text-[8px] font-semibold uppercase ${
-                active ? 'border-white/40 bg-white/15 text-white' : 'border-amber-400/30 bg-amber-400/10 text-amber-400'
-              }`}>
-                Beta
-              </span>
-            )}
-          </button>
-        )
+        return {
+          value: tab,
+          label: (
+            <span className="inline-flex items-center gap-1.5">
+              <Icon className="h-3.5 w-3.5" />
+              {MODES[tab].title}
+              {(tab === 'optimizer' || tab === 'walkforward') && (
+                <Badge size="xs" variant="light" color="blue" className="uppercase">
+                  Beta
+                </Badge>
+              )}
+            </span>
+          ),
+        }
       })}
-    </div>
+    />
   )
 
   return (
@@ -80,12 +78,12 @@ export function Backtest() {
         className="shrink-0 bg-base/95"
       />
 
-      <main className="flex-1 min-h-0 px-3 pb-3 pt-3 lg:px-4 lg:pb-4">
+      <PageContainer className="flex-1 min-h-0">
         {activeTab === 'factor' && <FactorBacktest />}
         {activeTab === 'strategy' && <StrategyBacktest />}
         {activeTab === 'optimizer' && <StrategyOptimizer />}
         {activeTab === 'walkforward' && <StrategyWalkForward />}
-      </main>
+      </PageContainer>
     </div>
   )
 }

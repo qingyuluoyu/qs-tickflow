@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Badge, Button, PasswordInput, Select, Switch, TextInput } from '@mantine/core'
 import {
-  Save, Loader2, Check, Wifi, WifiOff, Eye, EyeOff, Shield,
+  Save, Loader2, Check, Wifi, WifiOff, Shield,
   Shuffle, Plug, Zap, Settings2, ExternalLink, Trash2,
   Terminal,
 } from 'lucide-react'
 import { useSettings } from '@/lib/useSharedQueries'
 import { api, type SettingsState } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-
-// 统一的输入框样式(与项目其他设置页一致)
-const INPUT_CLS =
-  'w-full h-9 px-2.5 rounded-lg bg-base border-0 ring-1 ring-border/30 text-xs font-mono text-foreground placeholder:text-muted/30 focus:outline-none focus:ring-2 focus:ring-accent/30 transition-shadow'
+import { Modal } from '@/components/Modal'
 
 const CODEX_PROVIDER = 'codex_cli'
 const OPENAI_PROVIDER = 'openai_compat'
@@ -19,6 +17,8 @@ const CODEX_COMMAND = 'codex'
 const DEFAULT_CODEX_MODEL = 'gpt-5.6-sol'
 const DEFAULT_CODEX_REASONING_EFFORT = 'xhigh'
 const SAVED_CODEX_OPTION_VALUE = '__saved_codex_config__'
+// Mantine Select 不接受空字符串 value, 用哨兵值代表"跟随本机 Codex 默认"
+const CODEX_DEFAULT_OPTION_VALUE = '__codex_local_default__'
 const CODEX_REASONING_LABELS: Record<string, string> = {
   high: '高',
   xhigh: '极高',
@@ -44,12 +44,11 @@ const codexModelLabel = (model?: string, effort?: string) => {
 
 const PRESETS: { label: string; provider?: string; url: string; model: string; codexCommand?: string; website: string; websiteLabel: string; description: string; custom?: boolean }[] = [
   { label: '自定义', url: '', model: '', website: '', websiteLabel: '', description: '不自动填充任何配置，完全手动填写 API 地址、模型和密钥。', custom: true },
-  { label: 'DeepSeek', url: 'https://api.deepseek.com', model: 'deepseek-v4-pro', website: 'https://www.deepseek.com/', websiteLabel: 'deepseek.com', description: 'DeepSeek 官方 OpenAI 兼容接口。' },
+  { label: 'DeepSeek', url: 'https://api.deepseek.com', model: 'deepseek-v4-flash', website: 'https://www.deepseek.com/', websiteLabel: 'deepseek.com', description: 'DeepSeek 官方 OpenAI 兼容接口。' },
   { label: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-3.6plus', website: 'https://tongyi.aliyun.com/', websiteLabel: 'tongyi.aliyun.com', description: '阿里云 DashScope 兼容模式接口。' },
   { label: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.2', website: 'https://open.bigmodel.cn/', websiteLabel: 'open.bigmodel.cn', description: '智谱 AI 官方 OpenAI 兼容接口。' },
   { label: 'Kimi', url: 'https://api.moonshot.cn/v1', model: 'kimi-k2.7-code', website: 'https://platform.moonshot.cn/', websiteLabel: 'platform.moonshot.cn', description: '月之暗面 Moonshot 官方 OpenAI 兼容接口，支持超长上下文。' },
   { label: 'Codex CLI', provider: CODEX_PROVIDER, url: '', model: DEFAULT_CODEX_MODEL, codexCommand: CODEX_COMMAND, website: 'https://developers.openai.com/codex/noninteractive', websiteLabel: 'codex exec', description: '调用本机 Codex CLI 的 codex exec, 适合已登录 ChatGPT/Codex 的本地环境。' },
-  { label: '炸鸡中转站', url: 'https://api.zhaji.dev/v1', model: 'gpt-5.5', website: 'https://api.zhaji.dev', websiteLabel: 'api.zhaji.dev', description: 'OpenAI 兼容中转服务，适合直接使用国际模型。' },
 ]
 
 export function SettingsAIPanel() {
@@ -65,7 +64,6 @@ export function SettingsAIPanel() {
   const [codexCommand, setCodexCommand] = useState(CODEX_COMMAND)
   const [customUa, setCustomUa] = useState(false)
   const [userAgent, setUserAgent] = useState('')
-  const [showKey, setShowKey] = useState(false)
   const [saved, setSaved] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -237,15 +235,17 @@ export function SettingsAIPanel() {
     <div className="space-y-5 max-w-2xl">
       <Card icon={Plug} title="连接状态" right={
         configured && (
-          <button onClick={handleTest} disabled={testing}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-btn bg-elevated hover:bg-elevated/80 text-xs text-secondary transition-colors duration-150 ease-smooth disabled:opacity-50">
-            {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+          <Button
+            size="xs" variant="subtle" color="gray"
+            onClick={handleTest} disabled={testing}
+            leftSection={testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+          >
             {testing ? '测试中' : '测试'}
-          </button>
+          </Button>
         )
       }>
         <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${configured ? 'bg-emerald-400/10 text-emerald-400' : 'bg-amber-400/10 text-amber-400'}`}>
+          <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${configured ? 'bg-bear/10 text-bear' : 'bg-warning/10 text-warning'}`}>
             {configured ? <Wifi className="h-4.5 w-4.5" /> : <WifiOff className="h-4.5 w-4.5" />}
           </div>
           <div className="min-w-0">
@@ -262,8 +262,8 @@ export function SettingsAIPanel() {
           </div>
         </div>
         {testResult && (
-          <div className={`mt-3 rounded-btn border px-3 py-2 text-xs flex items-center gap-2 ${testResult.ok ? 'border-emerald-400/20 bg-emerald-400/[0.04] text-emerald-400' : 'border-danger/20 bg-danger/[0.04] text-danger'}`}>
-            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${testResult.ok ? 'bg-emerald-400' : 'bg-danger'}`} />
+          <div className={`mt-3 rounded-btn border px-3 py-2 text-xs flex items-center gap-2 ${testResult.ok ? 'border-bear/20 bg-bear/[0.04] text-bear' : 'border-danger/20 bg-danger/[0.04] text-danger'}`}>
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${testResult.ok ? 'bg-bear' : 'bg-danger'}`} />
             {testResult.msg}
           </div>
         )}
@@ -274,9 +274,9 @@ export function SettingsAIPanel() {
           <div className="text-xs text-secondary leading-relaxed">
             当前账户使用平台提供的默认模型。配置个人 API 后，仅你的分析请求会使用该配置。
           </div>
-          <button onClick={startPersonalOverride} className="shrink-0 rounded-btn border border-accent/30 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition-colors">
+          <Button size="xs" variant="light" onClick={startPersonalOverride} className="shrink-0">
             配置个人 API
-          </button>
+          </Button>
         </div>
       )}
 
@@ -313,62 +313,63 @@ export function SettingsAIPanel() {
         title="自定义配置"
         right={
           <span className="inline-flex items-center gap-1.5 text-[10px] text-muted/60" title={isCodexProvider ? 'Use local Codex CLI via codex exec' : 'Use OpenAI-compatible Chat Completions API'}>
-            <span className="rounded-full border border-border/40 bg-base/50 px-1.5 py-px font-mono">{isCodexProvider ? 'codex exec' : 'Chat Completions'}</span>
+            <Badge size="sm" variant="light" color="gray" className="font-mono normal-case">{isCodexProvider ? 'codex exec' : 'Chat Completions'}</Badge>
             {isCodexProvider ? 'CLI' : '接口'}
           </span>
         }
       >
         <div className="space-y-4">
           {isCodexProvider ? (
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="CLI 命令" hint="固定使用默认 codex 命令, 由后端自动解析本机 Codex Desktop/CLI, 不支持自定义可执行路径。">
-                <div className={`${INPUT_CLS} flex items-center text-muted/80 select-none`} aria-label="Codex CLI command">
-                  {CODEX_COMMAND}
-                </div>
+                <TextInput size="sm" value={CODEX_COMMAND} readOnly aria-label="Codex CLI command" classNames={{ input: 'font-mono text-muted/80 select-none' }} />
               </Field>
               <Field
                 label="模型 / 推理档"
                 hint={selectedCodexModelOption.hint}
               >
-                <select
-                  value={codexModelSelectValue}
-                  onChange={e => {
-                    const value = e.target.value
-                    const option = codexModelOptions.find(item => item.value === value) ?? CODEX_MODEL_OPTIONS[0]
+                <Select
+                  size="sm"
+                  value={codexModelSelectValue || CODEX_DEFAULT_OPTION_VALUE}
+                  onChange={value => {
+                    const option = codexModelOptions.find(item => (item.value || CODEX_DEFAULT_OPTION_VALUE) === value) ?? CODEX_MODEL_OPTIONS[0]
                     setModel(option.model)
                     setCodexReasoningEffort(option.effort)
                   }}
-                  className={INPUT_CLS}
-                >
-                  {codexModelOptions.map(option => (
-                    <option key={option.value || 'codex-local-default'} value={option.value}>{option.label}</option>
-                  ))}
-                </select>
+                  data={codexModelOptions.map(option => ({
+                    label: option.label,
+                    value: option.value || CODEX_DEFAULT_OPTION_VALUE,
+                  }))}
+                  allowDeselect={false}
+                />
               </Field>
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="API 地址">
-                  <input type="text" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.zhaji.dev/v1" className={INPUT_CLS} />
+                  <TextInput size="sm" value={baseUrl} onChange={e => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" classNames={{ input: 'font-mono' }} />
                 </Field>
                 <Field label="模型">
-                  <input type="text" value={model} onChange={e => setModel(e.target.value)} placeholder="gpt-5.6-sol" className={INPUT_CLS} />
+                  <TextInput size="sm" value={model} onChange={e => setModel(e.target.value)} placeholder="gpt-5.6-sol" classNames={{ input: 'font-mono' }} />
                 </Field>
               </div>
 
               <Field label="API Key">
                 <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <input type={showKey ? 'text' : 'password'} value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder={usingOwnOverride ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'} className={`${INPUT_CLS} pr-9`} />
-                    <button onClick={() => setShowKey(v => !v)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted/40 hover:text-muted" tabIndex={-1} aria-label={showKey ? '隐藏' : '显示'}>
-                      {showKey ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                    </button>
-                  </div>
-                  <button onClick={handleTest} disabled={testing || !apiKey} className="h-9 px-3 rounded-lg border border-border/50 text-xs text-secondary hover:text-accent hover:border-accent/30 disabled:opacity-40 transition-all flex items-center gap-1.5 shrink-0">
-                    {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+                  <PasswordInput
+                    className="flex-1" size="sm"
+                    value={apiKey} onChange={e => setApiKey(e.target.value)}
+                    placeholder={usingOwnOverride ? `${s?.ai_api_key_masked} · 留空不修改` : 'sk-...'}
+                    classNames={{ input: 'font-mono' }}
+                  />
+                  <Button
+                    size="sm" variant="default"
+                    onClick={handleTest} disabled={testing || !apiKey}
+                    leftSection={testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Wifi className="h-3 w-3" />}
+                  >
                     测试
-                  </button>
+                  </Button>
                 </div>
               </Field>
 
@@ -377,15 +378,15 @@ export function SettingsAIPanel() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Field label="自定义 User-Agent" inline>
-                    <Toggle checked={customUa} onChange={() => setCustomUa(v => !v)} />
+                    <Switch size="sm" checked={customUa} onChange={() => setCustomUa(v => !v)} />
                   </Field>
                 </div>
                 {customUa && (
                   <div className="flex gap-2">
-                    <input type="text" value={userAgent} onChange={e => setUserAgent(e.target.value)} placeholder="粘贴浏览器 User-Agent" className={`${INPUT_CLS} flex-1`} />
-                    <button type="button" onClick={genRandomUa} title="随机生成浏览器 User-Agent" className="h-9 px-2.5 rounded-lg border border-border/50 text-xs text-secondary hover:text-accent hover:border-accent/30 transition-all flex items-center gap-1.5 shrink-0">
-                      <Shuffle className="h-3 w-3" /> 随机
-                    </button>
+                    <TextInput className="flex-1" size="sm" value={userAgent} onChange={e => setUserAgent(e.target.value)} placeholder="粘贴浏览器 User-Agent" classNames={{ input: 'font-mono' }} />
+                    <Button size="sm" variant="default" onClick={genRandomUa} title="随机生成浏览器 User-Agent" leftSection={<Shuffle className="h-3 w-3" />}>
+                      随机
+                    </Button>
                   </div>
                 )}
               </div>
@@ -394,9 +395,9 @@ export function SettingsAIPanel() {
         </div>
       </Card>
 
-      <div className="rounded-card border border-amber-400/20 bg-amber-400/[0.04] px-4 py-3 flex items-start gap-3">
-        <Shield className="h-4 w-4 text-amber-400/70 mt-0.5 shrink-0" />
-        <div className="text-[11px] text-amber-400/70 leading-relaxed">
+      <div className="rounded-card border border-warning/20 bg-warning/[0.04] px-4 py-3 flex items-start gap-3">
+        <Shield className="h-4 w-4 text-warning/70 mt-0.5 shrink-0" />
+        <div className="text-[11px] text-warning/70 leading-relaxed">
           {isCodexProvider
             ? 'Codex CLI 模式会复用本机已登录的 Codex 账户, 个股、财务、复盘等分析上下文会发送给 OpenAI/Codex。保存即表示确认仅在本机或可信内网使用。'
             : '个人 API Key 会加密保存在你的独立账户数据中，仅用于你的分析请求；未配置时继续使用平台默认模型。'}
@@ -404,36 +405,45 @@ export function SettingsAIPanel() {
       </div>
 
       <div className="flex gap-2">
-        <button onClick={() => save.mutate()} disabled={save.isPending || !canSave} className="flex-1 h-10 rounded-xl bg-accent text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-accent/90 disabled:opacity-40 transition-all">
-          {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+        <Button
+          size="md" className="flex-1"
+          onClick={() => save.mutate()} disabled={save.isPending || !canSave}
+          leftSection={save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+        >
           {save.isPending ? '保存中...' : saved ? '已保存' : '保存配置'}
-        </button>
+        </Button>
         {usingOwnOverride && (
-          <button onClick={() => setConfirmClear(true)} disabled={clear.isPending} className="h-10 px-4 rounded-xl bg-elevated text-secondary hover:text-danger text-sm flex items-center justify-center gap-1.5 hover:bg-elevated/80 disabled:opacity-50 transition-all shrink-0" title="Clear AI provider configuration">
-            <Trash2 className="h-4 w-4" />
+          <Button
+            size="md" variant="subtle" color="red"
+            onClick={() => setConfirmClear(true)} disabled={clear.isPending}
+            leftSection={<Trash2 className="h-4 w-4" />}
+            title="Clear AI provider configuration"
+          >
             恢复平台默认
-          </button>
+          </Button>
         )}
       </div>
 
       {confirmClear && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setConfirmClear(false)} />
-          <div className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6">
-            <h3 className="text-sm font-medium text-foreground mb-2">恢复平台默认模型</h3>
-            <p className="text-xs text-secondary mb-5 leading-relaxed">
-              仅删除当前账户保存的个人 API 配置，之后将使用平台默认模型；不会影响其他用户。
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button onClick={() => setConfirmClear(false)} className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors">
-                取消
-              </button>
-              <button onClick={() => clear.mutate()} disabled={clear.isPending} className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50">
-                {clear.isPending ? '恢复中...' : '确认恢复'}
-              </button>
-            </div>
+        <Modal
+          onClose={() => setConfirmClear(false)}
+          ariaLabel="恢复平台默认模型"
+          panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
+          overlayClassName="bg-black/60 backdrop-blur-sm"
+        >
+          <h3 className="text-sm font-medium text-foreground mb-2">恢复平台默认模型</h3>
+          <p className="text-xs text-secondary mb-5 leading-relaxed">
+            仅删除当前账户保存的个人 API 配置，之后将使用平台默认模型；不会影响其他用户。
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button size="sm" variant="default" onClick={() => setConfirmClear(false)}>
+              取消
+            </Button>
+            <Button size="sm" color="red" variant="light" onClick={() => clear.mutate()} disabled={clear.isPending}>
+              {clear.isPending ? '恢复中...' : '确认恢复'}
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
@@ -488,20 +498,5 @@ function Field({ label, hint, inline, children }: {
       {children}
       {hint && <div className="text-[10px] text-muted">{hint}</div>}
     </div>
-  )
-}
-
-// ===== 开关 =====
-
-function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onChange}
-      className={`relative inline-flex h-5 w-9 items-center rounded-full shrink-0 transition-colors duration-200 ${checked ? 'bg-accent' : 'bg-elevated'}`}
-      aria-pressed={checked}
-    >
-      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ${checked ? 'translate-x-[18px]' : 'translate-x-[3px]'}`} />
-    </button>
   )
 }

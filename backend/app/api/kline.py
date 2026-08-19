@@ -4,14 +4,24 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import threading
+import time
 from datetime import date, timedelta
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+import polars as pl
+from fastapi import Depends, APIRouter, HTTPException, Query, Request
+
+from app.api.deps import require_admin
 
 from app.indicators.pipeline import compute_enriched, compute_enriched_single
-from app.market_time import cn_now, cn_today
+from app.market_time import (
+    MarketAsOf,
+    cn_today,
+    resolve_market_as_of,
+    trading_minutes_elapsed_from_dt,
+)
 from app.price_limits import is_risk_warning_name, price_limit_pct
 from app.db_safe import is_valid_ext_ident, quote_ident
 from app.services import kline_sync
@@ -19,6 +29,76 @@ from app.services import kline_sync
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/kline", tags=["kline"])
+
+_MINUTE_CACHE_TTL_S = 30.0
+_MINUTE_EMPTY_CACHE_TTL_S = 5.0
+_minute_cache_lock = threading.RLock()
+_minute_live_cache: dict[tuple[str, str, str, str], tuple[float, pl.DataFrame]] = {}
+
+
+def _market_asof_payload(asof: MarketAsOf) -> dict[str, object]:
+    """Serialize the exchange cutoff without exposing provider internals."""
+    return {
+        "trade_date": asof.daily_date.isoformat(),
+        "intraday_date": asof.intraday_date.isoformat() if asof.intraday_date else None,
+        "cutoff_time": asof.cutoff_time,
+        "session": asof.session.value,
+        "is_partial": asof.is_partial,
+        "observed_at": asof.observed_at.isoformat(),
+    }
+
+
+def _expected_minute_bars(asof: MarketAsOf) -> int:
+    """Expected 1-minute bars for the current session (240 after close)."""
+    if asof.intraday_date is None:
+        return 240
+    if asof.is_partial:
+        return max(0, round(trading_minutes_elapsed_from_dt(asof.observed_at)))
+    return 240
+
+
+def _latest_local_minute_date(repo, symbol: str, asset_type: str) -> date | None:
+    recent = repo.latest_minute_date(symbol, asset_type=asset_type)
+    return recent if recent is not None else repo.latest_daily_date()
+
+
+def _fetch_minute_cached(symbol: str, trade_date: date, asset_type: str) -> pl.DataFrame:
+    """Bound repeated current-day provider calls to a short per-symbol cache.
+
+    The first K-line request may still perform one provider round trip, but
+    chart redraws and multiple widgets within the same 30-second refresh
+    window reuse the immutable frame. Empty responses are cached briefly too,
+    preventing a suspended symbol or an unpublished current day from causing a
+    request storm while allowing the next poll to observe newly published bars.
+    """
+    try:
+        from app.services import preferences
+
+        provider_name = preferences.get_minute_data_provider()
+    except Exception:  # noqa: BLE001
+        provider_name = ""
+    key = (provider_name, symbol, str(trade_date), asset_type)
+    now = time.monotonic()
+    with _minute_cache_lock:
+        cached = _minute_live_cache.get(key)
+        if cached is not None:
+            cached_at, cached_frame = cached
+            ttl = _MINUTE_EMPTY_CACHE_TTL_S if cached_frame.is_empty() else _MINUTE_CACHE_TTL_S
+            if now - cached_at < ttl:
+                return cached_frame.clone()
+
+    frame = kline_sync.fetch_minute_single(symbol, trade_date, asset_type=asset_type)
+    if frame is None:
+        frame = pl.DataFrame()
+    with _minute_cache_lock:
+        _minute_live_cache[key] = (now, frame.clone())
+        # Bound memory when users browse many symbols in one process. Values
+        # are immutable snapshots, so evicting the oldest entries is safe.
+        if len(_minute_live_cache) > 4096:
+            oldest = sorted(_minute_live_cache.items(), key=lambda item: item[1][0])[:512]
+            for stale_key, _ in oldest:
+                _minute_live_cache.pop(stale_key, None)
+    return frame
 
 
 def _daily_repair_allowed(capset) -> bool:
@@ -312,7 +392,16 @@ def get_daily(
     import polars as pl
 
     repo = request.app.state.repo
-    end = date.fromisoformat(end_date) if end_date else date.today()
+    market_asof = resolve_market_as_of()
+    # A default daily range must never include a still-forming session candle.
+    # The current intraday quote is injected separately below only when an
+    # actual realtime snapshot is available. Explicit historical end dates are
+    # left untouched for chart backfills and replay.
+    end = (
+        date.fromisoformat(end_date)
+        if end_date
+        else (market_asof.daily_date if market_asof.is_partial else cn_today())
+    )
     if start_date:
         start = date.fromisoformat(start_date)
     else:
@@ -329,9 +418,15 @@ def get_daily(
         try:
             raw = kline_sync.sync_daily_batch([symbol], count=days + 30)
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"TickFlow fetch failed: {e}") from e
+            raise HTTPException(status_code=502, detail=f"日线数据源请求失败: {e}") from e
         if raw.is_empty():
-            return {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": []}
+            return {
+                "symbol": symbol,
+                "name": stock_name,
+                "stock_info": stock_info,
+                "rows": [],
+                "market_as_of": _market_asof_payload(market_asof),
+            }
         # 拉除权因子做前复权 (Starter+ 有权限), 否则空 df → compute_enriched 退回未复权
         factors = pl.DataFrame()
         capset = getattr(request.app.state, "capabilities", None)
@@ -345,7 +440,14 @@ def get_daily(
         rows = enriched.tail(days).to_dicts()
         # 即使 live 模式也尝试追加实时蜡烛
         rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
-        resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "live"}
+        resp = {
+            "symbol": symbol,
+            "name": stock_name,
+            "stock_info": stock_info,
+            "rows": rows,
+            "source": "live",
+            "market_as_of": _market_asof_payload(market_asof),
+        }
         return _attach_ext(resp, repo, symbol, ext_columns)
 
     rows = df.to_dicts()
@@ -353,7 +455,14 @@ def get_daily(
     # 追加/覆盖今日实时蜡烛
     rows = _maybe_inject_live_candle(request, symbol, rows, asset_type)
 
-    resp = {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": rows, "source": "enriched"}
+    resp = {
+        "symbol": symbol,
+        "name": stock_name,
+        "stock_info": stock_info,
+        "rows": rows,
+        "source": "enriched",
+        "market_as_of": _market_asof_payload(market_asof),
+    }
     return _attach_ext(resp, repo, symbol, ext_columns)
 
 
@@ -428,6 +537,12 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
     stock 走 QuoteService 的股票实时缓存; etf 走 ETF enriched 缓存 (开启实时 ETF
     拉取时为盘中数据, 否则为磁盘最新日, 由下方"非今日不注入"守卫自然跳过)。
     """
+    market_asof = resolve_market_as_of()
+    # Before the opening auction there is no valid current-day trade bar. A
+    # stale cached quote must not create a phantom candle on the chart.
+    if market_asof.intraday_date is None:
+        return rows
+
     if asset_type == "stock":
         qs = getattr(request.app.state, "quote_service", None)
         if not qs:
@@ -441,7 +556,7 @@ def _maybe_inject_live_candle(request: Request, symbol: str, rows: list[dict], a
         return rows
 
     # 非交易日（周末/假日）缓存的行情日期 != 今天，跳过注入避免产生重复蜡烛
-    if not enriched_date or enriched_date != date.today():
+    if not enriched_date or enriched_date != market_asof.current_date:
         return rows
 
     # 查找该 symbol 的实时 enriched 行
@@ -523,7 +638,8 @@ def get_daily_batch(request: Request, body: dict):
     import polars as pl
     from datetime import date, timedelta
 
-    end = date.today()
+    market_asof = resolve_market_as_of()
+    end = market_asof.daily_date if market_asof.is_partial else cn_today()
     start = end - timedelta(days=days * 2)  # 多取一些确保交易日够
 
     cols = ["symbol", "date", "open", "high", "low", "close", "volume"]
@@ -566,7 +682,7 @@ def get_daily_batch(request: Request, body: dict):
         if not sub.is_empty():
             result[sym] = sub.to_dicts()
 
-    return {"data": result}
+    return {"data": result, "market_as_of": _market_asof_payload(market_asof)}
 
 
 @router.post("/minute-batch")
@@ -593,30 +709,13 @@ def get_minute_batch(request: Request, body: dict):
     if not capset.has(Cap.KLINE_MINUTE_BATCH):
         raise HTTPException(status_code=403, detail="需要 Pro+ 权限 (kline.minute.batch)")
 
-    trade_date = date.fromisoformat(trade_date_str) if trade_date_str else cn_today()
-
-    # 非交易日(周末/节假日)才回退到最近有数据的交易日; 否则盘中会显示昨天而非今天。
-    # 注意: 不能用 latest_minute_date_global() 判断盘中是否为交易日 —— 批量实时补拉
-    # 不落库 (见下方 sync_minute_batch 无 on_segment), 盘中它恒返回上次全量同步日,
-    # 用它做判据会导致 trade_date 永久回退到昨天, 再因 expected=240 判定昨日"完整"
-    # 而不再补拉今天, 形成永远显示昨日的死循环。
-    # 判据改为: 周末必回退; 工作日收盘后(>=15:30)仍无今日日K → 节假日, 回退。
-    if not trade_date_str:
-        today = cn_today()
-        need_fallback = today.weekday() >= 5  # 周六/周日必非交易日
-        if not need_fallback:
-            now_cn = cn_now()
-            after_close = now_cn.hour > 15 or (now_cn.hour == 15 and now_cn.minute >= 30)
-            if after_close:
-                latest_daily = repo.latest_daily_date()
-                if latest_daily is None or latest_daily < today:
-                    need_fallback = True
-        if need_fallback:
-            recent_date = repo.latest_minute_date_global()
-            if recent_date is None:
-                recent_date = repo.latest_daily_date()
-            if recent_date is not None:
-                trade_date = recent_date
+    market_asof = resolve_market_as_of()
+    trade_date = date.fromisoformat(trade_date_str) if trade_date_str else market_asof.intraday_date
+    if trade_date is None:
+        recent_date = repo.latest_minute_date_global()
+        if recent_date is None:
+            recent_date = repo.latest_daily_date()
+        trade_date = recent_date if recent_date is not None else market_asof.daily_date
 
     # Step 1: 本地优先 — 一次 scan 读全部 symbol 当日分钟K (股票 / ETF 分钟数据分开存储)
     etf_set = repo.get_etf_symbol_set()
@@ -630,21 +729,8 @@ def get_minute_batch(request: Request, body: dict):
         elif not df_etf.is_empty():
             df_local = pl.concat([df_local, df_etf], how="diagonal_relaxed")
 
-    # 期望条数 (盘中按当前时刻估算, 盘后 240)
-    now = cn_now()
-    h, m = now.hour, now.minute
-    if trade_date != cn_today():
-        expected = 240
-    elif h < 9 or (h == 9 and m < 30):
-        expected = 0
-    elif h < 12 or (h == 12 and m == 0):
-        expected = (h - 9) * 60 + m - 30
-    elif h < 13:
-        expected = 120
-    elif h < 15:
-        expected = 120 + (h - 13) * 60 + m
-    else:
-        expected = 240
+    # 期望条数由统一交易时段解析器计算，午休/盘后不再各自复制一套公式。
+    expected = _expected_minute_bars(market_asof) if trade_date == market_asof.current_date else 240
 
     # 按 symbol 分组, 判定哪些不完整需要补拉
     result: dict[str, list[dict]] = {}
@@ -701,7 +787,7 @@ def get_minute_batch(request: Request, body: dict):
                 if not sub.is_empty():
                     result[sym] = sub.to_dicts()
 
-    return {"data": result}
+    return {"data": result, "market_as_of": _market_asof_payload(market_asof)}
 
 
 @router.get("/minute")
@@ -720,38 +806,14 @@ def get_minute(
     stock_info = _get_stock_info(repo, symbol) if asset_type == "stock" else _get_asset_info(repo, symbol, asset_type)
     stock_name = stock_info.get("name")
 
+    market_asof = resolve_market_as_of()
+    explicit_trade_date = trade_date is not None
     if trade_date is None:
-        # 默认看今天, 而不是本地落盘的最近日 (盘中后者是昨天)。
-        # 非交易日(周末/节假日)才回退到本地最近有数据的交易日。
-        today = cn_today()
-        need_fallback = today.weekday() >= 5  # 周六/周日必非交易日
-        if not need_fallback:
-            now_cn = cn_now()
-            after_close = now_cn.hour > 15 or (now_cn.hour == 15 and now_cn.minute >= 30)
-            if after_close:
-                latest_daily = repo.latest_daily_date()
-                if latest_daily is None or latest_daily < today:
-                    need_fallback = True
-        if need_fallback:
-            recent = repo.latest_minute_date(symbol, asset_type=asset_type)
-            if recent is None:
-                recent = repo.latest_daily_date()
-            trade_date = recent if recent is not None else today
-        else:
-            trade_date = today
-    if trade_date is None:
-        # 本地无任何分钟K，尝试从 TickFlow 拉取当天
-        trade_date = cn_today()
-        df = kline_sync.fetch_minute_single(symbol, trade_date, asset_type=asset_type)
-        price_limit = _get_price_limit_info(
-            repo, symbol, trade_date, asset_type, stock_name,
-        )
-        return {
-            "symbol": symbol, "name": stock_name, "stock_info": stock_info,
-            "date": str(trade_date), "rows": df.to_dicts(), "source": "live",
-            "asset_type": asset_type,
-            "price_limit": price_limit,
-        }
+        trade_date = market_asof.intraday_date
+        if trade_date is None:
+            trade_date = _latest_local_minute_date(repo, symbol, asset_type)
+        if trade_date is None:
+            trade_date = market_asof.daily_date
 
     price_limit = _get_price_limit_info(
         repo, symbol, trade_date, asset_type, stock_name,
@@ -759,21 +821,7 @@ def get_minute(
     df = repo.get_minute(symbol, trade_date, asset_type=asset_type)
 
     # 完整交易日应有 240 条分钟K；如果是今天(盘中)，期望条数按已交易分钟估算
-    expected = 240
-    today = cn_today()
-    if trade_date == today:
-        now = cn_now()
-        h, m = now.hour, now.minute
-        if h < 9 or (h == 9 and m < 30):
-            expected = 0  # 还没开盘
-        elif h < 12 or (h == 12 and m == 0):
-            expected = (h - 9) * 60 + m - 30  # 9:30 起
-        elif h < 13:
-            expected = 120  # 午休
-        elif h < 15:
-            expected = 120 + (h - 13) * 60 + m
-        else:
-            expected = 240
+    expected = _expected_minute_bars(market_asof) if trade_date == market_asof.current_date else 240
 
     is_complete = not df.is_empty() and len(df) >= expected * 0.9  # 允许 10% 容差
 
@@ -783,20 +831,43 @@ def get_minute(
             "date": str(trade_date), "rows": df.to_dicts(), "source": "local",
             "asset_type": asset_type,
             "price_limit": price_limit,
+            "market_as_of": _market_asof_payload(market_asof),
         }
 
     # 本地不完整或无数据 → 从 TickFlow 实时拉取
-    live_df = kline_sync.fetch_minute_single(symbol, trade_date, asset_type=asset_type)
+    live_df = _fetch_minute_cached(symbol, trade_date, asset_type)
+    # A weekday can still be an exchange holiday or a suspended symbol. If the
+    # current-day provider response is empty, serve the last local session
+    # rather than returning a misleading empty chart or a synthetic candle.
+    if (
+        live_df.is_empty()
+        and not explicit_trade_date
+        and trade_date == market_asof.current_date
+    ):
+        fallback_date = _latest_local_minute_date(repo, symbol, asset_type)
+        if fallback_date is not None and fallback_date != trade_date:
+            fallback_df = repo.get_minute(symbol, fallback_date, asset_type=asset_type)
+            if not fallback_df.is_empty():
+                return {
+                    "symbol": symbol, "name": stock_name, "stock_info": stock_info,
+                    "date": str(fallback_date), "rows": fallback_df.to_dicts(),
+                    "source": "local_fallback", "asset_type": asset_type,
+                    "price_limit": _get_price_limit_info(
+                        repo, symbol, fallback_date, asset_type, stock_name,
+                    ),
+                    "market_as_of": _market_asof_payload(market_asof),
+                }
     return {
         "symbol": symbol, "name": stock_name, "stock_info": stock_info,
         "date": str(trade_date), "rows": live_df.to_dicts(),
         "source": "live" if not live_df.is_empty() else "none",
         "asset_type": asset_type,
         "price_limit": price_limit,
+        "market_as_of": _market_asof_payload(market_asof),
     }
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(require_admin)])
 def sync_symbol(
     request: Request,
     symbol: str = Query(...),
@@ -809,7 +880,7 @@ def sync_symbol(
     return {"symbol": symbol, "rows_written": n}
 
 
-@router.post("/sync_batch")
+@router.post("/sync_batch", dependencies=[Depends(require_admin)])
 def sync_batch(
     request: Request,
     symbols: list[str],
@@ -821,7 +892,7 @@ def sync_batch(
     return {"symbols": symbols, "rows_written": n}
 
 
-@router.post("/refresh_views")
+@router.post("/refresh_views", dependencies=[Depends(require_admin)])
 def refresh_views(request: Request):
     """刷新所有 DuckDB 视图(解决视图状态不一致问题)。"""
     from app.jobs.daily_pipeline import _refresh_views
@@ -830,7 +901,7 @@ def refresh_views(request: Request):
     return {"status": "ok"}
 
 
-@router.post("/sync_minute")
+@router.post("/sync_minute", dependencies=[Depends(require_admin)])
 async def sync_minute(request: Request):
     """手动触发分钟 K 同步(全市场)。返回 pipeline job_id 可轮询进度。
 
@@ -926,7 +997,7 @@ async def sync_minute(request: Request):
     return {"status": "started", "job_id": job_id}
 
 
-@router.post("/sync_minute_single")
+@router.post("/sync_minute_single", dependencies=[Depends(require_admin)])
 async def sync_minute_single(request: Request, body: dict):
     """手动拉取单只股票的分钟K并落库 (前复权)。
 
@@ -966,7 +1037,7 @@ async def sync_minute_single(request: Request, body: dict):
     return {"status": "ok", "symbol": symbol, "rows": written}
 
 
-@router.post("/clear_minute")
+@router.post("/clear_minute", dependencies=[Depends(require_admin)])
 async def clear_minute(request: Request):
     """清空全部分钟K数据 (仅 kline_minute, 不影响其他数据)。
 
@@ -1004,7 +1075,7 @@ async def clear_minute(request: Request):
     return {"status": "ok", "removed": removed}
 
 
-@router.post("/extend_history")
+@router.post("/extend_history", dependencies=[Depends(require_admin)])
 async def extend_history(request: Request):
     """向前扩展历史日K数据 — 独立于盘后管道。
 
@@ -1075,7 +1146,7 @@ async def extend_history(request: Request):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/repair_daily")
+@router.post("/repair_daily", dependencies=[Depends(require_admin)])
 async def repair_daily(request: Request):
     """修正 / 补全日K数据 — 从指定起始日期重拉到今天。
 
@@ -1159,7 +1230,7 @@ async def repair_daily(request: Request):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/rebuild_enriched")
+@router.post("/rebuild_enriched", dependencies=[Depends(require_admin)])
 async def rebuild_enriched(request: Request):
     """全量重算 enriched 表 — 不获取任何数据,仅基于已有 kline_daily + adj_factor 重算复权+指标。
 

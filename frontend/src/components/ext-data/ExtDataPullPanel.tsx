@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Loader2, Search, Check, Clock, Zap, Settings2, AlertCircle, CheckCircle2, Calendar } from 'lucide-react'
 import { api, type ExtDataConfig } from '@/lib/api'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 export function ExtDataPullPanel({ config, onSaved }: {
   config: ExtDataConfig

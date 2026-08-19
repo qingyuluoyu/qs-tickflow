@@ -4,14 +4,30 @@
 
 > 📌 前置依赖:Python ≥ 3.11 · Node ≥ 20 · [`uv`](https://docs.astral.sh/uv/) · `pnpm`（`npm i -g pnpm`）
 
+流式接口注意：/api/intraday/stream 为 SSE，/api/stock-analysis/*、/api/rps/rotation-analyze、/api/market-recap/analyze 为 NDJSON 流。反向代理必须关闭响应缓冲并放宽读取超时，否则前端会长期显示“服务连接已断开 · 正在重连”或分析窗口卡住。
+
+Nginx 示例（按实际域名和部署拓扑调整）：
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:3018;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 10m;
+    }
+
 ---
 
 ## 方式 A:Dev 模式(二次开发推荐)
 
-由于刚开源近期更新频繁,推荐开发模式运行,可随时 `git pull` 同步最新代码。
+推荐以开发模式运行，便于在自己的代码仓库中完成更新与验证。
 
 ```bash
-git clone https://github.com/shy3130/tickflow-stock-panel.git
+# 使用你自己的代码仓库地址或部署包获取项目源码
+git clone <YOUR_REPOSITORY_URL> tickflow-stock-panel
 cd tickflow-stock-panel
 cp .env.example .env       # 按需填 TICKFLOW_API_KEY(留空 = None 模式)
 ./dev.sh                   # Windows: .\dev.ps1

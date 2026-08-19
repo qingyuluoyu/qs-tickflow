@@ -26,7 +26,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.indicators.pipeline import run_pipeline
+from app.indicators.pipeline import filter_halt_days, run_pipeline
 from app.config import settings
 from app.services import index_sync, instrument_sync, kline_sync, preferences as _prefs
 from app.tickflow.capabilities import Cap, CapabilitySet
@@ -79,6 +79,36 @@ def post_close_retry_times(schedule: dict[str, int]) -> list[tuple[int, int]]:
             continue
         retry_times.append((minutes // 60, minutes % 60))
     return retry_times
+
+
+def _is_pipeline_snapshot_ready(
+    repo: KlineRepository,
+    target: _date,
+    *,
+    pull_index: bool,
+) -> bool:
+    """判断盘后任务是否真的覆盖了启用的日频资产.
+
+    过去这里只检查股票日K/enriched. 股票已更新而指数同步失败时, 定时
+    重试会被错误跳过, 导致指数页长期停在旧月份. 指数页面可直接消费
+    ``kline_index_daily``, 因此这里检查其原始分区即可.
+    """
+    latest_daily = repo.latest_daily_date()
+    latest_enriched = repo.latest_enriched_date("stock")
+    if not latest_daily or latest_daily < target or not latest_enriched or latest_enriched < target:
+        return False
+    if pull_index:
+        configured = _prefs.get_pipeline_index_symbols()
+        if configured:
+            index_symbols = [symbol for symbol in configured.replace(",", " ").split() if symbol]
+        else:
+            index_symbols = _prefs.get_realtime_index_symbols()
+        if not index_symbols:
+            return False
+        latest_by_symbol = repo.latest_daily_dates_asset("index", index_symbols)
+        if any(latest_by_symbol.get(symbol) is None or latest_by_symbol[symbol] < target for symbol in index_symbols):
+            return False
+    return True
 
 
 def _coerce_snapshot_date(value) -> _date | None:
@@ -563,6 +593,71 @@ def _resolve_universe(capset: CapabilitySet, repo=None) -> list[str]:
     return sorted(base)
 
 
+def _gap_fill_index_snapshot(
+    repo: KlineRepository,
+    today: _date,
+    now: _datetime,
+    *,
+    pull_index: bool,
+    emit: ProgressCb,
+    stage_errors: list[str],
+) -> int:
+    """盘后用新浪快照补齐指数当日分区。
+
+    指数快照补缺不能依赖 ``KLINE_DAILY_BATCH``: 免费/无 TickFlow Key
+    的部署同样需要当天的指数看板。只在收盘边界后写入，并且仅在本地
+    没有今天分区时执行；下一次权威日 K 同步会 merge-upsert 覆盖快照。
+    """
+    if not pull_index or today.weekday() >= 5 or now.time() < _time(15, 10):
+        return 0
+
+    idx_daily_dir = repo.store.data_dir / "kline_index_daily"
+    idx_dates = sorted(
+        d.name[5:] for d in idx_daily_dir.glob("date=*")
+        if d.is_dir() and d.name.startswith("date=")
+    ) if idx_daily_dir.exists() else []
+    idx_latest = _date.fromisoformat(idx_dates[-1]) if idx_dates else None
+    if idx_latest is not None and idx_latest >= today:
+        return 0
+
+    try:
+        idx_inst = repo.get_index_instruments()
+        idx_symbols = (
+            sorted(set(idx_inst["symbol"].to_list()))
+            if not idx_inst.is_empty() and "symbol" in idx_inst.columns
+            else []
+        )
+        if not idx_symbols:
+            configured = _prefs.get_pipeline_index_symbols() or _prefs.get_realtime_index_symbols()
+            idx_symbols = [symbol for symbol in configured.replace(",", " ").split() if symbol]
+        if not idx_symbols:
+            logger.warning("sync_index: no index symbols available for snapshot gap-fill")
+            return 0
+
+        emit("sync_index", 88, "官方源尚未发布今日指数日K,用快照行情补齐…")
+        from app.services import sina_snapshot
+
+        ispot = sina_snapshot.fetch_spot_daily(idx_symbols, asset_type="index")
+        if not ispot.is_empty():
+            ispot = ispot.filter(pl.col("date") == today.isoformat())
+            ispot = ispot.with_columns(pl.col("date").str.to_date())
+            ispot = filter_halt_days(ispot)
+        if ispot.is_empty():
+            logger.warning("sync_index: sina snapshot gap-fill 无 %s 当日指数数据", today)
+            return 0
+
+        repo.flush_live_daily_asset("index", ispot)
+        repo.refresh_index_views()
+        _invalidate("index_daily")
+        emit("sync_index", 88, f"指数当日日K已用快照补齐,{ispot.height} 只")
+        logger.info("sync_index: sina snapshot gap-fill %d indexes for %s", ispot.height, today)
+        return ispot.height
+    except Exception as e:  # noqa: BLE001
+        logger.warning("sina index gap-fill failed: %s", e)
+        stage_errors.append(f"sina index gap fill: {e}")
+        return 0
+
+
 def run_instruments_sync(repo: KlineRepository) -> dict:
     """盘前同步个股维表。
 
@@ -703,6 +798,36 @@ def run_now(
         emit("sync_daily", 45, "日K 完成")
         logger.info("sync_daily: [%s ~ %s] done", start_date, today)
     _invalidate("daily")
+
+    # Step 1.6: 当日日K补缺 — tickflow 免费档 / TeaJoin 日K 均为 T+1 发布
+    # (当日收盘数据次日才可见), 收盘后本地仍缺当日分区时, 用新浪快照行情补齐。
+    # 次日 batch 同步会以 merge-upsert 覆写该分区为权威数据, 不留脏数据。
+    if (
+        not override_start_date
+        and pull_a_share
+        and today.weekday() < 5
+        and now.time() >= _time(15, 10)
+        and (repo.latest_daily_date() or _date.min) < today
+    ):
+        try:
+            emit("sync_daily", 46, "官方源尚未发布今日日K,用快照行情补齐当日…")
+            from app.services import sina_snapshot
+            spot = sina_snapshot.fetch_spot_daily(universe)
+            if not spot.is_empty():
+                spot = spot.filter(pl.col("date") == today.isoformat())
+                spot = spot.with_columns(pl.col("date").str.to_date())
+                spot = filter_halt_days(spot)
+            if not spot.is_empty():
+                repo.flush_live_daily(spot)
+                new_daily_days = max(new_daily_days, 1)
+                emit("sync_daily", 46, f"当日日K已用快照补齐,{spot.height} 只标的")
+                logger.info("sync_daily: sina snapshot gap-fill %d symbols for %s",
+                            spot.height, today)
+            else:
+                logger.warning("sync_daily: sina snapshot gap-fill 无 %s 当日数据", today)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("sina snapshot gap-fill failed: %s", e)
+            stage_errors.append(f"sina daily gap fill: {e}")
 
     # 单标的新鲜度: 全局 max(date) 会被任一有今日数据的标的"拉高", 掩盖停牌/复牌/
     # 一直拉失败而掉队的个股缺口(全局判据只刷"今天", 永不回补掉队标的的历史缺口)。
@@ -887,6 +1012,45 @@ def run_now(
                 _invalidate("index_daily")
                 _invalidate("index_enriched")
 
+                # 指数当日补缺: 同 Step 1.6, 官方指数日K同样 T+1 发布,
+                # 收盘后缺当日分区时用新浪快照补齐, 次日同步覆写为权威数据。
+                idx_daily_dir = repo.store.data_dir / "kline_index_daily"
+                idx_dates = sorted(
+                    d.name[5:] for d in idx_daily_dir.glob("date=*")
+                    if d.is_dir() and d.name.startswith("date=")
+                ) if idx_daily_dir.exists() else []
+                idx_latest = _date.fromisoformat(idx_dates[-1]) if idx_dates else None
+                if (
+                    today.weekday() < 5
+                    and now.time() >= _time(15, 10)
+                    and (idx_latest or _date.min) < today
+                ):
+                    try:
+                        idx_inst = repo.get_index_instruments()
+                        idx_symbols = (
+                            sorted(set(idx_inst["symbol"].to_list()))
+                            if not idx_inst.is_empty() and "symbol" in idx_inst.columns
+                            else []
+                        )
+                        if idx_symbols:
+                            emit("sync_index", 88, "官方源尚未发布今日指数日K,用快照行情补齐…")
+                            from app.services import sina_snapshot
+                            ispot = sina_snapshot.fetch_spot_daily(idx_symbols, asset_type="index")
+                            if not ispot.is_empty():
+                                ispot = ispot.filter(pl.col("date") == today.isoformat())
+                                ispot = ispot.with_columns(pl.col("date").str.to_date())
+                                ispot = filter_halt_days(ispot)
+                            if not ispot.is_empty():
+                                repo.flush_live_daily_asset("index", ispot)
+                                emit("sync_index", 88, f"指数当日日K已用快照补齐,{ispot.height} 只")
+                                logger.info("sync_index: sina snapshot gap-fill %d indexes for %s",
+                                            ispot.height, today)
+                            else:
+                                logger.warning("sync_index: sina snapshot gap-fill 无 %s 当日指数数据", today)
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("sina index gap-fill failed: %s", e)
+                        stage_errors.append(f"sina index gap fill: {e}")
+
             if pull_etf:
                 emit("sync_index", 88, "同步 ETF 维表…")
                 etf_count = index_sync.sync_etf_instruments(repo)
@@ -959,6 +1123,19 @@ def run_now(
             stage_errors.append(f"index/etf sync: {e}")
     else:
         skipped.append("sync_index")
+
+    # 无 KLINE_DAILY_BATCH 能力时，上面的权威指数同步会被跳过，但盘后
+    # 看板仍必须能拿到当天的指数快照。付费分支若已补齐今天，这里会因
+    # 分区日期检查直接返回，不会重复请求。
+    if pull_index and not capset.has(Cap.KLINE_DAILY_BATCH):
+        written_index_daily += _gap_fill_index_snapshot(
+            repo,
+            today,
+            now,
+            pull_index=pull_index,
+            emit=emit,
+            stage_errors=stage_errors,
+        )
 
     # Step 2.5: 分钟 K 同步(可选) — 未启用或无 capability 时静默跳过(不 emit)
     from app.services import preferences
@@ -1287,7 +1464,15 @@ async def _stream_review_with_retry(repo, quote_service, depth_service, owner_id
                                    attempt, max_attempts, evt.get("message"))
                     break  # 触发重试
                 elif t == "done":
-                    # 正常完成
+                    # provider 在输出预算耗尽且补齐次数用尽时会明确标记
+                    # complete=false;不能把半截复盘归档成成功,交给现有重试路径。
+                    if evt.get("complete", True) is False:
+                        failed = True
+                        logger.warning(
+                            "scheduled review stream incomplete (attempt %d/%d): finish_reason=%s",
+                            attempt, max_attempts, evt.get("finish_reason"),
+                        )
+                        break
                     return "".join(content_parts), last_meta
             # 流自然结束(无 done 事件)且有内容, 视为成功
             if content_parts and not failed:
@@ -1469,12 +1654,10 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     def _pipeline_snapshot_ready() -> bool:
         target = required_market_snapshot_date(_datetime.now(BEIJING_TZ), sched)
         try:
-            daily_date = repo.latest_daily_date()
-            enriched_date = repo.latest_enriched_date("stock")
-            return bool(
-                daily_date and enriched_date
-                and daily_date >= target
-                and enriched_date >= target
+            return _is_pipeline_snapshot_ready(
+                repo,
+                target,
+                pull_index=_prefs.get_pipeline_pull_index(),
             )
         except Exception:
             return False

@@ -351,6 +351,7 @@ class KlineRepository:
 
         # parquet glob 路径
         self._enriched_glob = str(store.data_dir / "kline_daily_enriched" / "**" / "*.parquet")
+        self._index_daily_glob = str(store.data_dir / "kline_index_daily" / "**" / "*.parquet")
         self._index_enriched_glob = str(store.data_dir / "kline_index_enriched" / "**" / "*.parquet")
         self._etf_enriched_glob = str(store.data_dir / "kline_etf_enriched" / "**" / "*.parquet")
         self._minute_glob = str(store.data_dir / "kline_minute" / "**" / "*.parquet")
@@ -1391,11 +1392,29 @@ class KlineRepository:
         end: date,
         columns: list[str] | None = None,
     ) -> pl.DataFrame:
-        """指数日K查询 — 从独立指数 enriched parquet 读取后即时计算通用指标。"""
+        """指数日K查询 - 合并 raw/enriched 后即时计算通用指标.
+
+        指数收盘后的快照补齐只写入 ``kline_index_daily``, 而指标重算可能
+        稍后才完成. 先以 raw 作为底, 再用 enriched 覆盖同日记录, 避免页面
+        在 enriched 落后时继续停留在旧交易日.
+        """
         from datetime import timedelta
 
         warmup_start = start - timedelta(days=150)
-        df = self._scan_index_daily_symbol(symbol, warmup_start, end, None)
+        raw = self._scan_index_daily_raw_symbol(symbol, warmup_start, end, None)
+        enriched = self._scan_index_daily_symbol(symbol, warmup_start, end, None)
+        if raw.is_empty():
+            df = enriched
+        elif enriched.is_empty():
+            df = raw
+        else:
+            # enriched has the same canonical price columns plus indicators;
+            # keep it for overlapping dates while retaining newer raw rows.
+            df = (
+                pl.concat([raw, enriched], how="diagonal_relaxed")
+                .unique(subset=["symbol", "date"], keep="last")
+                .sort("date")
+            )
         if not df.is_empty():
             df = self._compute_index_enriched_range(df)
             df = df.filter((pl.col("date") >= start) & (pl.col("date") <= end))
@@ -1661,6 +1680,23 @@ class KlineRepository:
             logger.warning("指数日K查询失败: %s", e)
             return pl.DataFrame()
 
+    def _scan_index_daily_raw_symbol(self, symbol: str, start: date, end: date, columns: list[str] | None) -> pl.DataFrame:
+        try:
+            lf = scan_enriched_parquet(self._index_daily_glob,
+                                 cast_options=pl.ScanCastOptions(integer_cast="allow-float")).filter(
+                (pl.col("symbol") == symbol)
+                & (pl.col("date") >= start)
+                & (pl.col("date") <= end)
+            ).sort("date")
+            if columns:
+                schema_names = lf.collect_schema().names()
+                existing = [c for c in columns if c in schema_names]
+                lf = lf.select(existing)
+            return lf.collect()
+        except Exception as e:
+            logger.warning("指数原始日K查询失败: %s", e)
+            return pl.DataFrame()
+
     def _scan_etf_daily_symbol(self, symbol: str, start: date, end: date, columns: list[str] | None) -> pl.DataFrame:
         try:
             lf = scan_enriched_parquet(self._etf_enriched_glob,
@@ -1740,7 +1776,7 @@ class KlineRepository:
                 ).fetchone()
             if row and row[0]:
                 return row[0] if isinstance(row[0], date) else date.fromisoformat(str(row[0]))
-        except Exception:  # noqa: BLE001
+        except Exception:
             return None
 
     def earliest_daily_date(self) -> date | None:
@@ -1784,6 +1820,55 @@ class KlineRepository:
         except Exception:
             return None
         return None
+
+    def latest_daily_date_asset(self, asset_type: str = "stock") -> date | None:
+        """返回指定资产原始日K分区的最新日期。"""
+        table = {
+            "stock": "kline_daily",
+            "index": "kline_index_daily",
+            "etf": "kline_etf_daily",
+        }.get(asset_type)
+        if table is None:
+            return None
+        try:
+            with self._lock:
+                row = self.db.execute(f"SELECT max(date) FROM {table}").fetchone()
+            if row and row[0]:
+                value = row[0]
+                return value if isinstance(value, date) else date.fromisoformat(str(value))
+        except Exception:
+            return None
+        return None
+
+    def latest_daily_dates_asset(self, asset_type: str, symbols: list[str]) -> dict[str, date]:
+        """返回指定资产按标的分组的原始日K最新日期。"""
+        if not symbols:
+            return {}
+        table = {
+            "stock": "kline_daily",
+            "index": "kline_index_daily",
+            "etf": "kline_etf_daily",
+        }.get(asset_type)
+        if table is None:
+            return {}
+        unique_symbols = list(dict.fromkeys(str(symbol) for symbol in symbols if str(symbol).strip()))
+        if not unique_symbols:
+            return {}
+        placeholders = ", ".join("?" for _ in unique_symbols)
+        try:
+            with self._lock:
+                rows = self.db.execute(
+                    f"SELECT symbol, max(date) FROM {table} WHERE symbol IN ({placeholders}) GROUP BY symbol",
+                    unique_symbols,
+                ).fetchall()
+            result: dict[str, date] = {}
+            for symbol, value in rows:
+                if not symbol or not value:
+                    continue
+                result[str(symbol)] = value if isinstance(value, date) else date.fromisoformat(str(value))
+            return result
+        except Exception:
+            return {}
 
     def latest_enriched_date(self, asset_type: str = "stock") -> date | None:
         """Return the newest partition available to matrix-native consumers."""

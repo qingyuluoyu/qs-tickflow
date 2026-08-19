@@ -10,7 +10,7 @@
 
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import {
   AlertCircle,
   BarChart3,
@@ -30,7 +30,6 @@ import { cn } from '@/lib/cn'
 import type { DimensionGroup, QuoteMap } from '@/lib/analysis-adapter'
 import { computeQuoteMetrics } from '@/lib/analysis-adapter'
 import { fmtPct, priceColorClass } from '@/lib/format'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 // ===== 配置类型 =====
 
@@ -63,7 +62,6 @@ export function AnalysisConfigDialog({
   showHierarchyLevel?: boolean
 }) {
   const [draft, setDraft] = useState<AnalysisFieldConfig>(currentConfig)
-  const backdrop = useDialogBackdrop(onClose)
   const { data: extList } = useQuery({
     queryKey: QK.extData,
     queryFn: api.extDataList,
@@ -86,14 +84,17 @@ export function AnalysisConfigDialog({
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-surface border border-border rounded-lg shadow-xl w-[420px]"
-        onClick={e => e.stopPropagation()}
-      >
+    <MantineModal
+      opened
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5 }}
+      classNames={{ content: 'bg-surface border border-border rounded-lg shadow-xl w-[420px]' }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
         <div className="flex items-center justify-between px-4 pt-3 pb-2">
           <span className="text-sm font-medium">配置数据源</span>
           <button onClick={onClose} className="p-0.5 text-muted hover:text-foreground">
@@ -164,8 +165,7 @@ export function AnalysisConfigDialog({
             保存
           </button>
         </div>
-      </motion.div>
-    </div>
+    </MantineModal>
   )
 }
 
@@ -227,7 +227,7 @@ export function DimensionHeatmap({
   quoteMap: Map<string, QuoteMap>
   selectedKey: string | null
   onSelect: (key: string | null) => void
-  colorScheme: 'blue' | 'amber'
+  colorScheme: 'blue' | 'sky'
 }) {
   const [showAll, setShowAll] = useState(false)
   // 收起时最大高度（约 3 行标签高度）
@@ -243,7 +243,7 @@ export function DimensionHeatmap({
   // 根据涨跌比渲染颜色强度
   const colors = colorScheme === 'blue'
     ? { up: [59, 130, 246], down: [96, 165, 250], bg: [30, 64, 175] }
-    : { up: [245, 158, 11], down: [251, 191, 36], bg: [180, 83, 9] }
+    : { up: [14, 165, 233], down: [56, 189, 248], bg: [7, 89, 133] }
 
   return (
     <div>
@@ -319,16 +319,16 @@ export function DimensionGroupSidebar({
   searchValue: string
   onSearchChange: (v: string) => void
   kindLabel: string
-  colorScheme: 'blue' | 'amber'
+  colorScheme: 'blue' | 'sky'
 }) {
   const q = searchValue.trim().toLowerCase()
   const filtered = q
     ? groups.filter(g => g.key.toLowerCase().includes(q))
     : groups
 
-  const accentColor = colorScheme === 'blue' ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'
-  const accentBg = colorScheme === 'blue' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)'
-  const accentBorder = colorScheme === 'blue' ? 'rgba(59,130,246,0.25)' : 'rgba(245,158,11,0.25)'
+  const accentColor = colorScheme === 'blue' ? 'rgba(59,130,246,0.7)' : 'rgba(14,165,233,0.7)'
+  const accentBg = colorScheme === 'blue' ? 'rgba(59,130,246,0.1)' : 'rgba(14,165,233,0.1)'
+  const accentBorder = colorScheme === 'blue' ? 'rgba(59,130,246,0.25)' : 'rgba(14,165,233,0.25)'
 
   return (
     <section className="rounded-card border border-border bg-surface overflow-hidden">

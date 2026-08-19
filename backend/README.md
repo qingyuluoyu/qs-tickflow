@@ -3,10 +3,6 @@
 
 # 📈 A股智能量化工作台
 
-[![声明:个人开源](https://img.shields.io/badge/⚠️_声明-个人开源_非_TickFlow_官方项目-green?style=for-the-badge&labelColor=red)](https://github.com/shy3130/tickflow-stock-panel)
-
-
-
 **自托管、零运维的 A 股「选股 + 监控 + 回测」量化工作台**
 
 **面向个人散户与量化爱好者而生**
@@ -14,9 +10,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-≥3.11-blue.svg)](https://www.python.org/)
 [![React](https://img.shields.io/badge/React-18-61dafb.svg)](https://react.dev/)
-[![Data: TickFlow](https://img.shields.io/badge/Data-TickFlow-00b386.svg)](https://tickflow.org/auth/register?ref=V3KDKGXPEA)
+[![Data: TickFlow](https://img.shields.io/badge/Data-TickFlow-00b386.svg)](https://tickflow.org/)
 [![Deploy: Docker](https://img.shields.io/badge/Deploy-Docker-2496ed.svg)](./Dockerfile)
-[![GitHub stars](https://img.shields.io/github/stars/shy3130/tickflow-stock-panel?style=social)](https://github.com/shy3130/tickflow-stock-panel/stargazers)
 
 </div>
 
@@ -33,18 +28,7 @@
 
 
 
-**本项目个人开源，基于 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 数据源，非 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 官方项目。仅供学习研究使用，严禁商业用途。** 
-
-
-
-
-> ⚠️ 小白请绕路，本开源项目谨作为本地量化提供解决思路Demo，不作为投资软件或者看盘软件。
->
-> **明确不做**:不对标同花顺 / 通达信,不内置「AI 荐股 / 涨停预测」。
-
-有问题可以邮件415333856@qq.com,交流群二维码在文末。
-
-觉得有用可以点个 Star
+**本项目可接入 [TickFlow](https://tickflow.org/) 等数据源，用于自托管金融研究与数据分析，不构成投资建议。**
 
 ---
 
@@ -210,7 +194,7 @@ PORT=3018                      # 服务端口
 | **后端**     | FastAPI · Pydantic v2 · APScheduler · sse-starlette                                               |
 | **数据**     | Polars(计算)· DuckDB(查询)· Parquet(存储)                                                         |
 | **回测**     | vectorbt(全项目唯一 pandas 边界)                                                                  |
-| **数据源**   | [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 官方 SDK · 其他数据源后续迭代实装   |
+| **数据源**   | [TickFlow](https://tickflow.org/) 官方 SDK · 其他数据源后续迭代实装   |
 | **AI**(可选) | OpenAI 兼容接口(DeepSeek / 通义 / Ollama 等)                                                      |
 | **前端**     | React 18 · Vite · TypeScript · Tailwind · Tanstack Query · Lightweight Charts · ECharts · dnd-kit |
 | **部署**     | Docker 两阶段构建,前端 dist 拷进后端镜像,**单容器**                                               |
@@ -240,16 +224,6 @@ PORT=3018                      # 服务端口
 | [docs/strategy.md](./docs/strategy.md)                                                             | 策略体系(18 内置策略 + 三种扩展方式 + 文件结构)                      |
 | [backend/app/strategy/prompts/strategy-guide.md](./backend/app/strategy/prompts/strategy-guide.md) | 策略开发完整规范(AI 生成与手写)                                      |
 
-fork同时请点个star哦,欢迎 Issue 和 PR。
-
----
-
-## 💬 交流群
-
-欢迎加入交流群,讨论交流。
-
-<img src="./community-qr-code.jpg" alt="交流群二维码" width="240" />
-
 ---
 
 ## ⚠️ 免责声明
@@ -260,10 +234,6 @@ fork同时请点个star哦,欢迎 Issue 和 PR。
 
 [MIT](./LICENSE) © tickflow-stock-panel contributors 
 
-本项目依赖 [TickFlow](https://tickflow.org/auth/register?ref=V3KDKGXPEA) 提供数据服务,使用前请遵守其服务条款
+本项目可接入 [TickFlow](https://tickflow.org/) 等数据服务，使用前请遵守相应服务条款。
 
-数据源插件 [stock-sdk](https://stock-sdk.linkdiary.cn) 遵循其各自的 ISC 协议。
-
-## 社区
-
-本开源项目已链接并认可 [LINUX DO 社区](https://linux.do)。
+数据源插件的使用与授权边界以各自许可和服务条款为准。

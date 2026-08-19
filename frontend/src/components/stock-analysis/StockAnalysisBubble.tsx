@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Loader2, Check, AlertCircle } from 'lucide-react'
 import { useBubbleTasks, restoreDialog } from '@/lib/stockAnalysisStore'
 import type { ActiveTask } from '@/lib/stockAnalysisStore'
+import { accountStorage } from '@/lib/storage'
 
 /**
  * AI 个股分析任务全局气泡 —— 与财务分析胶囊并列,蓝色主题区分。
@@ -138,7 +139,7 @@ function BubbleItem({ task, isLast, onPointerDown }: {
   const accent = isWorking
     ? 'from-sky-500/25 to-blue-500/20 text-sky-300 border-sky-300/40 shadow-[0_6px_24px_-10px_rgba(14,165,233,0.5)]'
     : isError
-      ? 'from-red-500/20 to-red-500/10 text-red-300 border-red-300/40 shadow-[0_6px_20px_-10px_rgba(239,68,68,0.4)]'
+      ? 'from-danger/20 to-danger/10 text-danger border-danger/40 shadow-[0_6px_20px_-10px_rgba(240,68,56,0.4)]'
       : 'from-emerald-500/20 to-emerald-500/10 text-emerald-300 border-emerald-300/40 shadow-[0_6px_20px_-10px_rgba(16,185,129,0.35)]'
 
   return (
@@ -171,7 +172,7 @@ function BubbleItem({ task, isLast, onPointerDown }: {
         </span>
         <span className="shrink-0 text-[9px] leading-none">
           {isWorking ? <span className="text-sky-300/80">个股分析</span>
-            : isError ? <span className="text-red-300/80">失败</span>
+            : isError ? <span className="text-danger/80">失败</span>
             : <span className="text-emerald-300/80">点击查看</span>}
         </span>
       </div>
@@ -189,7 +190,7 @@ function loadPos(): { x: number; y: number } {
   const defaultX = Math.max(EDGE_MARGIN, window.innerWidth - BUBBLE_W - EDGE_MARGIN)
   const defaultY = Math.max(EDGE_MARGIN, window.innerHeight - 320)
   try {
-    const v = localStorage.getItem(POS_KEY)
+    const v = accountStorage.getItem(POS_KEY)
     if (v) {
       const p = JSON.parse(v)
       if (typeof p.x === 'number' && typeof p.y === 'number') {
@@ -203,5 +204,5 @@ function loadPos(): { x: number; y: number } {
   return { x: defaultX, y: defaultY }
 }
 function savePos(p: { x: number; y: number }) {
-  try { localStorage.setItem(POS_KEY, JSON.stringify(p)) } catch { /* ignore */ }
+  accountStorage.setItem(POS_KEY, JSON.stringify(p))
 }

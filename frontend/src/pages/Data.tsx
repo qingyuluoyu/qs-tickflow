@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
+import { ActionIcon, Badge, Button, Card, NumberInput, SegmentedControl, Tooltip } from '@mantine/core'
 import {
   Database,
   Play,
@@ -29,8 +30,10 @@ import {
   useDataStatus,
 } from '@/lib/useSharedQueries'
 import { useToggleRealtimeQuotes, useUpdateQuoteInterval } from '@/lib/useSharedMutations'
+import { useIsAdmin } from '@/lib/auth'
 import { QK } from '@/lib/queryKeys'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { formatScheduleDatePart, formatScheduleTimePart, isToday } from '@/lib/format'
 
 // 拆分出的子组件
@@ -50,11 +53,14 @@ import { QuoteConfigCard } from '@/components/data/QuoteConfigCard'
 import { EnrichedSchemaModal } from '@/components/data/SchemaModal'
 import { Skeleton } from '@/components/data/Skeleton'
 import { ExtDataStatCard } from '@/components/ext-data/ExtDataStatCard'
+import { Modal } from '@/components/Modal'
 import { CreateExtDialog } from '@/components/ext-data/CreateExtDialog'
 import { EditExtDialog } from '@/components/ext-data/EditExtDialog'
 
 export function Data() {
   const qc = useQueryClient()
+  // 同步/清空/调度等服务器级写操作均有后端管理员闸门,普通用户隐藏入口
+  const isAdmin = useIsAdmin()
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const startTime = useRef<number | null>(null)
   const topRef = useRef<HTMLDivElement>(null)
@@ -293,6 +299,15 @@ export function Data() {
   const isRunning = job.data?.status === 'running' || job.data?.status === 'pending'
   const isStarting = startSync.isPending
   const hasData = !!(s?.instruments?.rows || s?.daily?.rows)
+  const marketHealth = s?.market_data_health
+  const healthCoverage = (marketHealth?.checks?.coverage ?? {}) as {
+    requested?: number
+    available?: number
+    missing?: number
+    inactive?: number
+    unresolved?: number
+  }
+  const healthNeedsAttention = marketHealth?.status === 'degraded' || marketHealth?.status === 'unavailable'
   // none 档(无 key / 无效 key) → 禁用立即同步 (同步依赖付费档的批量端点)
   const isNoKey = settings.data?.mode === 'none'
   const indexOverviewStats = s ? {
@@ -413,7 +428,7 @@ export function Data() {
             customProvider={getCustomProviderName('daily')}
             auto
             onShowFields={() => setSchemaTable('daily')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'daily' ? null : 'daily') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'daily' ? null : 'daily') : undefined}
             settingsOpen={openSettings === 'daily'}
           />
         )
@@ -454,7 +469,7 @@ export function Data() {
             subLabel={status.data?.indicators_ready === false ? '字段 · 指标计算中…' : '字段 · 指标 · 信号'}
             localBadgeSuffix={`${prefs.data?.enriched_batch_size ?? 1000}只/批`}
             onShowFields={() => setSchemaTable('enriched')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'enriched' ? null : 'enriched') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'enriched' ? null : 'enriched') : undefined}
             settingsOpen={openSettings === 'enriched'}
           />
         )
@@ -522,7 +537,7 @@ export function Data() {
             customProvider={getCustomProviderName('minute')}
             auto={minuteAuto}
             onShowFields={() => setSchemaTable('minute')}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
             settingsOpen={openSettings === 'minute'}
           />
         )
@@ -539,7 +554,7 @@ export function Data() {
             tierLabel={caps.data?.label}
             customProvider={getCustomProviderName('financials')}
             subLabel={`历史股本 · ${historicalShareRows.toLocaleString()} 条`}
-            onSettings={hasData ? () => setOpenSettings(v => v === 'financials' ? null : 'financials') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'financials' ? null : 'financials') : undefined}
             settingsOpen={openSettings === 'financials'}
           />
         )
@@ -560,7 +575,7 @@ export function Data() {
             tierLabel={caps.data?.label}
             auto={prefs.data?.pipeline_regime_enabled === true}
             subLabel="状态 · 综合分 · 指标"
-            onSettings={hasData ? () => setOpenSettings(v => v === 'regime' ? null : 'regime') : undefined}
+            onSettings={isAdmin && hasData ? () => setOpenSettings(v => v === 'regime' ? null : 'regime') : undefined}
             settingsOpen={openSettings === 'regime'}
           />
         )
@@ -576,83 +591,135 @@ export function Data() {
         title="数据"
         subtitle="本地数据画像 · 同步状态 · 历史记录"
         right={
-          <div className="flex items-center gap-3">
-            {!hasData && !isLoading && (
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {isAdmin && !hasData && !isLoading && (
               <span className="text-xs text-accent animate-pulse">首次使用请点击右侧按钮同步数据</span>
             )}
-            <button
+            {isAdmin && (
+            <>
+            <Button
+              size="compact-xs"
+              variant="light"
               onClick={() => startSync.mutate()}
               disabled={isStarting}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-gradient-to-r from-accent/25 to-accent/10 border border-accent/30 text-accent text-xs font-medium hover:from-accent/35 hover:to-accent/20 disabled:opacity-40 transition-all duration-150"
+              leftSection={
+                (isRunning || isStarting) ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Play className="h-3.5 w-3.5" />
+                )
+              }
             >
-              {(isRunning || isStarting) ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
               {isStarting ? '启动中…' : isRunning ? '同步中…' : '立即同步'}
-            </button>
-            <button
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
               onClick={() => setOpenSettings('pipeline-scope')}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
+              leftSection={<CheckSquare className="h-3.5 w-3.5" />}
             >
-              <CheckSquare className="h-3.5 w-3.5" />
               数据范围
-            </button>
-            <button
+            </Button>
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              color="gray"
               onClick={() => setShowRepair(true)}
               disabled={!hasData || isRunning}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+              leftSection={<WandSparkles className="h-3.5 w-3.5" />}
             >
-              <WandSparkles className="h-3.5 w-3.5" />
               修正数据
-            </button>
+            </Button>
             <div className="w-px h-4 bg-border" />
-            <div className="flex items-center gap-1.5">
-              <button
+            </>
+            )}
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="gray"
                 onClick={() => setShowCreateExt(true)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
+                leftSection={<Plus className="h-3.5 w-3.5" />}
               >
-                <Plus className="h-3.5 w-3.5" />
                 扩展数据
-              </button>
-              <button
-                onClick={() => setShowEndpointTest(true)}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
-              >
-                <Wifi className="h-3.5 w-3.5" />
-                测试端点
-              </button>
-              <button
+              </Button>
+              {isAdmin && (
+                <Button
+                  size="compact-xs"
+                  variant="subtle"
+                  color="gray"
+                  onClick={() => setShowEndpointTest(true)}
+                  leftSection={<Wifi className="h-3.5 w-3.5" />}
+                >
+                  测试端点
+                </Button>
+              )}
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="gray"
                 onClick={() => setOpenSettings('page-settings')}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
+                leftSection={<SlidersHorizontal className="h-3.5 w-3.5" />}
               >
-                <SlidersHorizontal className="h-3.5 w-3.5" />
                 页面设置
-              </button>
+              </Button>
+              {isAdmin && (
+              <>
               <div className="w-px h-4 bg-border" />
-              <Link
-                to="/settings?tab=data-sources"
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-secondary hover:text-accent hover:bg-accent/8 text-xs transition-colors duration-150"
-                title="切换数据源"
-              >
-                <Database className="h-3.5 w-3.5" />
-                <span className="text-foreground/80 max-w-[120px] truncate">{activeDataSourceName}</span>
-              </Link>
-              <button
+              <Tooltip label="切换数据源" position="bottom">
+                <Button
+                  component={Link}
+                  to="/settings?tab=data-sources"
+                  size="compact-xs"
+                  variant="subtle"
+                  color="gray"
+                  leftSection={<Database className="h-3.5 w-3.5" />}
+                >
+                  <span className="text-foreground/80 max-w-[120px] truncate">{activeDataSourceName}</span>
+                </Button>
+              </Tooltip>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="red"
                 onClick={() => setShowClearConfirm(true)}
                 disabled={isRunning}
-                className="inline-flex items-center gap-1 px-2 py-1 rounded-btn text-muted hover:text-danger hover:bg-danger/8 text-xs transition-colors duration-150 disabled:opacity-40 disabled:pointer-events-none"
+                leftSection={<Trash2 className="h-3.5 w-3.5" />}
               >
-                <Trash2 className="h-3.5 w-3.5" />
                 清除数据
-              </button>
+              </Button>
+              </>
+              )}
             </div>
           </div>
         }
       />
 
-      <div className="px-8 py-6 space-y-6 max-w-6xl">
+      <PageContainer className="space-y-6">
+        {marketHealth && (
+          <div className={`flex items-start gap-2 rounded-card border px-3 py-2 text-xs ${
+            healthNeedsAttention
+              ? 'border-amber-300/70 bg-amber-50 text-amber-900'
+              : 'border-border bg-elevated/40 text-secondary'
+          }`}>
+            <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${healthNeedsAttention ? 'text-amber-600' : 'text-muted'}`} />
+            <div className="min-w-0 leading-relaxed">
+              <div className="font-medium">
+                行情数据截至 {marketHealth.freshness?.as_of ?? marketHealth.target_date ?? '未确认'}
+                {' · provider '} {marketHealth.freshness?.provider_date ?? marketHealth.provider_date ?? '未确认'}
+                {' · '}来源 {marketHealth.provider ?? '未确认'}
+                {healthNeedsAttention ? ' · 覆盖需要关注' : ' · 日期已对齐'}
+              </div>
+              <div className="mt-0.5 text-[11px] opacity-80">
+                请求 {healthCoverage.requested ?? 0} 只 · 可用 {healthCoverage.available ?? 0} 只 ·
+                未覆盖 {healthCoverage.missing ?? 0} 只（其中 inactive {healthCoverage.inactive ?? 0}，待复核 {healthCoverage.unresolved ?? 0}）。
+                未覆盖标的不以旧值补齐，避免把历史价格当作当日 A 股行情。
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* None 档提示 —— 非阻断: 无需 Key 也可获取历史日K, 仅实时行情等扩展能力受限 */}
         {isNoKey && (
           <div className="flex items-center gap-2 rounded-card border border-border bg-elevated/40 px-3 py-2 text-xs">
@@ -699,10 +766,11 @@ export function Data() {
             showIntervalEdit={showIntervalEdit}
             onShowIntervalEdit={handleToggleIntervalEdit}
             onIntervalChange={(v) => updateInterval.mutate(v)}
+            isAdmin={isAdmin}
           />
 
           {/* 自动调度 */}
-          <div className="rounded-card border border-border bg-surface p-4">
+          <Card padding="md" className="border border-border bg-surface">
             <div className="flex items-center gap-2 mb-3">
               <Calendar className="h-4 w-4 text-secondary" />
               <h3 className="text-sm font-medium text-foreground">自动调度</h3>
@@ -738,12 +806,18 @@ export function Data() {
                     <span className="font-mono text-secondary">
                       {`${String(instrumentsSched.hour).padStart(2, '0')}:${String(instrumentsSched.minute).padStart(2, '0')}`}
                     </span>
-                    <button
+                    {isAdmin && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="xs"
+                      aria-label="编辑盘前调度时间"
                       onClick={() => setShowInstScheduleEdit(v => !v)}
-                      className={`p-0.5 rounded hover:bg-elevated transition-colors ${showInstScheduleEdit ? 'text-accent' : 'text-secondary'}`}
+                      className={showInstScheduleEdit ? 'text-accent' : 'text-secondary'}
                     >
                       <Clock className="h-3 w-3" />
-                    </button>
+                    </ActionIcon>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 font-mono text-secondary">
                     {s?.last_instruments_run && (
@@ -785,12 +859,18 @@ export function Data() {
                     <span className="font-mono text-secondary">
                       {`${String(pipelineSched.hour).padStart(2, '0')}:${String(pipelineSched.minute).padStart(2, '0')}`}
                     </span>
-                    <button
+                    {isAdmin && (
+                    <ActionIcon
+                      variant="subtle"
+                      color="gray"
+                      size="xs"
+                      aria-label="编辑盘后调度时间"
                       onClick={() => setShowScheduleEdit(v => !v)}
-                      className={`p-0.5 rounded hover:bg-elevated transition-colors ${showScheduleEdit ? 'text-accent' : 'text-secondary'}`}
+                      className={showScheduleEdit ? 'text-accent' : 'text-secondary'}
                     >
                       <Clock className="h-3 w-3" />
-                    </button>
+                    </ActionIcon>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 font-mono text-secondary">
                     {s?.last_pipeline_run && (
@@ -827,10 +907,10 @@ export function Data() {
                 </AnimatePresence>
               </div>
             )}
-          </div>
+          </Card>
 
           {/* 存储 */}
-          <div className="rounded-card border border-border bg-surface p-4">
+          <Card padding="md" className="border border-border bg-surface">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <HardDrive className="h-4 w-4 text-secondary" />
@@ -882,7 +962,7 @@ export function Data() {
                 </div>
               )}
             </div>
-          </div>
+          </Card>
         </div>
 
         {/* 数据画像 */}
@@ -907,7 +987,7 @@ export function Data() {
         {/* 同步历史 */}
         <div>
           <SectionTitle icon={Clock}>同步历史</SectionTitle>
-          <div className="mt-3 rounded-card border border-border overflow-hidden">
+          <Card padding={0} className="mt-3 border border-border bg-transparent overflow-hidden">
             {history.isLoading ? (
               <div className="px-5 py-6 space-y-3">
                 {Array.from({ length: 3 }).map((_, i) => (
@@ -934,7 +1014,7 @@ export function Data() {
                 暂无同步记录 — 点右上角"立即同步"开始。
               </div>
             )}
-          </div>
+          </Card>
         </div>
 
         {startSync.isError && (
@@ -942,7 +1022,7 @@ export function Data() {
             启动失败:{String((startSync.error as any).message)}
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {/* 弹窗 */}
       <EnrichedSchemaModal
@@ -1052,34 +1132,32 @@ export function Data() {
                   <div className="text-[11px] text-muted mt-1">获取数据时会先刷新 CN_Index 维表，再向前扩展指数历史；指数不需要复权。</div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center">
-                    <button
-                      onClick={() => setIndexExtendValue(v => Math.max(1, v - 1))}
-                      disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
-                      className="h-6 w-6 flex items-center justify-center rounded-l-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-                    >−</button>
-                    <div className="h-6 w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums text-foreground bg-base">
-                      {indexExtendValue}
-                    </div>
-                    <button
-                      onClick={() => setIndexExtendValue(v => Math.min(indexExtendUnit === 'year' ? 10 : 36, v + 1))}
-                      disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
-                      className="h-6 w-6 flex items-center justify-center rounded-r-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-                    >+</button>
-                  </div>
+                  <NumberInput
+                    size="xs"
+                    w={72}
+                    min={1}
+                    max={indexExtendUnit === 'year' ? 10 : 36}
+                    value={indexExtendValue}
+                    disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
+                    onChange={v => setIndexExtendValue(Math.max(1, Math.min(indexExtendUnit === 'year' ? 10 : 36, Number(v) || 1)))}
+                    classNames={{ input: 'rounded-btn font-mono tabular-nums' }}
+                  />
 
-                  <div className="flex rounded-btn border border-border overflow-hidden">
-                    {(['month', 'year'] as const).map(u => (
-                      <button
-                        key={u}
-                        onClick={() => { setIndexExtendUnit(u); if (u === 'year' && indexExtendValue > 10) setIndexExtendValue(1); if (u === 'month' && indexExtendValue > 36) setIndexExtendValue(6) }}
-                        disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
-                        className={`px-2 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-40 ${
-                          indexExtendUnit === u ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'
-                        }`}
-                      >{u === 'month' ? '月' : '年'}</button>
-                    ))}
-                  </div>
+                  <SegmentedControl
+                    size="xs"
+                    value={indexExtendUnit}
+                    disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
+                    onChange={u => {
+                      const next = u as 'month' | 'year'
+                      setIndexExtendUnit(next)
+                      if (next === 'year' && indexExtendValue > 10) setIndexExtendValue(1)
+                      if (next === 'month' && indexExtendValue > 36) setIndexExtendValue(6)
+                    }}
+                    data={[
+                      { label: '月', value: 'month' },
+                      { label: '年', value: 'year' },
+                    ]}
+                  />
                 </div>
 
                 <div className="text-[10px] text-muted">
@@ -1087,6 +1165,7 @@ export function Data() {
                   {indexEarliestDate && <span> (当前最早: <span className="font-mono text-secondary">{indexEarliestDate}</span>)</span>}
                 </div>
 
+                {isAdmin && (
                 <div className="rounded-btn border border-border bg-base/40 p-3 space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <div>
@@ -1094,50 +1173,50 @@ export function Data() {
                       <div className="text-[10px] text-muted mt-0.5">每批同步并计算的指数数量，默认 100。</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number"
+                      <NumberInput
+                        size="xs"
+                        w={80}
+                        hideControls
                         min={1}
                         max={10000}
                         value={indexBatchInput}
-                        onChange={e => setIndexBatchInput(e.target.value)}
+                        onChange={v => setIndexBatchInput(String(v))}
                         disabled={updateIndexBatchSize.isPending || !!activeJobId || syncIndexDaily.isPending}
-                        className="w-20 px-2 py-1 rounded-btn bg-elevated border border-border text-xs font-mono text-foreground outline-none focus:border-accent disabled:opacity-40"
+                        classNames={{ input: 'rounded-btn bg-elevated border-border font-mono' }}
                       />
-                      <button
+                      <Button
+                        size="compact-xs"
+                        variant="default"
                         onClick={() => {
                           const size = Math.max(1, Math.min(10000, Number(indexBatchInput) || 100))
                           setIndexBatchInput(String(size))
                           updateIndexBatchSize.mutate(size)
                         }}
-                        disabled={updateIndexBatchSize.isPending || !!activeJobId || syncIndexDaily.isPending}
-                        className="px-2.5 py-1 rounded-btn bg-elevated border border-border text-xs text-secondary hover:text-foreground disabled:opacity-40 transition-colors"
+                        disabled={!!activeJobId || syncIndexDaily.isPending}
+                        loading={updateIndexBatchSize.isPending}
                       >
-                        {updateIndexBatchSize.isPending ? '保存中…' : '保存'}
-                      </button>
+                        保存
+                      </Button>
                     </div>
                   </div>
                   <div className="text-[10px] text-muted">
                     当前生效: <span className="font-mono text-secondary">{indexDailyBatchSize}</span>
                   </div>
                 </div>
-                <button
+                )}
+                <Button
+                  fullWidth
+                  size="xs"
                   onClick={() => syncIndexDaily.mutate()}
-                  disabled={!hasDailyBatchCap || !!activeJobId || syncIndexDaily.isPending}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium hover:bg-accent disabled:opacity-40 disabled:pointer-events-none transition-colors duration-150"
+                  disabled={!hasDailyBatchCap || !!activeJobId}
+                  loading={syncIndexDaily.isPending}
                 >
-                  {syncIndexDaily.isPending ? (
-                    <>
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      获取中…
-                    </>
-                  ) : (
-                    <>获取数据</>
-                  )}
-                </button>
+                  {syncIndexDaily.isPending ? '获取中…' : '获取数据'}
+                </Button>
                 {!hasDailyBatchCap && (
-                  <span className="text-[10px] text-warning/80 bg-warning/8 rounded px-1.5 py-px font-medium">
+                  <Badge size="xs" variant="light" className="h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-warning/8 text-warning/80">
                     需 Starter+ / Pro 批量日 K 权限
-                  </span>
+                  </Badge>
                 )}
               </div>
             </div>
@@ -1153,25 +1232,15 @@ export function Data() {
         )}
       </AnimatePresence>
 
-      {/* 清除数据二次确认弹窗 */}
-      <AnimatePresence>
-        {showClearConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => !clearData.isPending && setShowClearConfirm(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-[90vw] max-w-[420px] rounded-card border border-border bg-base shadow-2xl p-6"
-            >
+      {/* 清除数据二次确认弹窗 (Mantine Modal; 清除中禁止点遮罩关闭) */}
+      {showClearConfirm && (
+        <Modal
+          onClose={() => setShowClearConfirm(false)}
+          ariaLabel="确认清除本地数据"
+          panelClassName="w-[90vw] max-w-[420px] rounded-card border border-border bg-base shadow-2xl p-6"
+          overlayClassName="bg-black/60 backdrop-blur-sm"
+          closeOnBackdrop={!clearData.isPending}
+        >
               <div className="flex items-start gap-3">
                 <div className="shrink-0 h-10 w-10 rounded-full bg-danger/12 flex items-center justify-center">
                   <AlertTriangle className="h-5 w-5 text-danger" />
@@ -1196,25 +1265,26 @@ export function Data() {
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2 mt-5">
-                <button
+                <Button
+                  variant="default"
+                  size="xs"
                   onClick={() => setShowClearConfirm(false)}
                   disabled={clearData.isPending}
-                  className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors disabled:opacity-50"
                 >
                   取消
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
                   onClick={() => clearData.mutate()}
                   disabled={clearData.isPending}
-                  className="px-3 py-1.5 rounded-btn bg-danger/90 text-base text-sm font-medium hover:bg-danger disabled:opacity-50 transition-colors"
+                  loading={clearData.isPending}
+                  className="bg-danger/90 text-base hover:bg-danger"
                 >
                   {clearData.isPending ? '清除中…' : '清除数据'}
-                </button>
+                </Button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+        </Modal>
+      )}
     </>
   )
 }

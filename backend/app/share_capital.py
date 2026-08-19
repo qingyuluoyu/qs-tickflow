@@ -32,7 +32,8 @@ def apply_historical_float_shares(
 ) -> pl.DataFrame:
     """为行情行解析有效流通股本。
 
-    当日保留 rows.float_shares；历史日期使用公告日不晚于交易日的最新股本，
+    当日优先保留 rows.float_shares，无效（缺失或非正）时回退历史股本；
+    历史日期使用公告日不晚于交易日的最新股本，
     找不到历史记录时继续使用 rows.float_shares。
     """
     required = {"symbol", "date", "float_shares"}
@@ -96,7 +97,10 @@ def apply_historical_float_shares(
             check_sortedness=False,
         )
         .with_columns(
-            pl.when(pl.col("_share_trade_date") == pl.lit(today))
+            pl.when(
+                (pl.col("_share_trade_date") == pl.lit(today))
+                & (pl.col("float_shares") > 0)
+            )
             .then(pl.col("float_shares"))
             .otherwise(
                 pl.coalesce("_historical_float_shares", "float_shares")

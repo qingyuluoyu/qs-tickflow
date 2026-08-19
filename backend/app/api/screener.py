@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.db_safe import is_valid_ext_ident, quote_ident
-from app.market_time import cn_today, is_market_snapshot_stale
+from app.market_time import cn_today, is_market_snapshot_stale, latest_weekday
 from app.services import strategy_cache
 from app.services.screener import ScreenerService
 from app.strategy import config as strategy_config
@@ -24,6 +24,20 @@ from app.strategy import config as strategy_config
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/screener", tags=["screener"])
+
+
+def _provider_snapshot_confirms_calendar(snapshot_date, current_date) -> bool:
+    """Return whether a provider snapshot can confirm the current calendar.
+
+    A successful provider response is not enough: on a weekday, yesterday's
+    daily bar is still stale. A previous trading day is accepted as the
+    latest valid snapshot only on a weekend/closed-day fallback.
+    """
+    if snapshot_date is None or snapshot_date > current_date:
+        return False
+    if snapshot_date == current_date:
+        return True
+    return current_date.weekday() >= 5 and snapshot_date == latest_weekday(current_date)
 
 
 class CustomRequest(BaseModel):
@@ -684,7 +698,11 @@ def limit_ladder(
     if not as_of:
         raise HTTPException(status_code=400, detail="无可用数据日期")
 
-    provider_confirmed = live_snapshot is not None and live_date == as_of
+    provider_confirmed = (
+        live_snapshot is not None
+        and live_date == as_of
+        and _provider_snapshot_confirms_calendar(live_date, cn_today())
+    )
     if live_snapshot is not None and live_date == as_of:
         from app.services.market_overview_builder import _derive_dashboard_limit_indicators
 

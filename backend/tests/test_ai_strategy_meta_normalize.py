@@ -222,6 +222,20 @@ def test_validate_code_accepts_controlled_virtual_scoring_field():
     assert result["valid"] is True
 
 
+def test_validate_code_canonicalizes_volume_ratio_scoring_alias():
+    code = RAW_CODE.replace(
+        '"scoring": {},',
+        '"scoring": {"volume_ratio_5d": 1.0},',
+    )
+
+    result = AIStrategyGenerator().validate_code(code)
+
+    assert result["valid"] is True
+    assert result["meta"]["scoring"] == {"vol_ratio_5d": 1.0}
+    assert '"volume_ratio_5d"' not in result["code"]
+    assert '"vol_ratio_5d"' in result["code"]
+
+
 def test_validate_code_rejects_unknown_scoring_field():
     code = RAW_CODE.replace(
         '"scoring": {},',

@@ -1,11 +1,10 @@
-import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Popover } from '@mantine/core'
 import { HelpCircle } from 'lucide-react'
 import { api } from '@/lib/api'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 /** 单方向(涨停/跌停)的修正明细块 */
 function SealedDirBlock({ title, color, counts, rawTotal }: {
@@ -41,7 +40,8 @@ function SealedDirBlock({ title, color, counts, rawTotal }: {
   )
 }
 
-/** 修正/降级 标识 + 问号弹窗(连板梯队/看板共用) */
+/** 修正/降级 标识 + 问号弹窗(连板梯队/看板共用)
+ *  Mantine Popover: 自动定位(flip/shift 防溢出)、点击外部/ESC 关闭、portal 渲染 */
 export function SealedBadge({ degraded, hasDepth, isHistorical, sealedReady, sealedCountsUp, sealedCountsDown, rawUp, rawDown, invalidateKeys = ['limit-ladder'] }: {
   degraded: boolean
   hasDepth: boolean
@@ -55,8 +55,6 @@ export function SealedBadge({ degraded, hasDepth, isHistorical, sealedReady, sea
   invalidateKeys?: string[]
 }) {
   const [showHint, setShowHint] = useState(false)
-  const [hintPos, setHintPos] = useState<{ left: number; top: number } | null>(null)
-  const btnRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
   const qc = useQueryClient()
   const runFix = useMutation({
@@ -77,91 +75,68 @@ export function SealedBadge({ degraded, hasDepth, isHistorical, sealedReady, sea
   const label = degraded ? '降级' : '修正'
 
   return (
-    <>
-      <div className="relative inline-flex items-center">
+    <Popover
+      opened={showHint}
+      onChange={setShowHint}
+      position="bottom-start"
+      width={256}
+      withinPortal
+      shadow="xl"
+      transitionProps={{ duration: 150 }}
+      classNames={{ dropdown: 'bg-surface border border-border rounded-md p-3 text-[11px] text-secondary leading-relaxed' }}
+    >
+      <Popover.Target>
         <button
-          ref={btnRef}
-          onClick={() => {
-            // 基于徽章位置算弹层坐标, 通过 portal 渲染到 body
-            // 脱离父级 overflow-hidden 裁剪 + backdrop-blur 的 containing block
-            const rect = btnRef.current?.getBoundingClientRect()
-            if (rect) {
-              const W = 256 // w-64 = 16rem = 256px
-              const H = 240 // 预估高度 (降级原因/修正明细 + 按钮区)
-              const left = Math.max(8, Math.min(rect.left, window.innerWidth - W - 8))
-              const top = rect.bottom + H > window.innerHeight
-                ? Math.max(8, rect.top - H - 4)
-                : rect.bottom + 4
-              setHintPos({ left, top })
-            }
-            setShowHint(v => !v)
-          }}
+          onClick={() => setShowHint(v => !v)}
           className="group inline-flex items-center gap-1 h-5 px-2 rounded-full bg-yellow-500/10 border border-yellow-500/30 cursor-help transition-all hover:bg-yellow-500/20 hover:border-yellow-500/50"
         >
           <span className="h-1.5 w-1.5 rounded-full bg-yellow-500" />
           <span className="text-[10px] font-medium text-yellow-600 dark:text-yellow-500 leading-none">{label}</span>
           <HelpCircle className="h-3 w-3 text-yellow-500/70 group-hover:text-yellow-500 transition-colors" />
         </button>
-      </div>
-      {createPortal(
-        <AnimatePresence>
-          {showHint && hintPos && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowHint(false)} />
-              <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                style={{ left: hintPos.left, top: hintPos.top }}
-                className="fixed z-50 w-64 bg-surface border border-border rounded-md shadow-xl p-3 text-[11px] text-secondary leading-relaxed"
-                onClick={e => e.stopPropagation()}
-              >
-                {degraded ? (
-                  <>
-                    <div className="font-medium text-foreground mb-1.5">真假涨停判定降级</div>
-                    {reasons.map((r, i) => (
-                      <div key={i} className="flex gap-1 mb-1">
-                        <span className="text-yellow-500 shrink-0">·</span>
-                        <span>{r}</span>
-                      </div>
-                    ))}
-                    <div className="mt-1.5 pt-1.5 border-t border-border text-muted">
-                      真假板判定依赖五档盘口实时快照(卖一/买一量)。Pro+ 套餐的当天数据在收盘后自动恢复。
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="font-medium text-foreground mb-1.5">五档盘口修正结果</div>
-                    <SealedDirBlock title="涨停" color="bull" counts={sealedCountsUp} rawTotal={rawUp} />
-                    <SealedDirBlock title="跌停" color="bear" counts={sealedCountsDown} rawTotal={rawDown} />
-                    <div className="mt-1.5 pt-1.5 border-t border-border text-muted">
-                      真封板显示封单量,假涨停/假跌停已归入炸板/翘板视图。{sealedReady && '数据为盘中快照,收盘后自动定版。'}
-                    </div>
-                  </>
-                )}
-                <div className="mt-2 flex gap-1.5">
-                  {hasDepth && !isHistorical && (
-                    <button
-                      onClick={() => { runFix.mutate(); setShowHint(false) }}
-                      disabled={runFix.isPending}
-                      className="flex-1 px-2 py-1.5 rounded text-[11px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors text-center disabled:opacity-50"
-                    >
-                      {runFix.isPending ? '修正中…' : '立即修正'}
-                    </button>
-                  )}
-                  <button
-                    onClick={() => { setShowHint(false); navigate('/settings?tab=monitoring&highlight=depth-fix') }}
-                    className={`${hasDepth && !isHistorical ? '' : 'w-full'} px-2 py-1.5 rounded text-[11px] bg-elevated text-secondary hover:text-foreground transition-colors text-center`}
-                  >
-                    去设置 →
-                  </button>
-                </div>
-              </motion.div>
-            </>
+      </Popover.Target>
+      <Popover.Dropdown>
+        {degraded ? (
+          <>
+            <div className="font-medium text-foreground mb-1.5">真假涨停判定降级</div>
+            {reasons.map((r, i) => (
+              <div key={i} className="flex gap-1 mb-1">
+                <span className="text-yellow-500 shrink-0">·</span>
+                <span>{r}</span>
+              </div>
+            ))}
+            <div className="mt-1.5 pt-1.5 border-t border-border text-muted">
+              真假板判定依赖五档盘口实时快照(卖一/买一量)。Pro+ 套餐的当天数据在收盘后自动恢复。
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="font-medium text-foreground mb-1.5">五档盘口修正结果</div>
+            <SealedDirBlock title="涨停" color="bull" counts={sealedCountsUp} rawTotal={rawUp} />
+            <SealedDirBlock title="跌停" color="bear" counts={sealedCountsDown} rawTotal={rawDown} />
+            <div className="mt-1.5 pt-1.5 border-t border-border text-muted">
+              真封板显示封单量,假涨停/假跌停已归入炸板/翘板视图。{sealedReady && '数据为盘中快照,收盘后自动定版。'}
+            </div>
+          </>
+        )}
+        <div className="mt-2 flex gap-1.5">
+          {hasDepth && !isHistorical && (
+            <button
+              onClick={() => { runFix.mutate(); setShowHint(false) }}
+              disabled={runFix.isPending}
+              className="flex-1 px-2 py-1.5 rounded text-[11px] bg-accent/15 text-accent hover:bg-accent/25 transition-colors text-center disabled:opacity-50"
+            >
+              {runFix.isPending ? '修正中…' : '立即修正'}
+            </button>
           )}
-        </AnimatePresence>,
-        document.body
-      )}
-    </>
+          <button
+            onClick={() => { setShowHint(false); navigate('/settings?tab=monitoring&highlight=depth-fix') }}
+            className={`${hasDepth && !isHistorical ? '' : 'w-full'} px-2 py-1.5 rounded text-[11px] bg-elevated text-secondary hover:text-foreground transition-colors text-center`}
+          >
+            去设置 →
+          </button>
+        </div>
+      </Popover.Dropdown>
+    </Popover>
   )
 }

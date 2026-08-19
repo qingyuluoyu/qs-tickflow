@@ -63,6 +63,13 @@ _MATRIX_SCORING_FIELDS = frozenset({
     "rsi_6", "rsi_14", "rsi_24", "vol_ratio_5d", "ma20_bias",
 })
 
+# 这是用户和模型都很容易写出的自然别名, 但 enriched 的正式字段名是
+# ``vol_ratio_5d``。只在 META.scoring 中做确定性规范化, 不把不存在的列
+# 注入 DataFrame, 也不掩盖 filter/filter_history 中的真实字段错误。
+_SCORING_FIELD_ALIASES = {
+    "volume_ratio_5d": "vol_ratio_5d",
+}
+
 
 def _top_level_assignment(
     tree: ast.Module,
@@ -119,14 +126,34 @@ def _strategy_execution_backend(tree: ast.Module, meta: dict | None = None) -> s
 
 def _strategy_entrypoint_error(code: str, meta: dict | None = None) -> str | None:
     tree = ast.parse(code)
-    if _strategy_execution_backend(tree, meta) == "matrix_native":
+    backend = _strategy_execution_backend(tree, meta)
+    if backend == "matrix_native":
         return None if _top_level_assignment(tree, "MATRIX_STRATEGY") else _MATRIX_ENTRYPOINT_ERROR
-    has_polars_entrypoint = any(
+    has_filter = any(
         isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in {"filter", "filter_history"}
+        and node.name == "filter"
         for node in tree.body
     )
-    return None if has_polars_entrypoint else _POLARS_ENTRYPOINT_ERROR
+    has_filter_history = any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "filter_history"
+        for node in tree.body
+    )
+    if backend == "polars_expr":
+        if has_filter_history:
+            return (
+                "polars_expr strategy 只能声明 filter；当前代码使用了 filter_history，"
+                "请改为 EXECUTION_BACKEND = 'python_history_legacy'"
+            )
+        return None if has_filter else _POLARS_ENTRYPOINT_ERROR
+    if backend == "python_history_legacy":
+        if has_filter:
+            return (
+                "python_history_legacy strategy 只能声明 filter_history；当前代码使用了 filter，"
+                "请改为 EXECUTION_BACKEND = 'polars_expr'"
+            )
+        return None if has_filter_history else _POLARS_ENTRYPOINT_ERROR
+    return None if (has_filter or has_filter_history) else _POLARS_ENTRYPOINT_ERROR
 
 
 class AIStrategyGenerator:
@@ -178,6 +205,7 @@ class AIStrategyGenerator:
 
         # 验证
         try:
+            code = self.normalize_scoring_aliases(code)
             self._validate_safety(code)
         except SyntaxError as e:
             return {
@@ -230,6 +258,60 @@ class AIStrategyGenerator:
             "valid": True,
             "error": None,
         }
+
+    @staticmethod
+    def normalize_scoring_aliases(code: str) -> str:
+        """将已知 META.scoring 别名改成系统真实字段名。"""
+        ast.parse(code)
+        found = find_meta_assignment(code)
+        if found is None:
+            return code
+        _, meta_node = found
+        scoring_node = None
+        for key, value in zip(meta_node.keys, meta_node.values, strict=True):
+            if (
+                isinstance(key, ast.Constant)
+                and key.value == "scoring"
+                and isinstance(value, ast.Dict)
+            ):
+                scoring_node = value
+                break
+        if scoring_node is None:
+            return code
+
+        key_values = {
+            key.value
+            for key in scoring_node.keys
+            if isinstance(key, ast.Constant) and isinstance(key.value, str)
+        }
+        replacements: list[tuple[ast.Constant, int, int, bytes]] = []
+        for key in scoring_node.keys:
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+            canonical = _SCORING_FIELD_ALIASES.get(key.value)
+            if canonical is None or canonical in key_values:
+                continue
+            original = ast.get_source_segment(code, key) or repr(key.value)
+            quote = original[0] if original[:1] in {"'", '"'} else '"'
+            replacements.append((key, key.col_offset, key.end_col_offset, f"{quote}{canonical}{quote}".encode()))
+
+        if not replacements:
+            return code
+        source = bytearray(code.encode("utf-8"))
+        line_offsets = [0]
+        for line in source.splitlines(keepends=True):
+            line_offsets.append(line_offsets[-1] + len(line))
+        absolute_replacements = [
+            (
+                line_offsets[key_node.lineno - 1] + start,
+                line_offsets[key_node.end_lineno - 1] + end,
+                replacement,
+            )
+            for key_node, start, end, replacement in replacements
+        ]
+        for start, end, replacement in reversed(absolute_replacements):
+            source[start:end] = replacement
+        return source.decode("utf-8")
 
     @staticmethod
     def needs_structural_repair(result: dict) -> bool:

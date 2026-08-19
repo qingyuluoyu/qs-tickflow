@@ -1,11 +1,28 @@
-import { useState, useCallback, useEffect } from 'react'
-import { storage } from '@/lib/storage'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { storage, storageForUser } from '@/lib/storage'
 
-export function useStrategyPool() {
-  const [pool, setPool] = useState<string[]>(() => storage.strategyPool.get([]))
+export function useStrategyPool(userId?: string) {
+  const poolStorage = useMemo(
+    () => userId ? storageForUser(userId).strategyPool : storage.strategyPool,
+    [userId],
+  )
+  const [pool, setPool] = useState<string[]>(() => poolStorage.get([]))
+  const skipPersist = useRef(true)
 
-  // 同步写入 localStorage
-  useEffect(() => { storage.strategyPool.set(pool) }, [pool])
+  // 账户切换时先读取该账户的策略池,避免把上一个账户的池写入新账户。
+  useEffect(() => {
+    skipPersist.current = true
+    setPool(poolStorage.get([]))
+  }, [poolStorage])
+
+  // 同步写入当前账户自己的 localStorage 命名空间。
+  useEffect(() => {
+    if (skipPersist.current) {
+      skipPersist.current = false
+      return
+    }
+    poolStorage.set(pool)
+  }, [pool, poolStorage])
 
   const addToPool = useCallback((id: string) => {
     setPool(prev => prev.includes(id) ? prev : [...prev, id])

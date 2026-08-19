@@ -183,18 +183,30 @@ class GenericHTTPProvider:
                     on_chunk_done(request_number, total_requests)
         return pl.concat(frames, how="diagonal_relaxed") if frames else pl.DataFrame()
 
-    def get_latest_daily_snapshot(self, asset_type: AssetType = "stock") -> pl.DataFrame:
+    def get_latest_daily_snapshot(
+        self,
+        asset_type: AssetType = "stock",
+        as_of: datetime | None = None,
+    ) -> pl.DataFrame:
         """Fetch the provider's latest unfiltered daily market snapshot.
 
         This is intentionally separate from ``get_daily``: providers such as
         TeaJoin expose a bounded, full-market latest-day response when no
         symbol/date filter is supplied.  The dashboard can use that response
         without pretending that the locally persisted enriched partition is
-        current.  No data is persisted by this method.
+        current.  When ``as_of`` is supplied, query the exact trading date
+        first so a provider-side row limit cannot hide a newly published day;
+        an empty exact-date response falls back to the latest unfiltered
+        snapshot. No data is persisted by this method.
         """
         cfg = self._dataset("daily")
         url = cfg.daily_url_by_asset_type.get(asset_type, cfg.url)
-        rows = self._request_rows(cfg, override_url=url)
+        request_kwargs: dict[str, Any] = {"override_url": url}
+        if as_of is not None:
+            request_kwargs["trade_date"] = as_of
+        rows = self._request_rows(cfg, **request_kwargs)
+        if as_of is not None and not rows:
+            rows = self._request_rows(cfg, override_url=url)
         df = self._mapped_frame(cfg, rows)
         if df.is_empty() or "date" not in df.columns:
             return pl.DataFrame()
@@ -406,8 +418,20 @@ class GenericHTTPProvider:
         """把映射后的 df 规范成 minute canonical 列。"""
         if df.is_empty():
             return df
-        if "datetime" in df.columns and df.schema["datetime"] != pl.Datetime("us"):
-            df = df.with_columns(pl.col("datetime").cast(pl.Datetime("us"), strict=False))
+        if "datetime" in df.columns:
+            dt_type = df.schema["datetime"]
+            if dt_type == pl.String:
+                # TeaJoin returns ``YYYY-MM-DD HH:MM:SS`` strings.  A direct
+                # cast to Datetime silently turns these valid rows into nulls.
+                df = df.with_columns(
+                    pl.col("datetime").str.to_datetime(strict=False).alias("datetime"),
+                )
+            elif not isinstance(dt_type, pl.Datetime) or dt_type.time_unit != "us":
+                df = df.with_columns(
+                    pl.col("datetime").cast(pl.Datetime("us"), strict=False),
+                )
+            # Invalid timestamps must not enter the canonical minute table.
+            df = df.filter(pl.col("datetime").is_not_null())
         for col in ("open", "high", "low", "close", "volume", "amount"):
             if col in df.columns:
                 df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
@@ -479,6 +503,7 @@ class GenericHTTPProvider:
         symbols: list[str] | None = None,
         start_time: datetime | None = None,
         end_time: datetime | None = None,
+        trade_date: datetime | None = None,
         override_params: dict[str, Any] | None = None,
         override_body: dict[str, Any] | None = None,
         override_url: str | None = None,
@@ -522,6 +547,19 @@ class GenericHTTPProvider:
             else:
                 body[cfg.end_param] = end_value
                 params.setdefault(cfg.end_param, end_value)
+
+        trade_date_value = datetime_payload(
+            trade_date,
+            date_only=True,
+            date_format=cfg.date_format or None,
+        )
+        if trade_date_value:
+            if cfg.trade_date_body_path:
+                _set_nested(body, cfg.trade_date_body_path, trade_date_value)
+            elif cfg.method.upper() == "GET":
+                params.setdefault("trade_date", trade_date_value)
+            else:
+                body.setdefault("trade_date", trade_date_value)
 
         method = cfg.method.upper()
         request_kwargs: dict[str, Any] = {"headers": headers, "timeout": cfg.timeout}

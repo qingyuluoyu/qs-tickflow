@@ -4,6 +4,14 @@ import { Loader2, RefreshCw, ShieldAlert } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { api, type AuthUser } from '@/lib/api'
 import { AuthContext } from '@/lib/auth'
+import { setStorageUser } from '@/lib/storage'
+import { resetAccountState as resetFinancialAiState } from '@/lib/aiReportStore'
+import { resetAccountState as resetStockAiState } from '@/lib/stockAnalysisStore'
+import { resetAccountState as resetBacktestState } from '@/lib/backtestTask'
+import { resetAccountState as resetOptimizerState } from '@/lib/optimizerTask'
+import { resetAccountState as resetWalkForwardState } from '@/lib/walkforwardTask'
+import { resetAccountState as resetReviewState } from '@/lib/reviewStore'
+import { resetAccountState as resetMonitorBadgeState } from '@/lib/monitorBadge'
 import { AccountEntry } from './AccountEntry'
 
 export function AuthGate({ children }: { children?: ReactNode }) {
@@ -19,6 +27,7 @@ export function AuthGate({ children }: { children?: ReactNode }) {
     try {
       const status = await api.authStatus()
       setHasExistingAccounts(status.configured)
+      setStorageUser(status.authenticated && status.user ? status.user.id : null)
       setUser(status.authenticated ? status.user : null)
     } catch (cause: any) {
       setLoadError(cause?.message || '无法连接服务')
@@ -39,9 +48,24 @@ export function AuthGate({ children }: { children?: ReactNode }) {
     } finally {
       // Do not retain one account's private query cache when another account
       // enters in the same browser tab.
+      resetPrivateStores()
       queryClient.clear()
+      setStorageUser(null)
+      // Re-read the badge under the anonymous namespace after the scope flip.
+      resetMonitorBadgeState()
       setUser(null)
     }
+  }, [queryClient])
+
+  const authenticate = useCallback((nextUser: AuthUser) => {
+    // AccountEntry can be reached after a browser reload as well as after an
+    // explicit switch. Clear before mounting the new account so prefetched
+    // private queries and mutation callbacks cannot reuse shared keys.
+    setStorageUser(nextUser.id)
+    resetPrivateStores()
+    queryClient.clear()
+    setHasExistingAccounts(true)
+    setUser(nextUser)
   }, [queryClient])
 
   if (loading) {
@@ -60,11 +84,21 @@ export function AuthGate({ children }: { children?: ReactNode }) {
       </div>
     )
   }
-  if (!user) return <AccountEntry onAuthenticated={setUser} hasExistingAccounts={hasExistingAccounts} />
+  if (!user) return <AccountEntry onAuthenticated={authenticate} hasExistingAccounts={hasExistingAccounts} />
 
   return (
     <AuthContext.Provider value={{ user, logout }}>
       {children ?? <Outlet />}
     </AuthContext.Provider>
   )
+}
+
+function resetPrivateStores(): void {
+  resetFinancialAiState()
+  resetStockAiState()
+  resetBacktestState()
+  resetOptimizerState()
+  resetWalkForwardState()
+  resetReviewState()
+  resetMonitorBadgeState()
 }

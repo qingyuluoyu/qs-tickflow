@@ -36,15 +36,38 @@ class ResolvedAiProfile:
     source: str
 
 
+def _shared_secrets() -> dict:
+    """读部署级共享 secrets.json (data/user_data/secrets.json)。
+
+    不能用 secrets_store.load() —— 它在用户上下文里会读到个人工作区的
+    secrets.json。服务器默认配置必须不受请求用户影响。
+    """
+    import json
+
+    path = Path(settings.data_dir) / "user_data" / "secrets.json"
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _server_default() -> ResolvedAiProfile:
+    # 部署级默认: 与 secrets_store 既有约定一致, 共享 secrets.json 优先于 env
+    # (部署方在旧版 UI 配的平台 key 在 secrets.json 里, env 常为空)。
+    # 注意 settings.ai_base_url / ai_model 自带非空默认值, 必须 legacy 优先,
+    # 否则 secrets.json 里的平台 deepseek 配置永远被默认值盖住。
+    legacy = _shared_secrets()
     return ResolvedAiProfile(
-        provider=settings.ai_provider or OPENAI_COMPAT_PROVIDER,
-        base_url=settings.ai_base_url,
-        api_key=settings.ai_api_key,
-        model=settings.ai_model,
-        user_agent=settings.ai_user_agent,
-        codex_command=settings.ai_codex_command,
-        codex_reasoning_effort=settings.ai_codex_reasoning_effort,
+        provider=str(legacy.get("ai_provider") or "") or settings.ai_provider or OPENAI_COMPAT_PROVIDER,
+        base_url=str(legacy.get("ai_base_url") or "") or settings.ai_base_url,
+        api_key=str(legacy.get("ai_api_key") or "") or settings.ai_api_key,
+        model=str(legacy.get("ai_model") or "") or settings.ai_model,
+        user_agent=str(legacy.get("ai_user_agent") or "") or settings.ai_user_agent,
+        codex_command=str(legacy.get("ai_codex_command") or "") or settings.ai_codex_command,
+        codex_reasoning_effort=str(legacy.get("ai_codex_reasoning_effort") or "") or settings.ai_codex_reasoning_effort,
         source="server_default",
     )
 
@@ -146,10 +169,23 @@ def resolve_current_profile() -> ResolvedAiProfile:
 def _migrate_legacy_current_override() -> None:
     """Copy a valid pre-database personal AI configuration once, never delete it.
 
+    仅限单账户部署升级场景: 旧版 secrets.json 是彼时唯一操作者的个人配置,
+    账户系统上线后由这唯一的账户继承。多账户服务器上 secrets.json 里的往往是
+    平台部署方自己的 key —— 绝不能复制进每个新登录用户的个人配置
+    (否则用户永远 pinned 一份平台 key 的拷贝, 平台换 key/换模型都不生效)。
+
     The original ``secrets.json`` stays untouched as a rollback source. Invalid
     or unsupported legacy entries simply keep using the server default instead
     of blocking an authenticated request.
     """
+    user = current_user()
+    if user is None:
+        return
+    store = get_account_store(settings.data_dir)
+    total, records = store.list_users(limit=2)
+    if total != 1 or not records or records[0].id != user.id:
+        return
+
     from app import secrets_store
 
     legacy = secrets_store.load()
@@ -209,12 +245,32 @@ def save_current_override(
 
 
 def clear_current_override() -> bool:
-    return get_account_store(settings.data_dir).clear_user_ai_profile(_require_current_user_id())
+    """清除个人覆盖并留下空 tombstone, 防止旧版 secrets.json 在下次读取时重新迁移复活。"""
+    user_id = _require_current_user_id()
+    store = get_account_store(settings.data_dir)
+    if store.get_user_ai_profile(user_id) is None:
+        return False
+    store.save_user_ai_profile(
+        user_id,
+        provider="",
+        base_url="",
+        model="",
+        encrypted_api_key=None,
+        user_agent="",
+    )
+    return True
 
 
 def has_current_override() -> bool:
     user = current_user()
-    return bool(user and get_account_store(settings.data_dir).get_user_ai_profile(user.id))
+    if user is None:
+        return False
+    record = get_account_store(settings.data_dir).get_user_ai_profile(user.id)
+    return bool(
+        record
+        and record.provider == OPENAI_COMPAT_PROVIDER
+        and record.encrypted_api_key
+    )
 
 
 def masked_current_override_key() -> str:

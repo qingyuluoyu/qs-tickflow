@@ -4,6 +4,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { QK } from './queryKeys'
+import { useAuth } from './auth'
 
 /** 切换实时行情 — Layout / Data 共用 */
 export function useToggleRealtimeQuotes() {
@@ -32,13 +33,14 @@ export function useUpdateQuoteInterval() {
 /** 批量添加自选 — Screener / Intraday / 截图导入 共用 */
 export function useWatchlistBatchAdd() {
   const qc = useQueryClient()
+  const { user } = useAuth()
   return useMutation({
     mutationFn: (symbols: string[]) => api.watchlistBatchAdd(symbols),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      // 前缀匹配: 实际 key 为 ['watchlist-enriched', extColumnsParam],
-      // 不能用 QK.watchlistEnriched()(= undefined) 精确匹配, 否则列表不刷新。
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      // 前缀匹配: 实际 key 为 ['watchlist-enriched', userId, extColumnsParam],
+      // 扩展列参数不固定, 统一失效自选扩展查询; key 内仍含 userId, 不会混用数据。
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
     },
   })
 }

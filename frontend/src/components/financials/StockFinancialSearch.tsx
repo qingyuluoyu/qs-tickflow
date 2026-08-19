@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
+import { TextInput } from '@mantine/core'
 import { Search, Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
@@ -23,7 +24,6 @@ export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
   const [activeIdx, setActiveIdx] = useState(-1)
   const containerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
   const search = useQuery({
     queryKey: assetTypes ? QK.instrumentSearch(query, assetTypes) : QK.financialSearch(query),
     queryFn: () => assetTypes
@@ -74,21 +74,23 @@ export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
   return (
     <div ref={containerRef} className="relative w-full max-w-xl mx-auto">
       <div className="relative flex items-center">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted pointer-events-none" />
-        <input
+        <TextInput
           ref={inputRef}
-          type="text"
           placeholder="输入股票代码或名称，如 600000 / 浦发"
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1) }}
+          onChange={(e) => { setQuery(e.currentTarget.value); setOpen(true); setActiveIdx(-1) }}
           onFocus={() => { if (trimmed) setOpen(true) }}
           onKeyDown={handleKeyDown}
           // 较宽、更醒目 —— 作为财务页主入口
-          className="w-full h-11 pl-11 pr-10 rounded-card bg-surface border border-border text-sm text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50 focus:bg-base transition-colors"
+          size="md"
+          radius="md"
+          className="w-full"
+          leftSection={<Search className="h-4 w-4 text-muted" />}
+          leftSectionPointerEvents="none"
+          rightSection={search.isFetching
+            ? <Loader2 className="h-4 w-4 text-muted animate-spin" />
+            : null}
         />
-        {search.isFetching && (
-          <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted animate-spin" />
-        )}
       </div>
 
       <AnimatePresence>
@@ -128,7 +130,7 @@ export function StockFinancialSearch({ onSelect, assetTypes }: Props) {
                     )
                   })()}
                   {r.asset_type === 'index' && (
-                    <span className="shrink-0 px-1 py-0.5 rounded text-[10px] leading-none bg-sky-500/10 text-sky-400">指数</span>
+                    <span className="shrink-0 px-1 py-0.5 rounded text-[10px] leading-none bg-accent/10 text-accent">指数</span>
                   )}
                   {r.code && <span className="text-[10px] text-muted font-mono shrink-0">{r.code}</span>}
                 </button>

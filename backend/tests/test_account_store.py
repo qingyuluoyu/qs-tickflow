@@ -80,8 +80,34 @@ def test_account_migration_and_create_login_are_transactional(tmp_path: Path):
     import sqlite3
 
     with sqlite3.connect(store.path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
     assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
+
+
+def test_login_accepts_username_as_identifier(tmp_path: Path):
+    store = AccountStore(tmp_path)
+    created = store.enter("张三", "电话/001", "任意密码🙂")
+    assert created is not None and created.created is True
+
+    # 登录模式 (name 为空) 可以用用户名代替电话定位账户。
+    by_name = store.enter("", "张三", "任意密码🙂")
+    assert by_name is not None
+    assert by_name.created is False
+    assert by_name.user.id == created.user.id
+    assert by_name.user.phone == "电话/001"
+
+    # 同名不同人: 逐个校验密码, 密码对上的那个账户登录。
+    other = store.enter("张三", "电话/002", "另一个密码")
+    assert other is not None and other.created is True
+    by_name_second = store.enter("", "张三", "另一个密码")
+    assert by_name_second is not None
+    assert by_name_second.user.id == other.user.id
+
+    # 密码都不对 / 标识符不存在 → 登录失败, 不会误建账户。
+    assert store.enter("", "张三", "错误密码") is None
+    assert store.enter("", "不存在的人", "任意密码🙂") is None
+    with sqlite3.connect(store.path) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 2
 
 
 def test_first_new_account_does_not_copy_server_seed_or_cache_data(tmp_path: Path):
@@ -142,7 +168,7 @@ def test_account_security_migration_tracks_login_and_persistent_lock(tmp_path: P
     with sqlite3.connect(store.path) as conn:
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-        assert version == 5
+        assert version == 6
         assert {"status", "last_login_at"} <= columns
         assert conn.execute("SELECT status FROM users").fetchone()[0] == "active"
         first_login = conn.execute("SELECT last_login_at FROM users").fetchone()[0]
@@ -178,7 +204,7 @@ def test_concurrent_workers_serialize_database_migrations(tmp_path: Path):
 
     assert len(stores) == 2
     with sqlite3.connect(db_path) as conn:
-        assert conn.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
         columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
         assert {"status", "last_login_at"} <= columns
 

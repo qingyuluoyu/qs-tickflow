@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Badge, Button, NumberInput, SegmentedControl } from '@mantine/core'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
@@ -32,38 +32,39 @@ export function ExtendHistoryPanel({ caps, isRunning, earliestDate, onStart }: {
       })()
     : null
 
+  const maxValue = unit === 'year' ? 10 : 36
+
   return (
     <div className="px-4 pb-4 pt-3 border-t border-accent/20 space-y-3">
       <div className="text-[10px] text-secondary">向前扩展历史数据</div>
 
       <div className="flex items-center gap-2">
-        <div className="flex items-center">
-          <button
-            onClick={() => setValue(Math.max(1, value - 1))}
-            disabled={!hasBatchCap || isRunning}
-            className="h-6 w-6 flex items-center justify-center rounded-l-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-          >−</button>
-          <div className="h-6 w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums text-foreground bg-base">
-            {value}
-          </div>
-          <button
-            onClick={() => setValue(Math.min(unit === 'year' ? 10 : 36, value + 1))}
-            disabled={!hasBatchCap || isRunning}
-            className="h-6 w-6 flex items-center justify-center rounded-r-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
-          >+</button>
-        </div>
+        <NumberInput
+          size="xs"
+          w={72}
+          min={1}
+          max={maxValue}
+          value={value}
+          disabled={!hasBatchCap || isRunning}
+          onChange={v => setValue(Math.max(1, Math.min(maxValue, Number(v) || 1)))}
+          classNames={{ input: 'rounded-btn font-mono tabular-nums' }}
+        />
 
-        <div className="flex rounded-btn border border-border overflow-hidden">
-          {(['month', 'year'] as const).map(u => (
-            <button
-              key={u}
-              onClick={() => { setUnit(u); if (u === 'year' && value > 10) setValue(1); if (u === 'month' && value > 36) setValue(6) }}
-              className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                unit === u ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'
-              }`}
-            >{u === 'month' ? '月' : '年'}</button>
-          ))}
-        </div>
+        <SegmentedControl
+          size="xs"
+          value={unit}
+          disabled={!hasBatchCap || isRunning}
+          onChange={u => {
+            const next = u as 'month' | 'year'
+            setUnit(next)
+            if (next === 'year' && value > 10) setValue(1)
+            if (next === 'month' && value > 36) setValue(6)
+          }}
+          data={[
+            { label: '月', value: 'month' },
+            { label: '年', value: 'year' },
+          ]}
+        />
       </div>
 
       {estimate && (
@@ -73,25 +74,20 @@ export function ExtendHistoryPanel({ caps, isRunning, earliestDate, onStart }: {
         </div>
       )}
 
-      <button
+      <Button
+        fullWidth
+        size="xs"
         onClick={() => extend.mutate()}
-        disabled={!hasBatchCap || isRunning || extend.isPending || !earliestDate}
-        className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium hover:bg-accent disabled:opacity-40 disabled:pointer-events-none transition-colors duration-150"
+        disabled={!hasBatchCap || isRunning || !earliestDate}
+        loading={extend.isPending}
       >
-        {extend.isPending ? (
-          <>
-            <Loader2 className="h-3 w-3 animate-spin" />
-            请求中…
-          </>
-        ) : (
-          <>获取数据</>
-        )}
-      </button>
+        {extend.isPending ? '请求中…' : '获取数据'}
+      </Button>
 
       {!hasBatchCap && (
-        <span className="text-[10px] text-warning/80 bg-warning/8 rounded px-1.5 py-px font-medium">
+        <Badge size="xs" variant="light" className="h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-warning/8 text-warning/80">
           需 Pro+ 权限
-        </span>
+        </Badge>
       )}
     </div>
   )

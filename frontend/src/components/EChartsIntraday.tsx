@@ -10,7 +10,7 @@ type YMode = 'adaptive' | 'limit'
 const THEME = {
   line: '#3B82F6',
   areaFill: 'rgba(59,130,246,0.40)',
-  avgLine: '#F59E0B',
+  avgLine: '#0EA5E9',
   volUp: 'rgba(240,68,56,0.6)',
   volDown: 'rgba(18,183,106,0.6)',
 }

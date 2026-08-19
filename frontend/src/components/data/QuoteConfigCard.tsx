@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { ActionIcon, Button, Card, Slider, Switch, Tooltip } from '@mantine/core'
 import { Activity, Settings } from 'lucide-react'
 import { Skeleton } from './Skeleton'
 
-export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange }: {
+export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange, isAdmin = true }: {
   enabled: boolean
   running: boolean
   isTrading: boolean
@@ -17,6 +18,8 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
   showIntervalEdit: boolean
   onShowIntervalEdit: () => void
   onIntervalChange: (v: number) => void
+  /** 开关与轮询间隔为服务器级写操作(管理员闸门),普通用户隐藏控件只保留状态展示 */
+  isAdmin?: boolean
 }) {
   const statusColor = running && isTrading
     ? 'bg-accent shadow-[0_0_6px_rgba(61,214,140,0.5)]'
@@ -37,25 +40,21 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
     : null
 
   return (
-    <div className="rounded-card border border-border bg-surface p-4 relative">
+    <Card padding="md" className="border border-border bg-surface relative">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Activity className="h-4 w-4 text-secondary" />
           <h3 className="text-sm font-medium text-foreground">实时行情</h3>
         </div>
-        <button
-          onClick={() => onToggle(!enabled)}
+        {isAdmin && (
+        <Switch
+          size="sm"
+          checked={enabled}
+          onChange={(e) => onToggle(e.currentTarget.checked)}
           disabled={toggling}
-          className={`relative inline-flex h-4 w-7 items-center rounded-full shrink-0 transition-colors duration-200 ${
-            enabled
-              ? 'bg-accent shadow-[0_0_6px_rgba(59,130,246,0.3)]'
-              : 'bg-elevated'
-          } ${toggling ? 'opacity-50' : 'cursor-pointer'}`}
-        >
-          <span className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-            enabled ? 'translate-x-[14px]' : 'translate-x-0.5'
-          }`} />
-        </button>
+          aria-label="实时行情开关"
+        />
+        )}
       </div>
 
       {loading ? (
@@ -81,13 +80,20 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
           <div className="flex items-center justify-between text-[11px]">
             <div className="flex items-center gap-1">
               <span className="text-muted">轮询间隔</span>
-              <button
-                onClick={() => onShowIntervalEdit()}
-                className={`p-0.5 rounded hover:bg-elevated transition-colors ${showIntervalEdit ? 'text-accent' : 'text-secondary'}`}
-                title="设置轮询间隔"
-              >
-                <Settings className="h-3 w-3" />
-              </button>
+              {isAdmin && (
+              <Tooltip label="设置轮询间隔" position="top">
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  size="xs"
+                  aria-label="设置轮询间隔"
+                  onClick={() => onShowIntervalEdit()}
+                  className={showIntervalEdit ? 'text-accent' : 'text-secondary'}
+                >
+                  <Settings className="h-3 w-3" />
+                </ActionIcon>
+              </Tooltip>
+              )}
             </div>
             <span className="font-mono text-secondary">{intervalS}s</span>
           </div>
@@ -116,7 +122,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
+    </Card>
   )
 }
 
@@ -135,26 +141,25 @@ function IntervalEditor({ min, max, value, onChange }: {
       </div>
       <div className="flex flex-wrap gap-1 mb-2">
         {presets.map(p => (
-          <button
+          <Button
             key={p}
+            size="compact-xs"
+            variant={Math.abs(clamped - p) < 0.01 ? 'light' : 'default'}
             onClick={() => { setDraft(p); onChange(p) }}
-            className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-colors ${
-              Math.abs(clamped - p) < 0.01
-                ? 'bg-accent/15 text-accent border border-accent/30'
-                : 'bg-elevated text-secondary hover:text-foreground border border-transparent'
-            }`}
+            className="font-mono"
           >
             {p}s
-          </button>
+          </Button>
         ))}
       </div>
       <div className="flex items-center gap-2">
-        <input
-          type="range"
+        <Slider
+          size="xs"
           min={min} max={max} step={step}
           value={clamped}
-          onChange={e => { const v = parseFloat(e.target.value); setDraft(v); onChange(v) }}
-          className="flex-1 h-1 accent-accent cursor-pointer"
+          onChange={v => { setDraft(v); onChange(v) }}
+          label={null}
+          className="flex-1"
         />
         <span className="text-[10px] font-mono text-foreground w-8 text-right">
           {clamped < 1 ? clamped.toFixed(1) : clamped.toFixed(0)}s

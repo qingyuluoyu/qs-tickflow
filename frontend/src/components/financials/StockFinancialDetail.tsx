@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { Modal as MantineModal, Button, Tabs } from '@mantine/core'
 import { CalendarDays, TrendingUp, FileText, Wallet, Activity, Sparkles, AlertTriangle, Loader2, ChartPie } from 'lucide-react'
 import {
   useFinancialMetrics,
@@ -11,7 +11,7 @@ import {
 import { fmtPrice, fmtBigNum, fmtDate } from '@/lib/format'
 import { Skeleton } from '@/components/data/Skeleton'
 import { startAnalysis, findLatestHistoryReport, openHistoryReport } from '@/lib/aiReportStore'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 interface Props {
   symbol: string
@@ -182,15 +182,18 @@ export function StockFinancialDetail({ symbol, name }: Props) {
           <span className="text-xs font-mono text-muted">{symbol}</span>
         </div>
         <div className="flex items-center gap-2 ml-auto">
-          <button
+          <Button
+            size="compact-xs"
+            variant="light"
+            color="grape"
+            leftSection={checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
             onClick={handleAiClick}
             disabled={checking}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-btn text-[11px] font-medium border border-purple-400/30 bg-purple-400/10 text-purple-300 hover:bg-purple-400/20 hover:border-purple-400/40 transition-all shrink-0 disabled:opacity-50"
             title="AI 财务分析"
+            className="shrink-0"
           >
-            {checking ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
             AI 财务分析
-          </button>
+          </Button>
           {latestPeriod && (
             <div className="flex items-center gap-1.5 text-xs text-secondary">
               <CalendarDays className="h-3.5 w-3.5" />
@@ -203,27 +206,24 @@ export function StockFinancialDetail({ symbol, name }: Props) {
         </div>
       </div>
 
-      {/* 标签页 */}
-      <div className="flex items-center gap-1 px-3 pt-2 border-b border-border/60 overflow-x-auto">
-        {TABS.map(t => {
-          const Icon = t.icon
-          const isActive = tab === t.key
-          return (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ${
-                isActive
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-muted hover:text-secondary'
-              }`}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {t.label}
-            </button>
-          )
-        })}
-      </div>
+      {/* 标签页 (Mantine Tabs: 键盘左右方向键导航内置) */}
+      <Tabs
+        value={tab}
+        onChange={(v) => { if (v) setTab(v as TabKey) }}
+        variant="default"
+        classNames={{ list: 'px-3 pt-2 border-border/60 flex-nowrap overflow-x-auto', tab: 'text-xs font-medium' }}
+      >
+        <Tabs.List>
+          {TABS.map(t => {
+            const Icon = t.icon
+            return (
+              <Tabs.Tab key={t.key} value={t.key} leftSection={<Icon className="h-3.5 w-3.5" />}>
+                {t.label}
+              </Tabs.Tab>
+            )
+          })}
+        </Tabs.List>
+      </Tabs>
 
       {/* 表格内容 */}
       <div className="p-4">
@@ -273,23 +273,20 @@ export function StockFinancialDetail({ symbol, name }: Props) {
         )}
       </div>
 
-      {/* AI 分析二次确认:已有该标的历史报告 */}
-      <AnimatePresence>
-        {confirmReport && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={() => setConfirmReport(null)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-[90vw] max-w-[400px] rounded-card border border-border bg-base shadow-2xl p-6"
-            >
+      {/* AI 分析二次确认:已有该标的历史报告 (Mantine Modal: ESC/遮罩点击/焦点管理内置) */}
+      <MantineModal
+        opened={!!confirmReport}
+        onClose={() => setConfirmReport(null)}
+        withCloseButton={false}
+        centered
+        padding={0}
+        transitionProps={{ duration: 150 }}
+        overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+        classNames={{ content: 'relative w-[90vw] max-w-[400px] rounded-card border border-border bg-base shadow-2xl p-6' }}
+        styles={{ content: { flex: '0 1 auto' } }}
+      >
+            {confirmReport && (
+              <>
               <div className="flex items-start gap-3">
                 <div className="shrink-0 h-10 w-10 rounded-full bg-purple-400/12 flex items-center justify-center">
                   <AlertTriangle className="h-5 w-5 text-purple-300" />
@@ -308,30 +305,30 @@ export function StockFinancialDetail({ symbol, name }: Props) {
                 </div>
               </div>
               <div className="flex items-center justify-end gap-2 mt-5">
-                <button
-                  onClick={() => setConfirmReport(null)}
-                  className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-xs transition-colors"
-                >
+                <Button size="xs" variant="default" onClick={() => setConfirmReport(null)}>
                   取消
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  color="gray"
                   onClick={() => { if (confirmReport) openHistoryReport(confirmReport.id); setConfirmReport(null) }}
-                  className="px-3 py-1.5 rounded-btn border border-border text-secondary hover:text-foreground text-xs font-medium transition-colors"
                 >
                   查看历史报告
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="xs"
+                  variant="gradient"
+                  gradient={{ from: 'grape.7', to: 'fuchsia.6', deg: 90 }}
+                  leftSection={<Sparkles className="h-3.5 w-3.5" />}
                   onClick={() => { doAnalysis(); setConfirmReport(null) }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-gradient-to-r from-purple-500/80 to-fuchsia-500/80 text-white text-xs font-medium hover:from-purple-500 hover:to-fuchsia-500 transition-all"
                 >
-                  <Sparkles className="h-3.5 w-3.5" />
                   重新分析
-                </button>
+                </Button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+              </>
+            )}
+      </MantineModal>
     </div>
   )
 }

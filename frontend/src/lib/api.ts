@@ -3,7 +3,7 @@
 // Dev:Vite 代理 /api 到 :3018
 // Prod:同源(FastAPI 托管前端 dist)
 
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 
 const BASE = ''
 
@@ -11,6 +11,7 @@ export interface AuthUser {
   id: string
   name: string
   phone: string
+  role: string
 }
 
 export interface Qingshu101User {
@@ -65,6 +66,36 @@ async function request<T>(path: string, init?: RequestOptions): Promise<T> {
     throw new Error(msg)
   }
   return res.json() as Promise<T>
+}
+
+function parseNdjsonLine(line: string): unknown {
+  try {
+    return JSON.parse(line)
+  } catch {
+    throw new Error('流式响应格式异常：收到无法解析的数据，请重试')
+  }
+}
+
+async function* readNdjsonStream(res: Response): AsyncGenerator<unknown> {
+  if (!res.body) throw new Error('响应无 body')
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n')
+    buf = lines.pop() ?? ''
+    for (const line of lines) {
+      const trimmed = line.trim()
+      if (trimmed) yield parseNdjsonLine(trimmed)
+    }
+  }
+  buf += decoder.decode()
+  const trimmed = buf.trim()
+  if (trimmed) yield parseNdjsonLine(trimmed)
 }
 
 // ===== Capabilities =====
@@ -214,6 +245,25 @@ export interface StockLevels {
   series?: LevelSeries
 }
 
+export interface StockDebateEvent {
+  type: 'status' | 'dossier_progress' | 'dossier' | 'stage' | 'delta' | 'stage_done' | 'error' | 'done'
+  message?: string
+  title?: string
+  ok?: boolean
+  loaded?: number
+  total?: number
+  missing?: string[]
+  sections?: Array<{ title: string; source: string }>
+  stage?: string
+  label?: string
+  text?: string
+  content?: string
+  failed?: boolean
+  code?: string
+  stages?: Array<{ stage: string; content: string }>
+  failed_stages?: string[]
+}
+
 export interface AiStockReport {
   id: string
   symbol: string
@@ -223,7 +273,106 @@ export interface AiStockReport {
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
+  reasoning?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
+}
+
+// ===== 个股洞察 (stock-insight) =====
+
+/** 估值历史分位单指标 (PE-TTM / PB 同构) */
+export interface ValPercentileMetric {
+  current: number
+  percentile: number
+  min: number
+  max: number
+  p20: number
+  p50: number
+  p80: number
+  /** 参与统计的历史样本点数 */
+  n: number
+}
+
+export interface StockInsightValuation {
+  period: string
+  metrics: {
+    pe_ttm?: ValPercentileMetric
+    pb?: ValPercentileMetric
+  }
+}
+
+/** 最新报告期财务关键指标;金额单位为元,比率/同比为百分数 */
+export interface StockInsightFinancials {
+  period: string
+  revenue: number | null
+  revenue_yoy: number | null
+  net_profit: number | null
+  net_profit_yoy: number | null
+  eps: number | null
+  bvps: number | null
+  roe: number | null
+  gross_margin: number | null
+  net_margin: number | null
+  op_cf_ps: number | null
+}
+
+export interface StockInsightReport {
+  title: string
+  publishDate: string
+  orgSName: string
+  emRatingName: string
+  indvInduName: string
+  infoCode: string
+  pdfUrl: string
+}
+
+export interface StockInsightAnnouncement {
+  date: string
+  title: string
+  type: string
+  url: string
+}
+
+/** 个股新闻 — 后端返回中文字段名,保持原样 */
+export interface StockInsightNewsItem {
+  新闻标题: string
+  发布时间: string
+  文章来源: string
+  新闻链接: string
+}
+
+/** 资金流向单日记录,单位为元;按日期升序 */
+export interface StockInsightFundFlowRow {
+  date: string
+  main_net: number
+  small_net: number
+  mid_net: number
+  large_net: number
+  super_net: number
+}
+
+export interface DragonTigerRecord {
+  date: string
+  reason: string
+  /** 净买额,单位万元 */
+  net_buy: number
+  /** 成交额,单位万元 */
+  turnover: number
+}
+
+export interface DragonTigerSeat {
+  name: string
+  buy_amt: number
+  sell_amt: number
+  net: number
+}
+
+export interface StockInsightDragonTiger {
+  records: DragonTigerRecord[]
+  seats: { buy: DragonTigerSeat[]; sell: DragonTigerSeat[] }
+  /** 机构专用席位合计,单位万元 */
+  institution: { buy_amt: number; sell_amt: number; net_amt: number }
 }
 
 // ===== Kline =====
@@ -288,6 +437,38 @@ export interface WatchlistImportResult {
   unmatched_count: number
 }
 
+export type WatchlistNewsCategory = 'announcement' | 'public_news' | 'today_highlight'
+
+export interface WatchlistNewsItem {
+  id: string
+  category: WatchlistNewsCategory
+  symbol?: string | null
+  name?: string | null
+  title: string
+  summary?: string | null
+  content?: string | null
+  url?: string | null
+  source: string
+  published_at?: string | null
+  fetched_at: string
+  data_version: string
+  generated: boolean
+  source_ids: string[]
+}
+
+export interface WatchlistNewsResponse {
+  category: WatchlistNewsCategory
+  items: WatchlistNewsItem[]
+  selected_symbol?: string | null
+  query?: string | null
+  as_of?: string | null
+  stale: boolean
+  source_status: 'ok' | 'empty' | 'stale' | 'unavailable' | 'invalid'
+  source_message?: string | null
+  watchlist_count: number
+  next_cursor?: string | null
+}
+
 export interface Quote {
   symbol: string
   price?: number
@@ -319,6 +500,10 @@ export interface IndexQuote {
   volume?: number | null
   amount?: number | null
   timestamp?: number | null
+  date?: string | null
+  as_of?: string | null
+  source?: string | null
+  is_realtime?: boolean
   [key: string]: any
 }
 
@@ -464,7 +649,7 @@ export const REGIME_STATE_LABELS: Record<RegimeState, string> = {
 
 export const REGIME_STATE_COLORS: Record<RegimeState, string> = {
   strong: '#ef4444',      // 红(强)
-  lean_strong: '#f97316', // 橙
+  lean_strong: '#0ea5e9', // 天蓝
   range: '#6b7280',       // 灰
   lean_weak: '#3b82f6',   // 蓝
   weak: '#10b981',        // 绿(弱)
@@ -529,6 +714,9 @@ export interface AiReviewReport {
   summary?: string
   emotion_score?: number | null
   emotion_label?: string
+  reasoning?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
 }
 
@@ -1344,9 +1532,12 @@ export const api = {
     last_fetch_rows?: number
     last_fetch_error?: string | null
   }>('/api/intraday/refresh', { method: 'POST' }),
-  indexQuotes: (symbols?: string[]) =>
+  indexQuotes: (symbols?: string[], options: { localOnly?: boolean } = {}) =>
     request<{ rows: IndexQuote[]; count: number }>(
-      `/api/intraday/indices${symbols?.length ? `?symbols=${encodeURIComponent(symbols.join(','))}` : ''}`,
+      `/api/intraday/indices?${[
+        symbols?.length ? `symbols=${encodeURIComponent(symbols.join(','))}` : '',
+        options.localOnly ? 'local=1' : '',
+      ].filter(Boolean).join('&')}`,
     ),
   updateRealtimeMonitorConfig: (cfg: {
     sse_refresh_pages?: Record<string, boolean>
@@ -1616,6 +1807,30 @@ export const api = {
     }),
 
   watchlistList: () => request<{ symbols: WatchlistEntry[] }>('/api/watchlist'),
+  watchlistNews: (
+    category: WatchlistNewsCategory,
+    options: {
+      symbol?: string | null
+      query?: string
+      limit?: number
+      cursor?: string | null
+      signal?: AbortSignal
+    } = {},
+  ) => {
+    const params = new URLSearchParams({ category })
+    if (options.symbol) params.set('symbol', options.symbol)
+    if (options.query?.trim()) params.set('q', options.query.trim())
+    if (options.limit != null) params.set('limit', String(options.limit))
+    if (options.cursor) params.set('cursor', options.cursor)
+    return request<WatchlistNewsResponse>(`/api/watchlist/news?${params.toString()}`, {
+      signal: options.signal,
+    })
+  },
+  watchlistNewsDetail: (itemId: string, category: WatchlistNewsCategory, signal?: AbortSignal) =>
+    request<WatchlistNewsItem>(
+      `/api/watchlist/news/${encodeURIComponent(itemId)}?category=${encodeURIComponent(category)}`,
+      { signal },
+    ),
   watchlistAdd: (symbol: string, note = '') =>
     request<{ symbols: WatchlistEntry[] }>('/api/watchlist', {
       method: 'POST',
@@ -1694,7 +1909,12 @@ export const api = {
     ),
   marketSnapshot: () =>
     request<{ as_of: string | null; rows: MarketSnapshotRow[] }>('/api/screener/market-snapshot'),
-  overviewMarket: (asOf?: string) => request<OverviewMarket>(`/api/overview/market${asOf ? `?as_of=${asOf}` : ''}`),
+  overviewMarket: (asOf?: string, options: { localOnly?: boolean } = {}) => request<OverviewMarket>(
+    `/api/overview/market?${[
+      asOf ? `as_of=${encodeURIComponent(asOf)}` : '',
+      options.localOnly ? 'local=1' : '',
+    ].filter(Boolean).join('&')}`,
+  ),
 
   // 概念涨幅轮动矩阵: 每列(日期)各自把所有概念按当天涨幅从高到低排序
   rpsRotation: (days: number, kind?: 'concept' | 'industry', level?: number) =>
@@ -2046,29 +2266,15 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      // 按行分割(保留最后不完整的行在 buf)
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try {
-          yield JSON.parse(s)
-        } catch {
-          // 忽略无法解析的行
-        }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'meta' | 'delta' | 'error' | 'done'
+        symbol?: string
+        summary?: string
+        periods?: number
+        content?: string
+        message?: string
       }
-    }
-    // 处理残余
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
@@ -2083,6 +2289,7 @@ export const api = {
     symbol: string; name?: string; focus?: string; content: string
     summary?: string; close?: number | null
     levels?: Record<LevelType, PriceLevel[]>
+    reasoning?: string; complete?: boolean; truncated?: boolean
   }) =>
     request<{ ok: boolean; report: AiStockReport }>('/api/stock-analysis/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -2091,23 +2298,53 @@ export const api = {
   stockAnalysisReportDelete: (reportId: string) =>
     request<{ ok: boolean }>(`/api/stock-analysis/reports/${encodeURIComponent(reportId)}`, { method: 'DELETE' }),
 
+  // ===== 个股洞察 (stock-insight) =====
+  // 子板块各自展示错误态, 走 quiet 避免每个面板失败都弹全局 toast
+  stockInsightValuation: (symbol: string) =>
+    request<StockInsightValuation>(`/api/stock-insight/valuation?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightFinancials: (symbol: string) =>
+    request<StockInsightFinancials>(`/api/stock-insight/financials?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightReports: (symbol: string, pages = 2) =>
+    request<{ reports: StockInsightReport[] }>(`/api/stock-insight/reports?symbol=${encodeURIComponent(symbol)}&pages=${pages}`, { quiet: true }),
+
+  stockInsightAnnouncements: (symbol: string) =>
+    request<{ announcements: StockInsightAnnouncement[] }>(`/api/stock-insight/announcements?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightNews: (symbol: string, limit = 20) =>
+    request<{ news: StockInsightNewsItem[] }>(`/api/stock-insight/news?symbol=${encodeURIComponent(symbol)}&limit=${limit}`, { quiet: true }),
+
+  stockInsightFundFlow: (symbol: string) =>
+    request<{ rows: StockInsightFundFlowRow[] }>(`/api/stock-insight/fund-flow?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
+  stockInsightDragonTiger: (symbol: string) =>
+    request<StockInsightDragonTiger>(`/api/stock-insight/dragon-tiger?symbol=${encodeURIComponent(symbol)}`, { quiet: true }),
+
   /**
    * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
    * meta 里额外带 levels(关键价位)供图表回放。
    */
-  async *stockAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+  async *stockAnalyzeStream(symbol: string, focus?: string, signal?: AbortSignal): AsyncGenerator<{
+    type: 'status' | 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     symbol?: string
     summary?: string
     levels?: Record<LevelType, PriceLevel[]>
     close?: number | null
     content?: string
     message?: string
+    padding?: string
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
+    continuations?: number
+    attempt?: number
   }> {
     const res = await fetch('/api/stock-analysis/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ symbol, focus: focus ?? '' }),
+      signal,
     })
     if (!res.ok) {
       let detail = ''
@@ -2118,23 +2355,54 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'status' | 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
+        symbol?: string
+        summary?: string
+        levels?: Record<LevelType, PriceLevel[]>
+        close?: number | null
+        content?: string
+        message?: string
+        padding?: string
+        complete?: boolean
+        truncated?: boolean
+        finish_reason?: string
+        continuations?: number
+        attempt?: number
       }
     }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
+  },
+
+  /**
+   * 个股多空辩论 — 当前项目服务端 AI 配置下的 NDJSON 流。
+   * 客户端只发送标准 symbol 和有界轮数，不发送 API Key / Base URL / 模型。
+   */
+  async *stockDebateStream(
+    symbol: string,
+    rounds: 1 | 2 = 1,
+    signal?: AbortSignal,
+  ): AsyncGenerator<StockDebateEvent> {
+    const res = await fetch('/api/stock-analysis/debate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol, rounds }),
+      signal,
+    })
+    if (!res.ok) {
+      let detail = ''
+      try {
+        const j = JSON.parse(await res.text())
+        detail = j.detail ?? j.message ?? ''
+      } catch { /* ignore */ }
+      const msg = detail || `${res.status} ${res.statusText}`
+      if (res.status !== 401) toast(msg, 'error')
+      throw new Error(msg)
+    }
+    if (!res.body) throw new Error('响应无 body')
+
+    for await (const event of readNdjsonStream(res)) {
+      yield event as StockDebateEvent
     }
   },
 
@@ -2145,6 +2413,7 @@ export const api = {
   reviewReportSave: (r: {
     as_of: string; focus?: string; content: string
     summary?: string; emotion_score?: number | null; emotion_label?: string
+    reasoning?: string; complete?: boolean; truncated?: boolean
   }) =>
     request<{ ok: boolean; report: AiReviewReport }>('/api/market-recap/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -2157,19 +2426,24 @@ export const api = {
    * AI 大盘复盘 — 流式调用(NDJSON,与个股/财务分析同协议)。
    * meta 里带 as_of / emotion_score / emotion_label / summary,供前端先渲染信号灯。
    */
-  async *reviewStream(asOf?: string, focus?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+  async *reviewStream(asOf?: string, focus?: string, sections?: string[]): AsyncGenerator<{
+    type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     as_of?: string
     emotion_score?: number
     emotion_label?: string
     summary?: string
     content?: string
     message?: string
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
+    continuations?: number
+    attempt?: number
   }> {
     const res = await fetch('/api/market-recap/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '' }),
+      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '', sections: sections ?? null }),
     })
     if (!res.ok) {
       let detail = ''
@@ -2180,38 +2454,38 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
+        as_of?: string
+        emotion_score?: number
+        emotion_label?: string
+        summary?: string
+        content?: string
+        message?: string
+        complete?: boolean
+        truncated?: boolean
+        finish_reason?: string
+        continuations?: number
+        attempt?: number
       }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
   /** AI 概念轮动分析 — 流式 NDJSON。 */
-  async *rotationAnalyzeStream(days: number, focus?: string, kind?: 'concept' | 'industry', level?: number): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+  async *rotationAnalyzeStream(days: number, focus?: string, kind?: 'concept' | 'industry', level?: number, signal?: AbortSignal): AsyncGenerator<{
+    type: 'status' | 'meta' | 'delta' | 'error' | 'done'
     days?: number
     summary?: string
     content?: string
     message?: string
+    padding?: string
   }> {
     const res = await fetch('/api/rps/rotation-analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ days, focus: focus ?? '', kind: kind ?? 'concept', level: level ?? null }),
+      signal,
     })
     if (!res.ok) {
       let detail = ''
@@ -2222,23 +2496,15 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as {
+        type: 'status' | 'meta' | 'delta' | 'error' | 'done'
+        days?: number
+        summary?: string
+        content?: string
+        message?: string
+        padding?: string
       }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
     }
   },
 
@@ -2279,7 +2545,20 @@ export const api = {
 
   /** 删除自定义策略（内置策略不可删除） */
   strategyDelete: (strategyId: string) =>
-    request<{ ok: boolean }>(`/api/strategies/${strategyId}`, { method: 'DELETE' }),
+    request<{ ok: boolean; warnings?: string[] }>(`/api/strategies/${encodeURIComponent(strategyId)}`, { method: 'DELETE' }),
+
+  /** 恢复当前用户的策略层到打包的 18 个内置策略 */
+  strategyRestoreDefaults: () =>
+    request<{
+      ok: boolean
+      count: number
+      builtin_strategy_ids: string[]
+      deleted: string[]
+      warnings?: string[]
+    }>('/api/strategies/restore-defaults', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: true }),
+    }),
 
   strategyReload: () =>
     request<{ ok: boolean; count: number }>('/api/strategies/reload', { method: 'POST' }),
@@ -2405,23 +2684,8 @@ export const api = {
     }
     if (!res.body) throw new Error('响应无 body')
 
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() ?? ''
-      for (const line of lines) {
-        const s = line.trim()
-        if (!s) continue
-        try { yield JSON.parse(s) } catch { /* ignore */ }
-      }
-    }
-    if (buf.trim()) {
-      try { yield JSON.parse(buf.trim()) } catch { /* ignore */ }
+    for await (const event of readNdjsonStream(res)) {
+      yield event as StrategyBuildStreamEvent
     }
   },
 
@@ -2571,6 +2835,15 @@ export interface DataStatus {
     provider_date: string | null
     persistence_status: string
     checked_job_id: string | null
+    freshness?: {
+      status: 'current' | 'waiting' | 'stale' | 'unavailable'
+      as_of: string | null
+      target_date: string | null
+      provider_date: string | null
+      daily_date: string | null
+      enriched_date: string | null
+      coverage: string
+    }
     checks: Record<string, unknown>
   }
   checked_at: string
@@ -2646,6 +2919,12 @@ export interface ExtDataRowsResult {
   label: string
   mode: 'snapshot' | 'timeseries'
   date: string | null
+  data_freshness?: {
+    snapshot_date: string | null
+    current_date: string
+    is_stale: boolean
+    calendar_basis?: string
+  }
   total: number
   limit: number
   fields: ExtDataField[]

@@ -10,7 +10,9 @@ import {
   TrendingUp,
   Users,
 } from 'lucide-react'
+import { Badge, Select, Table, TextInput } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { api, type AnalysisColumn, type ExtDataConfig, type ExtDataField } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
@@ -257,34 +259,29 @@ export function ExtDimensionAnalysis({
         subtitle={menu ? `${menu.template} · ${menu.data_source}` : subtitle}
         right={
           <div className="flex items-center gap-2">
-            <select
-              value={activeConfigId}
-              onChange={(e) => { setSelectedConfigId(e.target.value); setDimensionField(''); setSelectedGroup(null) }}
-              className="h-8 min-w-40 rounded-btn border border-border bg-surface px-2 text-xs text-foreground focus:outline-none focus:border-accent/50"
-            >
-              {availableConfigs.length === 0 ? (
-                <option value="">暂无扩展数据</option>
-              ) : availableConfigs.map(config => (
-                <option key={config.id} value={config.id}>{config.label}</option>
-              ))}
-            </select>
-            <select
-              value={activeDimensionField}
-              onChange={(e) => { setDimensionField(e.target.value); setSelectedGroup(null) }}
-              disabled={!activeConfig}
-              className="h-8 min-w-36 rounded-btn border border-border bg-surface px-2 text-xs text-foreground disabled:opacity-50 focus:outline-none focus:border-accent/50"
-            >
-              {dimensionOptions.length === 0 ? (
-                <option value="">暂无字段</option>
-              ) : dimensionOptions.map(field => (
-                <option key={field.name} value={field.name}>{field.label || field.name}</option>
-              ))}
-            </select>
+            <Select
+              size="xs"
+              className="min-w-40"
+              value={activeConfigId || null}
+              onChange={(v) => { if (!v) return; setSelectedConfigId(v); setDimensionField(''); setSelectedGroup(null) }}
+              placeholder="暂无扩展数据"
+              disabled={availableConfigs.length === 0}
+              data={availableConfigs.map(config => ({ value: config.id, label: config.label }))}
+            />
+            <Select
+              size="xs"
+              className="min-w-36"
+              value={activeDimensionField || null}
+              onChange={(v) => { if (!v) return; setDimensionField(v); setSelectedGroup(null) }}
+              placeholder="暂无字段"
+              disabled={!activeConfig || dimensionOptions.length === 0}
+              data={dimensionOptions.map(field => ({ value: field.name, label: field.label || field.name }))}
+            />
           </div>
         }
       />
 
-      <div className="px-8 py-6 space-y-6 max-w-7xl">
+      <PageContainer narrow className="space-y-6">
         <section className={`relative overflow-hidden rounded-2xl border border-border bg-surface p-6 ${accentClass}`}>
           <div className="relative z-10 max-w-3xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[11px] text-secondary">
@@ -337,15 +334,13 @@ export function ExtDimensionAnalysis({
                     <span className="text-[10px] text-muted">Top {Math.min(filteredGroups.length, 100)}</span>
                   </div>
                   <div className="p-3 border-b border-border/60">
-                    <div className="relative">
-                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-                      <input
-                        value={search}
-                        onChange={(e) => { setSearch(e.target.value); setSelectedGroup(null) }}
-                        placeholder={`搜索${activeKindLabel}`}
-                        className="h-8 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:outline-none focus:border-accent/50"
-                      />
-                    </div>
+                    <TextInput
+                      size="xs"
+                      value={search}
+                      onChange={(e) => { setSearch(e.currentTarget.value); setSelectedGroup(null) }}
+                      placeholder={`搜索${activeKindLabel}`}
+                      leftSection={<Search className="h-3.5 w-3.5" />}
+                    />
                   </div>
                   <div className="max-h-[560px] overflow-auto p-2 space-y-1">
                     {filteredGroups.length === 0 ? (
@@ -386,7 +381,7 @@ export function ExtDimensionAnalysis({
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-semibold text-foreground">{menu?.template === 'table' || menu?.template === 'ranking' ? '明细列表' : currentGroup?.key ?? `选择${activeKindLabel}`}</h3>
-                      <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] text-accent">{tableRows.length} 条</span>
+                      <Badge variant="light" size="sm">{tableRows.length} 条</Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted">列来自菜单 detail_columns：{displayColumns.map(f => f.label || f.field).join(' / ') || '暂无字段'}</p>
                   </div>
@@ -397,30 +392,30 @@ export function ExtDimensionAnalysis({
                 </div>
 
                 <div className="overflow-auto">
-                  <table className="min-w-full text-left text-xs">
-                    <thead className="bg-elevated/50 text-[11px] text-muted">
-                      <tr>
+                  <Table className="min-w-full text-left text-xs" horizontalSpacing={16} verticalSpacing={8} withRowBorders={false}>
+                    <Table.Thead className="bg-elevated/50 text-[11px] text-muted">
+                      <Table.Tr>
                         {displayColumns.map(col => (
-                          <th key={col.field} className="whitespace-nowrap px-4 py-2 font-medium" style={col.width ? { width: col.width } : undefined}>{col.label || col.field}</th>
+                          <Table.Th key={col.field} className="whitespace-nowrap font-medium" style={col.width ? { width: col.width } : undefined}>{col.label || col.field}</Table.Th>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/70">
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody className="divide-y divide-border/70">
                       {rowsQuery.isLoading ? (
-                        <tr><td className="px-4 py-8 text-center text-muted" colSpan={Math.max(displayColumns.length, 1)}>加载数据中…</td></tr>
+                        <Table.Tr><Table.Td className="py-8 text-center text-muted" colSpan={Math.max(displayColumns.length, 1)}>加载数据中…</Table.Td></Table.Tr>
                       ) : tableRows.length === 0 ? (
-                        <tr><td className="px-4 py-8 text-center text-muted" colSpan={Math.max(displayColumns.length, 1)}>暂无明细数据</td></tr>
+                        <Table.Tr><Table.Td className="py-8 text-center text-muted" colSpan={Math.max(displayColumns.length, 1)}>暂无明细数据</Table.Td></Table.Tr>
                       ) : tableRows.slice(0, 300).map((row, i) => (
-                        <tr key={`${row.symbol ?? row.code ?? i}-${i}`} className="hover:bg-elevated/30">
+                        <Table.Tr key={`${row.symbol ?? row.code ?? i}-${i}`} className="hover:bg-elevated/30">
                           {displayColumns.map(col => (
-                            <td key={col.field} className={`whitespace-nowrap px-4 py-2 ${col.field === activeDimensionField ? 'max-w-[18rem] truncate text-secondary' : col.field === 'symbol' || col.field === 'code' || col.field === '股票代码' ? 'font-mono text-secondary' : 'text-foreground'}`}>
+                            <Table.Td key={col.field} className={`whitespace-nowrap ${col.field === activeDimensionField ? 'max-w-[18rem] truncate text-secondary' : col.field === 'symbol' || col.field === 'code' || col.field === '股票代码' ? 'font-mono text-secondary' : 'text-foreground'}`}>
                               {formatValue(row[col.field], col)}
-                            </td>
+                            </Table.Td>
                           ))}
-                        </tr>
+                        </Table.Tr>
                       ))}
-                    </tbody>
-                  </table>
+                    </Table.Tbody>
+                  </Table>
                 </div>
 
                 {tableRows.length > 300 && (
@@ -430,7 +425,7 @@ export function ExtDimensionAnalysis({
             </div>
           </>
         )}
-      </div>
+      </PageContainer>
     </>
   )
 }

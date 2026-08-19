@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Button, NumberInput } from '@mantine/core'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { usePreferences } from '@/lib/useSharedQueries'
@@ -58,40 +58,47 @@ export function EnrichedRebuildPanel({
           </div>
           {editing ? (
             <div className="flex items-center gap-1.5">
-              <input
-                type="number"
+              <NumberInput
+                size="xs"
+                w={80}
                 value={draftSize}
-                onChange={e => setDraftSize(e.target.value)}
-                className="w-20 px-2 py-1 text-xs font-mono rounded-btn border border-border bg-surface text-foreground text-right tabular-nums focus:outline-none focus:border-accent"
+                onChange={v => setDraftSize(String(v))}
                 min={1}
                 max={10000}
                 autoFocus
+                hideControls
                 onKeyDown={e => {
                   if (e.key === 'Enter') clampAndSave(parseInt(draftSize))
                   if (e.key === 'Escape') { setEditing(false); setHint(null) }
                 }}
+                classNames={{ input: 'rounded-btn bg-surface border-border font-mono text-right tabular-nums' }}
               />
-              <button
+              <Button
+                size="compact-xs"
+                variant="light"
                 onClick={() => clampAndSave(parseInt(draftSize))}
-                disabled={saveBatch.isPending}
-                className="px-2 py-1 text-[10px] rounded-btn bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-50 transition-colors"
+                loading={saveBatch.isPending}
               >
-                {saveBatch.isPending ? '…' : '保存'}
-              </button>
-              <button
+                保存
+              </Button>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="gray"
                 onClick={() => setEditing(false)}
-                className="px-2 py-1 text-[10px] rounded-btn bg-elevated text-muted hover:text-foreground transition-colors"
               >
                 取消
-              </button>
+              </Button>
             </div>
           ) : (
-            <button
+            <Button
+              size="compact-xs"
+              variant="default"
               onClick={() => { setDraftSize(String(batchSize)); setEditing(true) }}
-              className="px-2.5 py-1 rounded-btn border border-border bg-surface text-xs font-mono text-foreground hover:border-accent/50 transition-colors tabular-nums"
+              className="font-mono tabular-nums"
             >
               {batchSize} 只/批
-            </button>
+            </Button>
           )}
         </div>
         <div className="flex items-start gap-1.5 px-3 py-1.5 rounded-btn bg-warning/10 border border-warning/20">
@@ -123,17 +130,15 @@ export function EnrichedRebuildPanel({
             ? '为保证数据一致性，将基于现有日 K、除权因子和历史股本重新生成 Enriched；其他指标也会按当前逻辑同步更新。'
             : '基于已有 kline_daily + adj_factor 全量计算前复权 + 技术指标 + 信号'}
         </div>
-        <button
+        <Button
+          fullWidth
+          size="xs"
           onClick={() => rebuild.mutate()}
-          disabled={!canRebuild || isRunning || rebuild.isPending}
-          className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium hover:bg-accent disabled:opacity-40 disabled:pointer-events-none transition-colors duration-150"
+          disabled={!canRebuild || isRunning}
+          loading={rebuild.isPending}
         >
-          {rebuild.isPending ? (
-            <><Loader2 className="h-3 w-3 animate-spin" />计算中…</>
-          ) : (
-            <>{isTurnoverRebuild ? '重新计算并覆盖' : '全量计算'}</>
-          )}
-        </button>
+          {rebuild.isPending ? '计算中…' : isTurnoverRebuild ? '重新计算并覆盖' : '全量计算'}
+        </Button>
         {rebuild.isError && (
           <div className="mt-2 text-[10px] text-danger">
             启动失败：{String((rebuild.error as Error)?.message ?? rebuild.error)}

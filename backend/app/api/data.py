@@ -10,7 +10,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import Depends, APIRouter, Request
+
+from app.api.deps import require_admin
 
 from app.indicators.pipeline import ENRICHED_COLUMNS
 
@@ -574,6 +576,25 @@ def build_market_data_health(coverage: dict[str, Any] | None) -> dict[str, Any]:
     persistence_status = freshness.get("persistence_status") or "unknown"
     reconciliation = freshness.get("provider_reconciliation") or {}
 
+    target_date = freshness.get("target_date")
+    provider_date = freshness.get("provider_date")
+    daily_date = freshness.get("persisted_daily_date")
+    enriched_date = freshness.get("persisted_enriched_date")
+    if not provider_date:
+        freshness_status = "unavailable"
+    elif (
+        provider_date == target_date
+        and daily_date == target_date
+        and enriched_date == target_date
+    ):
+        # partial coverage still means the available rows are from the target
+        # trading day; the separate coverage status/counts describe the gap.
+        freshness_status = "current"
+    elif provider_date != target_date:
+        freshness_status = "waiting"
+    else:
+        freshness_status = "stale"
+
     if coverage_status == "unavailable" or not freshness.get("provider_date"):
         status = "unavailable"
     elif (
@@ -595,6 +616,15 @@ def build_market_data_health(coverage: dict[str, Any] | None) -> dict[str, Any]:
         "provider_date": freshness.get("provider_date"),
         "persistence_status": persistence_status,
         "checked_job_id": (coverage or {}).get("job_id"),
+        "freshness": {
+            "status": freshness_status,
+            "as_of": daily_date or enriched_date or provider_date or target_date,
+            "target_date": target_date,
+            "provider_date": provider_date,
+            "daily_date": daily_date,
+            "enriched_date": enriched_date,
+            "coverage": coverage_status,
+        },
         "checks": {
             "provider_snapshot": {
                 "status": "ok" if freshness.get("provider_date") else "unavailable",
@@ -680,7 +710,7 @@ def market_data_health(request: Request) -> dict:
     return report
 
 
-@router.post("/clear")
+@router.post("/clear", dependencies=[Depends(require_admin)])
 def clear_data(request: Request):
     """清除所有本地 Parquet 数据（保留 capabilities.json 和目录结构）。"""
     import shutil

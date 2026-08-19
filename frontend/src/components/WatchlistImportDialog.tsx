@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ImagePlus, Loader2, Upload, X } from 'lucide-react'
 import { Modal } from '@/components/Modal'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { api, type WatchlistImportCandidate } from '@/lib/api'
 import { useWatchlistBatchAdd } from '@/lib/useSharedMutations'
 import { getOcrInstallHint } from '@/lib/ocrInstallHint'

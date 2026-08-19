@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>资产配置练习 · 财商教育</title>
+<style>
+body{margin:0;background:#eef1f6;padding:24px 12px 48px;font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;line-height:1.6;color:#2b2f36}
+.ag-card{max-width:680px;margin:0 auto;padding:26px 28px 30px;border-radius:20px;background:linear-gradient(160deg,#fdf6ec,#eef3fb);box-shadow:0 10px 40px rgba(20,30,60,.14)}
+.ag-badge{display:inline-block;font-size:12px;font-weight:700;letter-spacing:1px;color:#8a5a00;background:#ffe9b8;padding:3px 12px;border-radius:999px;margin-bottom:12px}
+.ag-title{margin:0 0 6px;font-size:30px;font-weight:800}
+.ag-sub{margin:0 0 18px;color:#5b6270;font-size:15px}
+.ag-back{background:none;border:none;cursor:pointer;color:#2b6cb0;font-size:14px;font-weight:700;padding:0 0 14px;font-family:inherit}
+.ag-back:hover{text-decoration:underline}
+.ag-home-cards{display:flex;flex-direction:column;gap:12px}
+.ag-home-card{display:flex;align-items:center;gap:14px;background:#fff;border:2px solid #e4e8f0;border-radius:16px;padding:18px 20px;cursor:pointer;transition:border-color .15s,transform .1s;text-align:left;font-family:inherit}
+.ag-home-card:hover{border-color:#2b6cb0;transform:translateY(-2px)}
+.ag-home-emoji{font-size:32px;flex:none}
+.ag-home-title{font-size:17px;font-weight:800;margin:0 0 2px}
+.ag-home-desc{font-size:13px;color:#6a7180;margin:0}
+.ag-home-arrow{margin-left:auto;color:#b0b7c4;font-size:20px;flex:none}
+.ag-tabs{display:flex;gap:8px;margin-bottom:18px}
+.ag-tab{flex:1;border:2px solid #e4e8f0;background:#fff;border-radius:12px;padding:10px;font-weight:700;font-size:14px;cursor:pointer;color:#5b6270;font-family:inherit}
+.ag-tab-active{border-color:#2b6cb0;background:#eaf2fc;color:#2b6cb0}
+.ag-gloss-item{background:#fff;border:1px solid #e6e9f0;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.ag-gloss-head{display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;margin-bottom:6px}
+.ag-gloss-desc{font-size:14px;color:#4a5160;margin:0}
+.ag-calc-row{margin-bottom:16px}
+.ag-calc-head{display:flex;justify-content:space-between;align-items:center;font-size:14px;font-weight:700;margin-bottom:6px}
+.ag-calc-val{color:#2b6cb0;font-variant-numeric:tabular-nums}
+.ag-calc-row input[type=range]{width:100%;height:8px;cursor:pointer;accent-color:#2b6cb0}
+.ag-calc-result{background:#eaf2fc;border:1px solid #cfe0f5;border-radius:14px;padding:16px 18px;margin-top:6px}
+.ag-calc-result h3{margin:0 0 8px;font-size:15px;color:#2b6cb0}
+.ag-calc-line{display:flex;justify-content:space-between;font-size:14px;padding:3px 0}
+.ag-calc-big{font-size:24px;font-weight:800;color:#1e7a3c}
+.ag-note{font-size:12px;color:#8a8f9a;margin-top:12px}
+.ag-field{margin-bottom:14px}
+.ag-field label{display:block;font-size:13px;font-weight:700;color:#5b6270;margin-bottom:6px}
+.ag-select{width:100%;padding:11px 14px;border:2px solid #e4e8f0;border-radius:12px;font-size:15px;background:#fff;color:#2b2f36;font-family:inherit}
+.ag-select:focus{outline:none;border-color:#2b6cb0}
+.ag-alloc-bar{display:flex;height:30px;border-radius:10px;overflow:hidden;margin:12px 0 6px}
+.ag-legend{display:flex;flex-wrap:wrap;gap:10px;margin:6px 0 14px;font-size:13px}
+.ag-legend-item{display:flex;align-items:center;gap:6px;font-weight:600}
+.ag-tips{list-style:none;padding:0;margin:0}
+.ag-tip{background:#f7f8fb;border-left:3px solid #2b6cb0;border-radius:8px;padding:10px 14px;font-size:14px;color:#4a5160;margin-bottom:8px}
+.ag-section-title{font-size:17px;font-weight:800;margin:0 0 12px}
+.ag-rules{margin-bottom:20px}
+.ag-rule{display:flex;align-items:center;gap:8px;padding:8px 0;font-size:15px;font-weight:600;color:#3a4150}
+.ag-rule span{display:inline-flex;width:26px;height:26px;border-radius:50%;background:#2b6cb0;color:#fff;align-items:center;justify-content:center;font-size:13px;flex:none}
+.ag-btn{display:inline-block;border:none;cursor:pointer;border-radius:12px;font-size:16px;font-weight:700;padding:12px 24px;transition:transform .06s ease,opacity .2s;font-family:inherit}
+.ag-btn:active{transform:translateY(1px)}
+.ag-btn-primary{background:#2b6cb0;color:#fff}
+.ag-btn-primary:hover{background:#255a94}
+.ag-btn-disabled{opacity:.45;cursor:not-allowed}
+.ag-hud{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:13px;gap:8px;flex-wrap:wrap}
+.ag-part{font-weight:700;color:#2b6cb0;background:#e3edfa;padding:3px 12px;border-radius:999px}
+.ag-count{color:#6a7180;font-weight:600}
+.ag-score{font-weight:700;color:#2e9e5b}
+.ag-progress{height:8px;border-radius:8px;background:#e2e6ee;overflow:hidden;margin-bottom:18px}
+.ag-progress-fill{height:100%;background:linear-gradient(90deg,#2b6cb0,#3a7bd5);border-radius:8px;transition:width .3s ease}
+.ag-q h2{margin:0 0 8px;font-size:20px}
+.ag-qtext{margin:0 0 18px;color:#4a5160;font-size:15px}
+.ag-alloc-row{margin-bottom:16px}
+.ag-alloc-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.ag-dot{width:12px;height:12px;border-radius:3px;flex:none}
+.ag-alloc-label{font-weight:700;font-size:15px}
+.ag-alloc-tag{font-size:12px;color:#8a8f9a}
+.ag-alloc-val{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;min-width:44px;text-align:right}
+.ag-alloc-row input[type=range]{width:100%;height:8px;cursor:pointer;accent-color:#2b6cb0}
+.ag-sum{text-align:center;font-size:15px;font-weight:700;color:#c0392b;margin:4px 0 16px}
+.ag-sum-ok{color:#2e9e5b}
+.ag-opt{display:flex;align-items:flex-start;gap:12px;width:100%;text-align:left;background:#fff;border:2px solid #e4e8f0;border-radius:14px;padding:12px 16px;margin-bottom:10px;cursor:pointer;font-size:15px;color:#333a46;transition:border-color .15s,background .15s;font-family:inherit}
+.ag-opt:hover{border-color:#b9c8de}
+.ag-opt-selected{border-color:#2b6cb0;background:#eaf2fc}
+.ag-opt-letter{flex:none;width:26px;height:26px;border-radius:50%;background:#eef1f6;color:#4a5160;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:13px}
+.ag-opt-selected .ag-opt-letter{background:#2b6cb0;color:#fff}
+.ag-fb{border-radius:16px;background:#fff;border:1px solid #e6e9f0;padding:18px;margin-bottom:4px}
+.ag-fb-badge{display:inline-block;font-weight:800;font-size:15px;padding:4px 14px;border-radius:999px;margin-bottom:12px}
+.ag-fb-ok{background:#e5f6ea;color:#1e7a3c}
+.ag-fb-no{background:#fdeaea;color:#c0392b}
+.ag-fb-detail{font-size:14px;color:#4a5160;margin-bottom:6px}
+.ag-fb-explain{font-size:14px;color:#5b6270;background:#f7f8fb;border-left:3px solid #2b6cb0;padding:10px 14px;border-radius:8px;margin-bottom:16px}
+.ag-result-emoji{font-size:56px;text-align:center}
+.ag-result-rank{text-align:center;font-size:28px;font-weight:800;margin:4px 0 2px}
+.ag-result-score{text-align:center;color:#5b6270;margin-bottom:20px}
+.ag-recap{background:#fff;border:1px solid #e6e9f0;border-radius:14px;padding:16px 18px;margin-bottom:14px;text-align:left}
+.ag-recap h3{margin:0 0 12px;font-size:16px;color:#2b6cb0}
+.ag-recap-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px;flex-wrap:wrap}
+.ag-recap-pct{font-weight:800;width:40px;flex:none;font-variant-numeric:tabular-nums}
+.ag-recap-name{font-weight:700}
+.ag-recap-desc{color:#8a8f9a;font-size:12px}
+.ag-recap-tip{font-size:13px;color:#5b6270;background:#f7f8fb;padding:10px 12px;border-radius:8px;margin:10px 0 0}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+var CATEGORIES = [
+  { label: '债权类', tag: '荤菜 · 能量', target: 40, color: '#e0524d', desc: '国债、企业债、个人债' },
+  { label: '增长类', tag: '素菜 · 维生素', target: 30, color: '#2e9e5b', desc: '增长资产、配置工具、未上市增长类资产' },
+  { label: '保险类', tag: '汤 · 保障', target: 20, color: '#3a7bd5', desc: '大病、意外、身价' },
+  { label: '流动性', tag: '水果点心', target: 10, color: '#f2a33c', desc: '货币配置工具、活期存款' }
+];
+
+var MERRILL = [
+  { phase: '滞胀', trend: '经济↓ 通胀↑', asset: '货币类资产' },
+  { phase: '衰退', trend: '经济↓ 通胀↓', asset: '债券类资产' },
+  { phase: '复苏', trend: '经济↑ 通胀↑', asset: '增长类' },
+  { phase: '繁荣', trend: '经济过热', asset: '大宗商品' }
+];
+
+var ROUNDS = [
+  { part: '标准普尔 · 4321 法则', kind: 'allocate', title: '家庭资产四象限',
+    question: '哲哥用“点菜”打比方：荤素搭配、汤水水果俱全。请拖动滑块，把家庭资产分配到四类资产（合计 100%）。',
+    explain: '标准普尔追踪10万个家庭财富增长曲线，得出“持续、稳健、增长”的4321法则：债权类40%保底增值、增长类30%博取增长、保险类20%兜底风险、流动性10%应急。' },
+  { part: '标准普尔 · 4321 法则', kind: 'choice', title: '流动性储备 · 稳定收入',
+    question: '张老师是中学教师，收入稳定。按流动性储备建议，他应为家庭准备几个月的日常开支？',
+    options: [ { text: '3–4 个月', correct: true }, { text: '5–7 个月', correct: false }, { text: '10–12 个月', correct: false }, { text: '1 个月', correct: false } ],
+    explain: '收入稳定的家庭（如教师、公务员）建议储备 3–4 个月日常开支作为流动性资产。' },
+  { part: '标准普尔 · 4321 法则', kind: 'choice', title: '流动性储备 · 浮动收入',
+    question: '王总经营一家企业，收入波动较大。他应为家庭准备几个月的日常开支？',
+    options: [ { text: '3–4 个月', correct: false }, { text: '5–7 个月', correct: true }, { text: '1–2 个月', correct: false }, { text: '12 个月以上', correct: false } ],
+    explain: '收入浮动较大的家庭（如营销、企业主）建议储备 5–7 个月日常开支，以应对收入波动。' },
+  { part: '标准普尔 · 4321 法则', kind: 'choice', title: '小资金也适用',
+    question: '小李刚工作两年，积蓄不多。4321 法则对他适用吗？',
+    options: [ { text: '不适用，钱太少', correct: false }, { text: '适用，可按风险承受能力微调', correct: true }, { text: '只有高净值家庭才适用', correct: false }, { text: '直接全部存银行', correct: false } ],
+    explain: '资金体量较小的家庭同样适用 4321 法则，可根据风险承受能力做微调。' },
+  { part: '美林投资时钟', kind: 'choice', title: '滞胀阶段',
+    question: '经济下行 + 通胀上行，哲哥比作“关系往下走，开销往上走”。此阶段最适合配置哪类资产？',
+    options: [ { text: '货币类资产（现金、货币配置工具、央行票据、国债逆回购）', correct: true }, { text: '债券类资产（国债、企业债、债券型配置工具）', correct: false }, { text: '增长类资产', correct: false }, { text: '大宗商品（石油、天然气、贵金属）', correct: false } ],
+    explain: '滞胀阶段（经济下行、通胀上行）最优配置是货币类资产，保住现金流动性。' },
+  { part: '美林投资时钟', kind: 'choice', title: '衰退阶段',
+    question: '经济下行 + 通胀下行，哲哥比作“躺平阶段，关系和开销都往下走”。此阶段最适合配置哪类资产？',
+    options: [ { text: '货币类资产', correct: false }, { text: '债券类资产（国债、企业债、债券型配置工具）', correct: true }, { text: '增长类资产', correct: false }, { text: '大宗商品', correct: false } ],
+    explain: '衰退阶段（经济、通胀双下行）最优配置是债券类资产，追求稳健收益。' },
+  { part: '美林投资时钟', kind: 'choice', title: '复苏阶段',
+    question: '经济上行 + 通胀上行，哲哥比作“关系回暖，开始约会花钱”。此阶段最适合配置哪类资产？',
+    options: [ { text: '货币类资产', correct: false }, { text: '债券类资产', correct: false }, { text: '增长类资产（尤其成瘾消费赛道）', correct: true }, { text: '大宗商品', correct: false } ],
+    explain: '复苏阶段（经济、通胀双上行）最优配置是增长类资产，尤其成瘾消费赛道，博取财富增值。' },
+  { part: '美林投资时钟', kind: 'choice', title: '繁荣阶段',
+    question: '经济过热、泡沫风险，哲哥比作“热恋巅峰，容易出现泡沫”。此阶段最适合配置哪类资产？',
+    options: [ { text: '货币类资产', correct: false }, { text: '债券类资产', correct: false }, { text: '增长类资产', correct: false }, { text: '大宗商品（石油、天然气、农产品、贵金属）', correct: true } ],
+    explain: '繁荣阶段（经济过热、泡沫风险）最优配置是大宗商品，对冲通胀与泡沫。' },
+  { part: '桥水 · 全天候策略', kind: 'choice', title: '全天候核心逻辑',
+    question: '达里奥的“全天候”策略不预测周期，同时配置多类资产。它的核心逻辑是什么？',
+    options: [ { text: '追涨杀跌，把握热点', correct: false }, { text: '东方不亮西方亮，分散配置降低风险', correct: true }, { text: '全仓国债，最安全', correct: false }, { text: '集中配置增长资产，博取高收益', correct: false } ],
+    explain: '全天候策略的核心是“东方不亮西方亮”——通过分散配置，无论战争、经济危机还是泡沫，净值都能持续稳健增值。' },
+  { part: '桥水 · 全天候策略', kind: 'choice', title: '四类资产同时配',
+    question: '全天候策略同时配置哪四类资产？',
+    options: [ { text: '货币、债券、增长类资产、大宗商品', correct: true }, { text: '房产、黄金、增长资产、现金', correct: false }, { text: '只有增长资产和稳健资产', correct: false }, { text: '期货、期权、外汇、比特币', correct: false } ],
+    explain: '全天候策略在所有周期中同时配置货币、债券、增长类资产和大宗商品四类资产。' },
+  { part: '延伸 · 量化对冲', kind: 'choice', title: '三大量化对冲机构',
+    question: '哲哥提到的全球三大量化对冲机构，除了西蒙斯的文艺复兴配置工具、达里奥的桥水配置工具，还有哪家？',
+    options: [ { text: '索罗斯的量子配置工具', correct: true }, { text: '巴菲特的伯克希尔·哈撒韦', correct: false }, { text: '高盛集团', correct: false }, { text: '摩根士丹利', correct: false } ],
+    explain: '全球三大量化对冲机构：西蒙斯的文艺复兴配置工具、达里奥的桥水配置工具、索罗斯的量子配置工具，值得深入研究。' }
+];
+
+var GLOSSARY = [
+  { term: '债权类资产', emoji: '🥩', desc: '像“荤菜”提供能量。国债、企业债等，到期还本付息，收益相对稳健，是家庭资产的“压舱石”（4321法则中占40%）。' },
+  { term: '增长类资产', emoji: '🥬', desc: '像“素菜”提供维生素。增长资产、配置工具、未上市增长类资产，波动大但长期增值潜力强，是财富增值与资产倍增的主力（占30%）。' },
+  { term: '保险类资产', emoji: '🍲', desc: '像“汤”提供营养保障。大病、意外、身价保障，是风险兜底与“责任与爱”的体现，急用时提供现金（占20%）。' },
+  { term: '流动性资产', emoji: '🍉', desc: '像“水果点心”。货币配置工具、活期存款，随取随用，应对3–6个月日常开支（占10%）。' },
+  { term: '通货膨胀', emoji: '🎈', desc: '物价上涨、钱“变毛”。通胀上行时现金购买力下降，需配置能跑赢通胀的资产。' },
+  { term: '经济周期', emoji: '🔄', desc: '经济像四季一样循环：滞胀→衰退→复苏→繁荣（美林投资时钟），不同阶段要配不同资产。' },
+  { term: '复利', emoji: '📈', desc: '利滚利——收益再投资产生新收益。时间越长、收益越高，复利威力越大，是年轻人最大的“时间红利”。' },
+  { term: '分散配置', emoji: '🧺', desc: '“东方不亮西方亮”，把鸡蛋放在不同篮子里（货币/债券/增长类资产/大宗商品），降低整体风险。' },
+  { term: '风险承受能力', emoji: '⚖️', desc: '你能承受多大波动而不影响生活。年轻、收入稳定可承受更高波动；临近退休则应求稳。' },
+  { term: '定投', emoji: '🗓️', desc: '定时定额投资，摊平成本、纪律化储蓄，是年轻人积累第一桶金的简单有效方式。' }
+];
+
+var HQ_ROUNDS = [
+  { title: '财富传承工具', question: '高净值家庭做财富传承，最常用的两大工具是？',
+    options: [ { text: '寿险与家族信托', correct: true }, { text: '活期存款与信用卡', correct: false }, { text: '增长资产与外汇', correct: false }, { text: '黄金与房产', correct: false } ],
+    explain: '寿险与家族信托可定向、有序地实现财富传承，兼具税务与资产隔离功能。' },
+  { title: '抗通胀配置', question: '为对冲长期通胀，高净值组合应重点增配？',
+    options: [ { text: '增长类资产 + 大宗商品 / 黄金', correct: true }, { text: '纯活期存款', correct: false }, { text: '全部买入国债', correct: false }, { text: '囤积现金', correct: false } ],
+    explain: '增长类资产与大宗商品/黄金长期能跑赢通胀，现金则会因通胀而贬值。' },
+  { title: '全球分散', question: '高净值家庭做“全球分散配置”的主要目的是？',
+    options: [ { text: '对冲单一市场 / 单一货币风险', correct: true }, { text: '规避所有投资风险', correct: false }, { text: '追求最高收益', correct: false }, { text: '便于避税', correct: false } ],
+    explain: '全球分散可降低对单一经济体、单一货币的依赖，平滑组合波动。' },
+  { title: '资产隔离', question: '企业主家庭做“资产隔离”的意义是？',
+    options: [ { text: '隔离企业经营风险与家庭财富', correct: true }, { text: '隐藏收入逃税', correct: false }, { text: '提高企业杠杆', correct: false }, { text: '减少家庭开销', correct: false } ],
+    explain: '通过信托/保险等工具，将家庭财富与企业经营风险隔离，避免连带损失。' },
+  { title: '繁荣阶段战术', question: '美林时钟“繁荣 / 过热”阶段，高净值组合应采取什么战术？',
+    options: [ { text: '降低增长资产比例、增配大宗商品并控制杠杆', correct: true }, { text: '全仓追高增长资产', correct: false }, { text: '全部清仓离场', correct: false }, { text: '加杠杆买入', correct: false } ],
+    explain: '繁荣阶段泡沫风险高，宜减持高估值增长资产、增配大宗商品对冲，并控制杠杆。' },
+  { title: '全天候适用', question: '桥水“全天候”策略最适用于哪类目标？',
+    options: [ { text: '不预测周期、长期穿越牛熊的稳健增值', correct: true }, { text: '短期追涨杀跌', correct: false }, { text: '一年内翻倍', correct: false }, { text: '规避所有回撤', correct: false } ],
+    explain: '全天候通过分散配置降低风险，追求长期持续稳健增值，而非短期暴利。' }
+];
+
+var SCALES = ['起步(<50万)', '成长(50万–500万)', '高净值(500万+)'];
+var RISKS = ['稳健型', '平衡型', '进取型'];
+var INCOMES = ['稳定', '浮动'];
+var GOALS = ['财富稳健增值', '资产传承', '抗通胀保值', '兼顾流动性'];
+
+var state = {
+  screen: 'home',
+  stage: 'intro',
+  roundIndex: 0,
+  score: 0,
+  selected: null,
+  alloc: [0, 0, 0, 0],
+  feedback: null,
+  learnTab: 'glossary',
+  monthly: 1000,
+  rate: 6,
+  years: 10,
+  advStep: 'form',
+  inputs: { scale: '成长(50万–500万)', risk: '平衡型', income: '稳定', goal: '财富稳健增值' },
+  advResult: null,
+  hqIndex: 0,
+  hqScore: 0,
+  hqSelected: null,
+  hqFeedback: null
+};
+
+function fmt(n) {
+  var s = String(Math.round(n));
+  var out = '';
+  var cnt = 0;
+  for (var i = s.length - 1; i >= 0; i--) {
+    out = s[i] + out;
+    cnt++;
+    if (cnt % 3 === 0 && i > 0) out = ',' + out;
+  }
+  return out;
+}
+
+function computeAdvice(inputs) {
+  var a = { debt: 40, equity: 30, insurance: 20, cash: 10 };
+  var tips = [];
+  var months = '3–4 个月';
+  if (inputs.risk === '稳健型') { a.debt += 10; a.equity -= 10; tips.push('稳健型：提高债权类占比、降低增长类资产波动，以本金安全与稳定现金流优先。'); }
+  else if (inputs.risk === '进取型') { a.debt -= 10; a.equity += 10; tips.push('进取型：可提高增长类占比博取长期增值，但需用保险与流动性守住底线。'); }
+  else { tips.push('平衡型：维持 4321 基准，攻守兼备。'); }
+  if (inputs.income === '浮动') { a.cash += 5; a.debt -= 5; months = '5–7 个月'; tips.push('收入浮动较大（营销/企业主）：流动性建议储备 5–7 个月日常开支，并适当提高现金缓冲。'); }
+  else { tips.push('收入稳定（教师/公务员等）：流动性储备 3–4 个月即可。'); }
+  if (inputs.scale === '高净值(500万+)') { tips.push('高净值家庭：建议增加全球分散配置与专业机构/家族办公室支持，关注税务与资产隔离。'); }
+  else if (inputs.scale === '成长(50万–500万)') { tips.push('成长期：可逐步建立“攻守”双账户，稳健部分保底、进取部分增值。'); }
+  else { tips.push('起步阶段：4321 同样适用，可按风险承受能力微调，重点是养成储蓄与配置习惯。'); }
+  if (inputs.goal === '资产传承') { a.insurance += 5; a.equity -= 5; tips.push('传承目标：提高保险/寿险与信托类安排占比，实现财富有序传承与责任兑现。'); }
+  else if (inputs.goal === '抗通胀保值') { a.equity += 5; a.debt -= 5; tips.push('抗通胀：适度增配增长类资产与大宗商品/黄金（参考全天候策略），对冲货币购买力稀释。'); }
+  else if (inputs.goal === '兼顾流动性') { a.cash += 5; a.debt -= 5; tips.push('兼顾流动性：保留更厚现金垫，满足临时资金需求。'); }
+  else { tips.push('财富增值：增长类是资产倍增主力，可结合美林时钟做战术微调。'); }
+  tips.push('战术微调：结合美林投资时钟——滞胀配货币、衰退配债券、复苏配增长资产、繁荣配大宗商品，随周期轮动。');
+  tips.push('长期底仓：可借鉴桥水全天候策略，同时配置货币、债券、增长类资产、大宗商品，“东方不亮西方亮”。');
+  return { alloc: a, months: months, tips: tips };
+}
+
+function backBtn() { return `<button class="ag-back" data-action="go-home">← 返回首页</button>`; }
+
+function card(emoji, title, desc, action) {
+  return `<div class="ag-home-card" data-action="${action}"><span class="ag-home-emoji">${emoji}</span><div><p class="ag-home-title">${title}</p><p class="ag-home-desc">${desc}</p></div><span class="ag-home-arrow">›</span></div>`;
+}
+
+function optsHtml(options, selected, action) {
+  var s = '';
+  for (var i = 0; i < options.length; i++) {
+    var cls = 'ag-opt' + (selected === i ? ' ag-opt-selected' : '');
+    s += `<button class="${cls}" data-action="${action}" data-i="${i}"><span class="ag-opt-letter">${String.fromCharCode(65 + i)}</span><span class="ag-opt-text">${options[i].text}</span></button>`;
+  }
+  return s;
+}
+
+function homeHtml() {
+  return `<div class="ag-card">` +
+    `<div class="ag-badge">家庭理财 · 财商教育 + 配置优化</div>` +
+    `<h1 class="ag-title">💰 资产配置练习</h1>` +
+    `<p class="ag-sub">一部游戏，两大受众：帮年轻人建立财商底子，帮高净值家庭优化资产配置。</p>` +
+    `<div class="ag-home-cards">` +
+      card('🎮', '闯关挑战', '4321 法则 · 美林时钟 · 全天候策略，11 题通关测验', 'go-game') +
+      card('🎓', '年轻人 · 财商启蒙', '术语小课堂 + 定投复利计算器，从 0 建立理财认知', 'go-learn') +
+      card('💼', '高净值 · 配置优化', '配置诊断工具 + 传承/抗通胀/全球分散进阶问答', 'go-advisor') +
+    `</div>` +
+    `<p class="ag-note">💬 把本文件直接发给好友，对方双击打开即可一起玩（无需联网、无需安装）。</p>` +
+  `</div>`;
+}
+
+function gameIntroHtml() {
+  return `<div class="ag-card">` + backBtn() +
+    `<div class="ag-badge">闯关挑战 · 11 题</div>` +
+    `<h1 class="ag-title">🎮 资产配置练习</h1>` +
+    `<p class="ag-sub">用标准普尔 4321 法则、美林投资时钟、桥水全天候策略，闯关学会科学配置家庭资产！</p>` +
+    `<div class="ag-rules"><div class="ag-rule"><span>①</span> 标准普尔 · 4321 家庭配置</div><div class="ag-rule"><span>②</span> 美林投资时钟 · 四大周期</div><div class="ag-rule"><span>③</span> 桥水全天候策略</div></div>` +
+    `<button class="ag-btn ag-btn-primary" data-action="start-game">开始挑战 →</button>` +
+  `</div>`;
+}
+
+function allocateBodyHtml() {
+  var s = '';
+  for (var i = 0; i < CATEGORIES.length; i++) {
+    var c = CATEGORIES[i];
+    s += `<div class="ag-alloc-row"><div class="ag-alloc-head">` +
+      `<span class="ag-dot" style="background:${c.color}"></span>` +
+      `<span class="ag-alloc-label">${c.label}</span>` +
+      `<span class="ag-alloc-tag">${c.tag}</span>` +
+      `<span class="ag-alloc-val" id="alloc-val-${i}">${state.alloc[i]}%</span>` +
+      `</div><input type="range" min="0" max="100" step="1" value="${state.alloc[i]}" style="accent-color:${c.color}" data-bind="alloc:${i}"></div>`;
+  }
+  var sum = state.alloc[0] + state.alloc[1] + state.alloc[2] + state.alloc[3];
+  var ok = sum === 100;
+  var hint = sum < 100 ? ('还差 ' + (100 - sum) + '%') : (sum > 100 ? ('超出 ' + (sum - 100) + '%') : '✓ 正好 100%');
+  s += `<div class="ag-sum${ok ? ' ag-sum-ok' : ''}" id="alloc-sum">合计：${sum}%  ${hint}</div>`;
+  s += `<button class="ag-btn ag-btn-primary${ok ? '' : ' ag-btn-disabled'}" id="alloc-submit" ${ok ? '' : 'disabled'} data-action="submit-allocate">提交配置</button>`;
+  return s;
+}
+
+function choiceBodyHtml(r) {
+  return `<div>` + optsHtml(r.options, state.selected, 'select-option') +
+    `<button class="ag-btn ag-btn-primary${state.selected === null ? ' ag-btn-disabled' : ''}" ${state.selected === null ? 'disabled' : ''} data-action="submit-choice">提交答案</button></div>`;
+}
+
+function feedbackHtml(r) {
+  var f = state.feedback;
+  var correctText = '';
+  if (r.kind === 'choice') {
+    for (var i = 0; i < r.options.length; i++) if (r.options[i].correct) { correctText = `<div class="ag-fb-detail">正确答案：${r.options[i].text}</div>`; break; }
+  }
+  return `<div class="ag-fb">` +
+    `<div class="ag-fb-badge ${f.correct ? 'ag-fb-ok' : 'ag-fb-no'}">${f.correct ? '✓ 回答正确 · +' + f.earned : '✗ 回答错误 · +' + f.earned}</div>` +
+    (f.detail ? `<div class="ag-fb-detail">${f.detail}</div>` : '') +
+    correctText +
+    `<div class="ag-fb-explain">💡 ${f.explain}</div>` +
+    `<button class="ag-btn ag-btn-primary" data-action="next">${state.roundIndex + 1 >= ROUNDS.length ? '查看结果 →' : '下一题 →'}</button></div>`;
+}
+
+function gameHtml() {
+  if (state.stage === 'result') return resultHtml();
+  if (state.stage === 'intro') return gameIntroHtml();
+  var r = ROUNDS[state.roundIndex];
+  var header = `<div class="ag-hud"><div class="ag-part">${r.part}</div><div class="ag-count">第 ${state.roundIndex + 1} / ${ROUNDS.length} 题</div><div class="ag-score">得分 ${state.score}</div></div>` +
+    `<div class="ag-progress"><div class="ag-progress-fill" style="width:${Math.round(state.roundIndex / ROUNDS.length * 100)}%"></div></div>`;
+  var body = state.feedback ? feedbackHtml(r) : (r.kind === 'allocate' ? allocateBodyHtml() : choiceBodyHtml(r));
+  return `<div class="ag-card">${header}<div class="ag-q"><h2>${r.title}</h2><p class="ag-qtext">${r.question}</p></div>${body}</div>`;
+}
+
+function glossaryHtml() {
+  var s = `<p class="ag-sub" style="margin-bottom:14px">先弄懂这些词，再去闯关会事半功倍：</p>`;
+  for (var i = 0; i < GLOSSARY.length; i++) {
+    var g = GLOSSARY[i];
+    s += `<div class="ag-gloss-item"><div class="ag-gloss-head"><span>${g.emoji}</span><span>${g.term}</span></div><p class="ag-gloss-desc">${g.desc}</p></div>`;
+  }
+  s += `<button class="ag-btn ag-btn-primary" data-action="go-game">去闯关巩固 →</button>`;
+  return s;
+}
+
+function sliderRow(label, valText, key, min, max, step, value) {
+  return `<div class="ag-calc-row"><div class="ag-calc-head"><span>${label}</span><span class="ag-calc-val" id="calc-${key}">${valText}</span></div><input type="range" min="${min}" max="${max}" step="${step}" value="${value}" data-bind="${key}"></div>`;
+}
+
+function calculatorHtml() {
+  var r = state.rate / 100 / 12, n = state.years * 12;
+  var invested = state.monthly * n;
+  var fv = r === 0 ? invested : state.monthly * ((Math.pow(1 + r, n) - 1) / r);
+  var gain = fv - invested;
+  return `<div>` +
+    sliderRow('每月定投金额', '¥' + fmt(state.monthly), 'monthly', 0, 50000, 500, state.monthly) +
+    sliderRow('预期年化收益率', state.rate + '%', 'rate', 0, 20, 0.5, state.rate) +
+    sliderRow('投资年限', state.years + ' 年', 'years', 1, 40, 1, state.years) +
+    `<div class="ag-calc-result" id="calc-result">` +
+      `<h3>📊 复利测算结果</h3>` +
+      `<div class="ag-calc-line"><span>累计投入</span><span>¥${fmt(invested)}</span></div>` +
+      `<div class="ag-calc-line"><span>预计终值</span><span class="ag-calc-big">¥${fmt(fv)}</span></div>` +
+      `<div class="ag-calc-line"><span>累计收益</span><span class="ag-calc-val">+¥${fmt(gain)}</span></div>` +
+    `</div>` +
+    `<p class="ag-note">💡 复利是年轻人最大的“时间红利”——越早开始、坚持越久，雪球滚得越大。此为演示测算，不构成收益承诺。</p>` +
+  `</div>`;
+}
+
+function learnHtml() {
+  var body = state.learnTab === 'glossary' ? glossaryHtml() : calculatorHtml();
+  return `<div class="ag-card">` + backBtn() + `<h2 class="ag-section-title">🎓 年轻人 · 财商启蒙</h2>` +
+    `<div class="ag-tabs">` +
+    `<button class="ag-tab${state.learnTab === 'glossary' ? ' ag-tab-active' : ''}" data-action="tab-glossary">📖 术语小课堂</button>` +
+    `<button class="ag-tab${state.learnTab === 'calculator' ? ' ag-tab-active' : ''}" data-action="tab-calculator">🧮 定投复利计算器</button>` +
+    `</div>` + body + `</div>`;
+}
+
+function field(label, key, options) {
+  var s = `<div class="ag-field"><label>${label}</label><select class="ag-select" data-bind="${key}">`;
+  for (var i = 0; i < options.length; i++) {
+    var sel = state.inputs[key] === options[i] ? ' selected' : '';
+    s += `<option value="${options[i]}"${sel}>${options[i]}</option>`;
+  }
+  s += `</select></div>`;
+  return s;
+}
+
+function advisorFormHtml() {
+  return `<div>` +
+    `<p class="ag-sub" style="margin-bottom:16px">填写家庭画像，生成专属 4321 配置方案与优化建议：</p>` +
+    field('可投资产规模', 'scale', SCALES) +
+    field('风险承受能力', 'risk', RISKS) +
+    field('收入稳定性', 'income', INCOMES) +
+    field('核心目标', 'goal', GOALS) +
+    `<button class="ag-btn ag-btn-primary" data-action="adv-generate">生成优化方案 →</button>` +
+    `<p class="ag-note">本工具仅用于财商教育与配置思路演示，不构成投资建议。</p>` +
+  `</div>`;
+}
+
+function advisorResultHtml() {
+  if (!state.advResult) return `<div><p>请先在“配置诊断”中填写画像。</p></div>`;
+  var a = state.advResult.alloc;
+  var segs = [
+    { label: '债权类', pct: a.debt, color: '#e0524d' },
+    { label: '增长类', pct: a.equity, color: '#2e9e5b' },
+    { label: '保险类', pct: a.insurance, color: '#3a7bd5' },
+    { label: '流动性', pct: a.cash, color: '#f2a33c' }
+  ];
+  var bar = `<div class="ag-alloc-bar">`;
+  var legend = `<div class="ag-legend">`;
+  for (var i = 0; i < segs.length; i++) {
+    bar += `<div style="width:${segs[i].pct}%;background:${segs[i].color}"></div>`;
+    legend += `<div class="ag-legend-item"><span class="ag-dot" style="background:${segs[i].color}"></span><span>${segs[i].label} ${segs[i].pct}%</span></div>`;
+  }
+  bar += `</div>`; legend += `</div>`;
+  var tips = `<ul class="ag-tips">`;
+  for (var j = 0; j < state.advResult.tips.length; j++) tips += `<li class="ag-tip">· ${state.advResult.tips[j]}</li>`;
+  tips += `</ul>`;
+  return `<div><p class="ag-sub" style="margin-bottom:6px">你的专属配置（流动性建议：${state.advResult.months}）：</p>${bar}${legend}${tips}</div>`;
+}
+
+function advisorQuizHtml() {
+  if (state.hqIndex >= HQ_ROUNDS.length) {
+    var pct = Math.round(state.hqScore / (HQ_ROUNDS.length * 100) * 100);
+    return `<div><div class="ag-result-emoji">${pct >= 80 ? '🏆' : '💪'}</div>` +
+      `<div class="ag-result-rank">进阶问答得分 ${state.hqScore} / ${HQ_ROUNDS.length * 100}</div>` +
+      `<div class="ag-result-score">正确率 ${pct}%</div>` +
+      `<div style="text-align:center"><button class="ag-btn ag-btn-primary" data-action="hq-restart">再测一次</button></div></div>`;
+  }
+  var q = HQ_ROUNDS[state.hqIndex];
+  if (state.hqFeedback) {
+    var hit = '';
+    for (var i = 0; i < q.options.length; i++) if (q.options[i].correct) { hit = `<div class="ag-fb-detail">正确答案：${q.options[i].text}</div>`; break; }
+    return `<div class="ag-fb">` +
+      `<div class="ag-fb-badge ${state.hqFeedback.correct ? 'ag-fb-ok' : 'ag-fb-no'}">${state.hqFeedback.correct ? '✓ 答对了' : '✗ 再想想'}</div>` +
+      hit +
+      `<div class="ag-fb-explain">💡 ${q.explain}</div>` +
+      `<button class="ag-btn ag-btn-primary" data-action="hq-next">${state.hqIndex + 1 >= HQ_ROUNDS.length ? '查看成绩 →' : '下一题 →'}</button></div>`;
+  }
+  return `<div><div class="ag-hud"><span class="ag-part">高净值进阶</span><span class="ag-count">第 ${state.hqIndex + 1} / ${HQ_ROUNDS.length} 题</span><span class="ag-score">得分 ${state.hqScore}</span></div>` +
+    `<div class="ag-q"><h2>${q.title}</h2><p class="ag-qtext">${q.question}</p></div>` +
+    optsHtml(q.options, state.hqSelected, 'hq-select') +
+    `<button class="ag-btn ag-btn-primary${state.hqSelected === null ? ' ag-btn-disabled' : ''}" ${state.hqSelected === null ? 'disabled' : ''} data-action="hq-submit">提交答案</button></div>`;
+}
+
+function advisorHtml() {
+  var body = state.advStep === 'form' ? advisorFormHtml() : (state.advStep === 'result' ? advisorResultHtml() : advisorQuizHtml());
+  return `<div class="ag-card">` + backBtn() + `<h2 class="ag-section-title">💼 高净值 · 配置优化</h2>` +
+    `<div class="ag-tabs">` +
+    `<button class="ag-tab${state.advStep === 'form' ? ' ag-tab-active' : ''}" data-action="adv-tab-form">📋 配置诊断</button>` +
+    `<button class="ag-tab${state.advStep === 'result' ? ' ag-tab-active' : ''}" data-action="adv-tab-result">📈 优化方案</button>` +
+    `<button class="ag-tab${state.advStep === 'quiz' ? ' ag-tab-active' : ''}" data-action="adv-tab-quiz">🧠 进阶问答</button>` +
+    `</div>` + body + `</div>`;
+}
+
+function resultHtml() {
+  var pct = Math.round(state.score / (ROUNDS.length * 100) * 100);
+  var rank, emoji;
+  if (pct >= 95) { rank = '资产配置练习'; emoji = '🏆'; }
+  else if (pct >= 80) { rank = '理财达人'; emoji = '🥇'; }
+  else if (pct >= 60) { rank = '稳健理财者'; emoji = '🥈'; }
+  else { rank = '理财新手'; emoji = '🌱'; }
+  var s = `<div class="ag-card">` + backBtn() +
+    `<div class="ag-result-emoji">${emoji}</div>` +
+    `<div class="ag-result-rank">${rank}</div>` +
+    `<div class="ag-result-score">得分 ${state.score} / ${ROUNDS.length * 100} · 正确率 ${pct}%</div>`;
+  s += `<div class="ag-recap"><h3>① 标准普尔 · 4321 法则</h3>`;
+  for (var i = 0; i < CATEGORIES.length; i++) {
+    var c = CATEGORIES[i];
+    s += `<div class="ag-recap-row"><span class="ag-dot" style="background:${c.color}"></span><span class="ag-recap-pct">${c.target}%</span><span class="ag-recap-name">${c.label}（${c.tag}）</span><span class="ag-recap-desc">${c.desc}</span></div>`;
+  }
+  s += `<p class="ag-recap-tip">流动性建议储备 3–6 个月开支：收入稳定 3–4 个月，收入浮动 5–7 个月；小资金家庭同样适用，可按风险承受能力微调。</p></div>`;
+  s += `<div class="ag-recap"><h3>② 美林投资时钟</h3>`;
+  for (var j = 0; j < MERRILL.length; j++) {
+    var m = MERRILL[j];
+    s += `<div class="ag-recap-row"><span class="ag-recap-pct">${m.phase}</span><span class="ag-recap-name">${m.trend}</span><span class="ag-recap-desc">→ ${m.asset}</span></div>`;
+  }
+  s += `</div>`;
+  s += `<div class="ag-recap"><h3>③ 桥水 · 全天候策略</h3><p style="margin:0 0 8px;font-size:14px">达里奥不预测周期，同时配置货币、债券、增长类资产、大宗商品四类资产，核心逻辑是“东方不亮西方亮”，分散配置降低风险。</p><p class="ag-recap-tip">延伸：三大量化对冲机构 —— 西蒙斯的文艺复兴配置工具、达里奥的桥水配置工具、索罗斯的量子配置工具。</p></div>`;
+  s += `<div style="text-align:center"><button class="ag-btn ag-btn-primary" data-action="restart">🔄 重新挑战</button></div></div>`;
+  return s;
+}
+
+function submitChoice() {
+  if (state.selected === null) return;
+  var r = ROUNDS[state.roundIndex];
+  var opt = r.options[state.selected];
+  var earned = opt.correct ? 100 : 0;
+  state.score += earned;
+  state.feedback = { earned: earned, correct: opt.correct, explain: r.explain };
+  render();
+}
+
+function submitAllocate() {
+  var sum = state.alloc[0] + state.alloc[1] + state.alloc[2] + state.alloc[3];
+  if (sum !== 100) return;
+  var dev = 0, i;
+  for (i = 0; i < 4; i++) dev += Math.abs(state.alloc[i] - CATEGORIES[i].target);
+  var earned = Math.max(0, Math.round(100 - dev));
+  state.score += earned;
+  state.feedback = { earned: earned, correct: earned === 100, explain: ROUNDS[state.roundIndex].explain, detail: '目标比例：债权类40% · 增长类30% · 保险类20% · 流动性10%' };
+  render();
+}
+
+function nextRound() {
+  if (state.roundIndex + 1 >= ROUNDS.length) { state.stage = 'result'; render(); return; }
+  state.roundIndex++;
+  state.selected = null; state.alloc = [0, 0, 0, 0]; state.feedback = null;
+  render();
+}
+
+function hqSubmit() {
+  if (state.hqSelected === null) return;
+  var q = HQ_ROUNDS[state.hqIndex];
+  var o = q.options[state.hqSelected];
+  state.hqScore += o.correct ? 100 : 0;
+  state.hqFeedback = { correct: o.correct };
+  render();
+}
+
+function allocLiveUI() {
+  var sum = 0, i;
+  for (i = 0; i < 4; i++) {
+    sum += state.alloc[i];
+    var v = document.getElementById('alloc-val-' + i);
+    if (v) v.textContent = state.alloc[i] + '%';
+  }
+  var ok = sum === 100;
+  var hint = sum < 100 ? ('还差 ' + (100 - sum) + '%') : (sum > 100 ? ('超出 ' + (sum - 100) + '%') : '✓ 正好 100%');
+  var s = document.getElementById('alloc-sum');
+  if (s) { s.textContent = '合计：' + sum + '%  ' + hint; s.className = 'ag-sum' + (ok ? ' ag-sum-ok' : ''); }
+  var btn = document.getElementById('alloc-submit');
+  if (btn) { btn.disabled = !ok; btn.className = 'ag-btn ag-btn-primary' + (ok ? '' : ' ag-btn-disabled'); }
+}
+
+function updateCalcResult() {
+  var r = state.rate / 100 / 12, n = state.years * 12;
+  var invested = state.monthly * n;
+  var fv = r === 0 ? invested : state.monthly * ((Math.pow(1 + r, n) - 1) / r);
+  var gain = fv - invested;
+  document.getElementById('calc-result').innerHTML =
+    `<h3>📊 复利测算结果</h3>` +
+    `<div class="ag-calc-line"><span>累计投入</span><span>¥${fmt(invested)}</span></div>` +
+    `<div class="ag-calc-line"><span>预计终值</span><span class="ag-calc-big">¥${fmt(fv)}</span></div>` +
+    `<div class="ag-calc-line"><span>累计收益</span><span class="ag-calc-val">+¥${fmt(gain)}</span></div>`;
+}
+
+function handleClick(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  var action = el.getAttribute('data-action');
+  var i = el.getAttribute('data-i');
+  switch (action) {
+    case 'go-home': state.screen = 'home'; state.stage = 'intro'; state.advStep = 'form'; break;
+    case 'go-game': state.screen = 'game'; break;
+    case 'go-learn': state.screen = 'learn'; break;
+    case 'go-advisor': state.screen = 'advisor'; break;
+    case 'start-game': state.stage = 'playing'; state.roundIndex = 0; state.score = 0; state.selected = null; state.alloc = [0, 0, 0, 0]; state.feedback = null; break;
+    case 'select-option': state.selected = Number(i); break;
+    case 'submit-choice': submitChoice(); break;
+    case 'submit-allocate': submitAllocate(); break;
+    case 'next': nextRound(); break;
+    case 'tab-glossary': state.learnTab = 'glossary'; break;
+    case 'tab-calculator': state.learnTab = 'calculator'; break;
+    case 'adv-tab-form': state.advStep = 'form'; break;
+    case 'adv-tab-result': if (state.advResult) state.advStep = 'result'; break;
+    case 'adv-tab-quiz': state.advStep = 'quiz'; state.hqIndex = 0; state.hqScore = 0; state.hqSelected = null; state.hqFeedback = null; break;
+    case 'adv-generate': state.advResult = computeAdvice(state.inputs); state.advStep = 'result'; break;
+    case 'hq-select': state.hqSelected = Number(i); break;
+    case 'hq-submit': hqSubmit(); break;
+    case 'hq-next': state.hqIndex++; state.hqSelected = null; state.hqFeedback = null; break;
+    case 'hq-restart': state.hqIndex = 0; state.hqScore = 0; state.hqSelected = null; state.hqFeedback = null; break;
+    case 'restart': state.stage = 'playing'; state.roundIndex = 0; state.score = 0; state.selected = null; state.alloc = [0, 0, 0, 0]; state.feedback = null; break;
+  }
+  render();
+}
+
+function handleInput(e) {
+  var t = e.target;
+  var b = t.getAttribute('data-bind');
+  if (!b) return;
+  if (b === 'monthly' || b === 'rate' || b === 'years') {
+    state[b] = Number(t.value);
+    document.getElementById('calc-' + b).textContent = b === 'monthly' ? '¥' + fmt(state.monthly) : (b === 'rate' ? state.rate + '%' : state.years + ' 年');
+    updateCalcResult();
+    return;
+  }
+  if (b.indexOf('alloc:') === 0) {
+    state.alloc[Number(b.slice(6))] = Number(t.value);
+    allocLiveUI();
+    return;
+  }
+}
+
+function handleChange(e) {
+  var t = e.target;
+  var b = t.getAttribute('data-bind');
+  if (!b) return;
+  if (b === 'scale' || b === 'risk' || b === 'income' || b === 'goal') state.inputs[b] = t.value;
+}
+
+function render() {
+  var html;
+  if (state.screen === 'home') html = homeHtml();
+  else if (state.screen === 'learn') html = learnHtml();
+  else if (state.screen === 'advisor') html = advisorHtml();
+  else html = gameHtml();
+  document.getElementById('app').innerHTML = html;
+}
+
+var app = document.getElementById('app');
+app.addEventListener('click', handleClick);
+app.addEventListener('input', handleInput);
+app.addEventListener('change', handleChange);
+render();
+</script>
+</body>
+</html>

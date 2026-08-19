@@ -492,6 +492,14 @@ class ScreenerService:
         if self.asset_type != "stock":
             _, d = self.repo.get_enriched_latest_asset(self.asset_type)
             return d
+        # 先看磁盘分区，而不是只看进程缓存。后台数据刷新后缓存可能仍停在
+        # 上一个交易日，进而把“无可用数据日期”错误地暴露给选股/资金面入口。
+        try:
+            partition_date = self.repo.latest_enriched_date("stock")
+            if partition_date:
+                return partition_date
+        except Exception:  # noqa: BLE001
+            pass
         d = self.repo.enriched_latest_date()
         if d:
             return d
@@ -504,5 +512,10 @@ class ScreenerService:
                 d = res[0]
                 return d if isinstance(d, date) else date.fromisoformat(str(d))
         except Exception:  # noqa: BLE001
+            pass
+        # enriched 尚未完成但原始日 K 已经落盘时，仍返回真实的最后交易日；
+        # 后续上下文加载会继续走数据层的计算/回退路径，而不是直接报无日期。
+        try:
+            return self.repo.latest_daily_date()
+        except Exception:  # noqa: BLE001
             return None
-        return None

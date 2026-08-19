@@ -13,11 +13,14 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react'
+import { ActionIcon, Badge, Button, SegmentedControl, Table, TextInput, Tooltip } from '@mantine/core'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { EmptyState } from '@/components/EmptyState'
 import { AnalysisConfigDialog, PresetFetchState, type AnalysisFieldConfig } from '@/components/analysis-shared'
 import { DimensionMembersDialog, type DimensionMembersTarget } from '@/components/DimensionMembersDialog'
 import { RpsRotationDialog } from '@/components/RpsRotationDialog'
+import { DataFreshnessNotice } from '@/components/DataFreshnessNotice'
 import { api, type MarketSnapshotRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -353,9 +356,11 @@ export function ConceptAnalysis() {
           <PageHeader
             title="概念分析"
             right={
-              <button onClick={() => setShowConfig(true)} className="p-1.5 text-muted hover:bg-surface hover:text-accent" title="配置数据源">
-                <Settings2 className="h-4 w-4" />
-              </button>
+              <Tooltip label="配置数据源" position="bottom">
+                <ActionIcon variant="subtle" color="gray" size="md" onClick={() => setShowConfig(true)} aria-label="配置数据源">
+                  <Settings2 className="h-4 w-4" />
+                </ActionIcon>
+              </Tooltip>
             }
           />
           <PresetFetchState
@@ -381,30 +386,42 @@ export function ConceptAnalysis() {
         right={
           <div className="flex items-center gap-1">
             {/* RPS 轮动: 打开涨幅轮动矩阵对话框 */}
-            <button
-              onClick={() => setShowRps(true)}
-              className="inline-flex items-center gap-1 rounded-btn border border-amber-400/40 bg-amber-400/15 px-2.5 py-1.5 text-[11px] text-amber-400 font-medium transition-colors hover:bg-amber-400/25 hover:border-amber-400/60"
-              title="概念涨幅轮动矩阵"
-            >
-              <Repeat className="h-3.5 w-3.5" />涨幅RPS轮动分析
-            </button>
-            <button
-              onClick={() => { rowsQuery.refetch(); marketQuery.refetch() }}
-              disabled={rowsQuery.isFetching || marketQuery.isFetching}
-              className="p-1.5 text-muted hover:bg-surface disabled:opacity-50"
-              title="刷新"
-            >
-              <RefreshCw className={cn('h-4 w-4', (rowsQuery.isFetching || marketQuery.isFetching) && 'animate-spin')} />
-            </button>
-            <button onClick={() => setShowConfig(true)} className="p-1.5 text-muted hover:bg-surface hover:text-accent" title="配置数据源">
-              <Settings2 className="h-4 w-4" />
-            </button>
+            <Tooltip label="概念涨幅轮动矩阵" position="bottom">
+              <Button
+                size="xs"
+                variant="light"
+                color="blue"
+                leftSection={<Repeat className="h-3.5 w-3.5" />}
+                onClick={() => setShowRps(true)}
+              >
+                涨幅RPS轮动分析
+              </Button>
+            </Tooltip>
+            <Tooltip label="刷新" position="bottom">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="md"
+                onClick={() => { rowsQuery.refetch(); marketQuery.refetch() }}
+                disabled={rowsQuery.isFetching || marketQuery.isFetching}
+                aria-label="刷新"
+              >
+                <RefreshCw className={cn('h-4 w-4', (rowsQuery.isFetching || marketQuery.isFetching) && 'animate-spin')} />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="配置数据源" position="bottom">
+              <ActionIcon variant="subtle" color="gray" size="md" onClick={() => setShowConfig(true)} aria-label="配置数据源">
+                <Settings2 className="h-4 w-4" />
+              </ActionIcon>
+            </Tooltip>
           </div>
         }
       />
 
-      <div className="min-h-full bg-[radial-gradient(circle_at_12%_0%,rgba(59,130,246,0.12),transparent_28%),radial-gradient(circle_at_85%_8%,rgba(244,63,94,0.08),transparent_28%)] px-6 py-5">
-        <div className="mx-auto max-w-[1440px] space-y-5">
+      <DataFreshnessNotice freshness={rowsQuery.data?.data_freshness} snapshotDate={rowsQuery.data?.date} label="概念数据" />
+
+      <div className="min-h-full bg-[radial-gradient(circle_at_12%_0%,rgba(59,130,246,0.12),transparent_28%),radial-gradient(circle_at_85%_8%,rgba(244,63,94,0.08),transparent_28%)]">
+        <PageContainer className="mx-auto max-w-[1440px] space-y-5">
           <HeroPanel leading={leading[0]} falling={falling[0]} activeConcept={activeConcept} conceptBreadth={conceptBreadth} />
 
           <MarketPulse
@@ -441,7 +458,7 @@ export function ConceptAnalysis() {
           ) : (
             <EmptyState icon={Layers3} title="未匹配到概念数据" hint={resolved.hint || '请检查扩展数据是否包含概念/题材相关字段'} />
           )}
-        </div>
+        </PageContainer>
       </div>
 
       <AnimatePresence>
@@ -500,13 +517,13 @@ function HeroMetric({ icon: Icon, label, value, hint, tone }: {
   const toneClass = {
     up: 'text-bull bg-bull/10',
     down: 'text-bear bg-bear/10',
-    gold: 'text-amber-300 bg-amber-400/10',
-    blue: 'text-blue-300 bg-blue-400/10',
+    gold: 'text-warning bg-warning/10',
+    blue: 'text-accent bg-accent/10',
   }[tone]
   const valueClass = {
     up: 'text-bull',
     down: 'text-bear',
-    gold: 'text-amber-300',
+    gold: 'text-warning',
     blue: 'text-foreground',
   }[tone]
   return (
@@ -569,7 +586,7 @@ function PulseList({
           {mode === 'up' ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
           {title}
         </div>
-        <span className="rounded-full bg-elevated/60 px-2 py-0.5 text-[10px] text-muted">Top 10</span>
+        <Badge variant="light" color="gray" size="xs">Top 10</Badge>
       </div>
       <div className="space-y-1">
         {items.map((item, idx) => {
@@ -584,7 +601,7 @@ function PulseList({
               onClick={() => onSelect(item.key)}
               className={cn(
                 'block w-full rounded-lg border border-transparent bg-surface/45 px-2 py-1.5 text-left transition-colors',
-                active ? cn('bg-blue-400/[0.08]', toneBorder) : cn('hover:bg-elevated/35', toneHover),
+                active ? cn('bg-accent/10', toneBorder) : cn('hover:bg-elevated/35', toneHover),
               )}
             >
               <div className="grid gap-2 md:grid-cols-[minmax(0,0.9fr)_minmax(16rem,1.1fr)] md:items-center">
@@ -615,7 +632,7 @@ function PulseList({
                   {Array.from({ length: 3 }).map((_, i) => {
                     const stock = leaders[i]
                     return stock ? (
-                      <span key={stock.symbol} title={stock.name || stock.symbol} onClick={e => { e.stopPropagation(); onStockClick(stock.symbol, stock.name || undefined) }} className={cn('flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] cursor-pointer hover:brightness-125', i === 0 ? 'bg-amber-300/10 text-foreground' : 'bg-elevated/60 text-secondary')}>
+                      <span key={stock.symbol} title={stock.name || stock.symbol} onClick={e => { e.stopPropagation(); onStockClick(stock.symbol, stock.name || undefined) }} className={cn('flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] cursor-pointer hover:brightness-125', i === 0 ? 'bg-sky-300/10 text-foreground' : 'bg-elevated/60 text-secondary')}>
                         <span className="flex min-w-0 items-center gap-1">
                           <span className="min-w-0 truncate font-medium">{stock.name || stock.symbol}</span>
                         </span>
@@ -657,23 +674,35 @@ function ConceptRail({
           <h3 className="text-sm font-semibold text-foreground">概念矩阵</h3>
           <span className="text-[10px] text-muted">Top {stats.length}</span>
         </div>
-        <div className="mt-2 relative">
-          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
-          <input value={search} onChange={e => onSearch(e.target.value)} placeholder="搜索概念" className="h-8 w-full rounded-lg border border-border bg-base pl-8 pr-3 text-xs text-foreground outline-none focus:border-accent/50" />
+        <div className="mt-2">
+          <TextInput
+            size="xs"
+            value={search}
+            onChange={e => onSearch(e.currentTarget.value)}
+            placeholder="搜索概念"
+            leftSection={<Search className="h-3.5 w-3.5" />}
+          />
         </div>
-        <div className="mt-2 grid grid-cols-5 overflow-hidden rounded-lg border border-border text-[10px]">
-          {([
-            ['heat', '强度'], ['avgPct', '涨幅'], ['leader', '龙头'], ['amount', '成交'], ['down', '跌幅'],
-          ] as [SortMode, string][]).map(([key, label]) => (
-            <button key={key} onClick={() => onSort(key)} className={cn('py-1.5 transition-colors', sortMode === key ? 'bg-accent/15 text-accent' : 'bg-base text-muted hover:text-foreground')}>{label}</button>
-          ))}
-        </div>
+        <SegmentedControl
+          className="mt-2"
+          fullWidth
+          size="xs"
+          value={sortMode}
+          onChange={v => onSort(v as SortMode)}
+          data={[
+            { value: 'heat', label: '强度' },
+            { value: 'avgPct', label: '涨幅' },
+            { value: 'leader', label: '龙头' },
+            { value: 'amount', label: '成交' },
+            { value: 'down', label: '跌幅' },
+          ]}
+        />
       </div>
       <div className="max-h-[620px] overflow-auto rounded-lg border border-border/50">
         {stats.map(item => {
           const active = selectedKey === item.key
           return (
-            <button key={item.key} onClick={() => onSelect(item.key)} className={cn('w-full border-b border-border/50 px-2.5 py-2 text-left transition-colors last:border-b-0', active ? 'bg-blue-400/[0.08]' : 'hover:bg-elevated/40')}>
+            <button key={item.key} onClick={() => onSelect(item.key)} className={cn('w-full border-b border-border/50 px-2.5 py-2 text-left transition-colors last:border-b-0', active ? 'bg-accent/10' : 'hover:bg-elevated/40')}>
               <div className="flex items-center gap-2">
                 <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{item.key}</span>
                 <span className={cn('font-mono text-xs', priceColorClass(item.avgPct))}>{item.avgPct != null ? fmtPct(item.avgPct) : '—'}</span>
@@ -703,7 +732,7 @@ function ConceptFocus({ stat, onStockClick }: { stat: ConceptStat | null; onStoc
           <div className="min-w-0">
             <div className="flex items-center gap-3">
               <h3 className="truncate text-xl font-semibold text-foreground">{stat.key}</h3>
-              <span className="rounded-full bg-blue-400/10 px-2 py-0.5 text-[10px] text-blue-300">强度 {stat.heatScore.toFixed(0)}</span>
+              <Badge variant="light" size="sm">强度 {stat.heatScore.toFixed(0)}</Badge>
             </div>
             <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted">
               <span>{stat.count} 只成分</span>
@@ -729,42 +758,42 @@ function ConceptFocus({ stat, onStockClick }: { stat: ConceptStat | null; onStoc
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="min-w-full text-left text-xs">
-          <thead className="bg-elevated/60 text-[11px] text-muted">
-            <tr>
-              <th className="px-4 py-2 font-medium">排名</th>
-              <th className="px-4 py-2 font-medium">股票</th>
-              <th className="px-4 py-2 font-medium">涨跌幅</th>
-              <th className="px-4 py-2 font-medium">换手率</th>
-              <th className="px-4 py-2 font-medium">成交额</th>
-              <th className="px-4 py-2 font-medium">流通市值</th>
-              <th className="px-4 py-2 font-medium">量比</th>
-              <th className="px-4 py-2 font-medium">龙头分</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border/70">
+        <Table className="min-w-full text-left text-xs" horizontalSpacing={16} verticalSpacing={8} withRowBorders={false}>
+          <Table.Thead className="bg-elevated/60 text-[11px] text-muted">
+            <Table.Tr>
+              <Table.Th className="font-medium">排名</Table.Th>
+              <Table.Th className="font-medium">股票</Table.Th>
+              <Table.Th className="font-medium">涨跌幅</Table.Th>
+              <Table.Th className="font-medium">换手率</Table.Th>
+              <Table.Th className="font-medium">成交额</Table.Th>
+              <Table.Th className="font-medium">流通市值</Table.Th>
+              <Table.Th className="font-medium">量比</Table.Th>
+              <Table.Th className="font-medium">龙头分</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody className="divide-y divide-border/70">
             {stocks.map((s, idx) => (
-              <tr key={`${s.symbol}-${idx}`} className="hover:bg-elevated/30 cursor-pointer" onClick={() => onStockClick(s.symbol, s.name || undefined)}>
-                <td className="px-4 py-2 font-mono text-muted">{idx + 1}</td>
-                <td className="px-4 py-2">
+              <Table.Tr key={`${s.symbol}-${idx}`} className="hover:bg-elevated/30 cursor-pointer" onClick={() => onStockClick(s.symbol, s.name || undefined)}>
+                <Table.Td className="font-mono text-muted">{idx + 1}</Table.Td>
+                <Table.Td>
                   <div className="font-medium text-foreground">{s.name || '—'}</div>
                   <div className="font-mono text-[10px] text-muted">{s.symbol}</div>
-                </td>
-                <td className={cn('px-4 py-2 font-mono tabular-nums', priceColorClass(s.change_pct))}>{s.change_pct != null ? fmtPct(s.change_pct) : '—'}</td>
-                <td className="px-4 py-2 font-mono text-foreground">{s.turnover_rate != null ? `${s.turnover_rate.toFixed(2)}%` : '—'}</td>
-                <td className="px-4 py-2 font-mono text-foreground">{fmtBigNum(s.amount)}</td>
-                <td className="px-4 py-2 font-mono text-foreground">{fmtBigNum(s.float_market_cap ?? s.market_cap)}</td>
-                <td className="px-4 py-2 font-mono text-foreground">{s.vol_ratio_5d != null ? s.vol_ratio_5d.toFixed(2) : '—'}</td>
-                <td className="px-4 py-2">
+                </Table.Td>
+                <Table.Td className={cn('font-mono tabular-nums', priceColorClass(s.change_pct))}>{s.change_pct != null ? fmtPct(s.change_pct) : '—'}</Table.Td>
+                <Table.Td className="font-mono text-foreground">{s.turnover_rate != null ? `${s.turnover_rate.toFixed(2)}%` : '—'}</Table.Td>
+                <Table.Td className="font-mono text-foreground">{fmtBigNum(s.amount)}</Table.Td>
+                <Table.Td className="font-mono text-foreground">{fmtBigNum(s.float_market_cap ?? s.market_cap)}</Table.Td>
+                <Table.Td className="font-mono text-foreground">{s.vol_ratio_5d != null ? s.vol_ratio_5d.toFixed(2) : '—'}</Table.Td>
+                <Table.Td>
                   <div className="flex items-center gap-2">
-                    <span className="w-9 font-mono text-amber-300">{s.leaderScore.toFixed(0)}</span>
-                    <div className="h-1.5 w-16 rounded-full bg-elevated"><div className="h-full rounded-full bg-amber-300" style={{ width: `${Math.max(4, s.leaderScore)}%` }} /></div>
+                    <span className="w-9 font-mono text-sky-300">{s.leaderScore.toFixed(0)}</span>
+                    <div className="h-1.5 w-16 rounded-full bg-elevated"><div className="h-full rounded-full bg-sky-300" style={{ width: `${Math.max(4, s.leaderScore)}%` }} /></div>
                   </div>
-                </td>
-              </tr>
+                </Table.Td>
+              </Table.Tr>
             ))}
-          </tbody>
-        </table>
+          </Table.Tbody>
+        </Table>
       </div>
       {stat.stocks.length > MAX_RENDERED_STOCKS && <div className="shrink-0 border-t border-border px-4 py-2 text-center text-[11px] text-muted">仅展示龙头分前 {MAX_RENDERED_STOCKS} 只，共 {stat.stocks.length} 只</div>}
     </section>
@@ -779,16 +808,16 @@ function LeaderStage({ stocks, onStockClick }: { stocks: EnrichedStock[]; onStoc
   if (!stocks.length) return <div className="rounded-xl border border-border/60 bg-surface p-4 text-sm text-muted">暂无龙头候选</div>
   return (
     <div className="rounded-xl border border-border/60 bg-surface p-3">
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-amber-300">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium text-sky-300">
         <Crown className="h-3.5 w-3.5" />
         本概念三龙头
       </div>
       <div className="grid gap-2 md:grid-cols-3">
         {stocks.map((stock, idx) => (
-          <div key={stock.symbol} onClick={() => onStockClick(stock.symbol, stock.name || undefined)} className={cn('rounded-lg border p-3 cursor-pointer hover:brightness-110 transition-all', idx === 0 ? 'border-amber-400/25 bg-amber-400/[0.06]' : 'border-border/60 bg-base/35')}>
+          <div key={stock.symbol} onClick={() => onStockClick(stock.symbol, stock.name || undefined)} className={cn('rounded-lg border p-3 cursor-pointer hover:brightness-110 transition-all', idx === 0 ? 'border-sky-400/25 bg-sky-400/[0.06]' : 'border-border/60 bg-base/35')}>
             <div className="flex items-center justify-between gap-2">
-              <span className={cn('text-[10px] font-medium', idx === 0 ? 'text-amber-300' : 'text-muted')}>{idx === 0 ? '主龙头' : `辅龙 ${idx}`}</span>
-              <span className="font-mono text-[11px] text-amber-300">{stock.leaderScore.toFixed(0)}</span>
+              <span className={cn('text-[10px] font-medium', idx === 0 ? 'text-sky-300' : 'text-muted')}>{idx === 0 ? '主龙头' : `辅龙 ${idx}`}</span>
+              <span className="font-mono text-[11px] text-sky-300">{stock.leaderScore.toFixed(0)}</span>
             </div>
             <div className="mt-2 truncate text-sm font-medium text-foreground">{stock.name || stock.symbol}</div>
             <div className="mt-0.5 flex items-center justify-between text-[11px]">
@@ -813,11 +842,11 @@ function ScoreExplain({ stock }: { stock?: EnrichedStock }) {
       </div>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <Part label="动能" value={parts.momentum} cls="bg-rose-400" />
-        <Part label="换手" value={parts.turnover} cls="bg-orange-400" />
+        <Part label="换手" value={parts.turnover} cls="bg-sky-400" />
         <Part label="成交" value={parts.amount} cls="bg-blue-400" />
         <Part label="市值" value={parts.cap} cls="bg-cyan-400" />
         <Part label="量比" value={parts.volume} cls="bg-purple-400" />
-        <Part label="连板" value={parts.boards} cls="bg-amber-300" />
+        <Part label="连板" value={parts.boards} cls="bg-sky-300" />
       </div>
     </div>
   )

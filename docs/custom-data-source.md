@@ -166,6 +166,11 @@ start_param: start_time
 end_param: end_time
 ```
 
+日线源如果有“按指定交易日查询”的参数，可配置嵌套路径，例如
+`trade_date_body_path: params.trade_date`。看板刷新时会优先使用当天的
+`trade_date` 精确请求；上游返回空结果时才回退到无日期的最近快照，避免默认
+返回条数截断新交易日。
+
 分钟数据源如果需要区分资产类型或周期，可继续配置：
 
 ```yaml

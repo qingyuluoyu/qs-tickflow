@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { Reorder } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import { X, Plus, GripVertical, Upload, Loader2 } from 'lucide-react'
 import { api, type StrategyDetail } from '@/lib/api'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 interface Props {
   pool: string[]
@@ -43,7 +43,6 @@ function fileStem(name: string): string {
 }
 
 export function StrategyPoolDialog({ pool, onConfirm, onClose }: Props) {
-  const backdrop = useDialogBackdrop(onClose)
   // 草稿状态: 打开时从 pool 复制, 操作只改草稿, 点确定才提交
   const [draftPool, setDraftPool] = useState<string[]>(() => [...pool])
   const [allStrategies, setAllStrategies] = useState<StrategyDetail[]>([])
@@ -134,21 +133,20 @@ export function StrategyPoolDialog({ pool, onConfirm, onClose }: Props) {
   }, [loadStrategies])
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        {...backdrop}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
-          transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
-          className="w-[680px] max-h-[78vh] bg-surface border border-border rounded-card shadow-xl flex flex-col"
-        >
+    <MantineModal
+      opened
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5 }}
+      classNames={{
+        content: 'w-[680px] max-h-[78vh] bg-surface border border-border rounded-card shadow-xl flex flex-col',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
           {/* 标题 */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border shrink-0">
             <span className="text-sm font-medium text-foreground">
@@ -315,8 +313,6 @@ export function StrategyPoolDialog({ pool, onConfirm, onClose }: Props) {
               </button>
             </div>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    </MantineModal>
   )
 }

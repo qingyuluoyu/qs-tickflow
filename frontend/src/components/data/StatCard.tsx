@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion'
+import { ActionIcon, Badge, Card, Tooltip } from '@mantine/core'
 import { Loader2, CheckCircle2, Settings, Table2 } from 'lucide-react'
 import { formatNumber } from '@/lib/format'
 import { fmtDate } from '@/lib/format'
@@ -40,20 +41,23 @@ function CapBadge({ hasCap, isLocal, tierLabel, tierReq, capInfo, localSuffix, c
   localSuffix?: string
   customProvider?: string | null
 }) {
+  // 小徽章统一样式: 覆盖 Mantine Badge 默认大写/固定高度, 保持原有 10px 密度
+  const chipCls = 'h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium'
+
   // 走自定义数据源时, 显示数据源名而非 TickFlow 档位
   if (customProvider) {
     return (
-      <span className="text-[10px] text-accent/80 bg-accent/8 rounded px-1.5 py-px font-medium">
+      <Badge size="xs" variant="light" className={`${chipCls} bg-accent/8 text-accent/80`}>
         {customProvider}
-      </span>
+      </Badge>
     )
   }
 
   if (isLocal) {
     return (
-      <span className="text-[10px] text-secondary bg-elevated rounded px-1.5 py-px font-medium">
+      <Badge size="xs" variant="light" className={`${chipCls} bg-elevated text-secondary`}>
         本地计算{localSuffix ? ` · ${localSuffix}` : ''}
-      </span>
+      </Badge>
     )
   }
 
@@ -61,9 +65,9 @@ function CapBadge({ hasCap, isLocal, tierLabel, tierReq, capInfo, localSuffix, c
     const parts = [tierLabel, `${capInfo.rpm}/min`]
     if (capInfo.batch != null && capInfo.batch > 1) parts.push(`${capInfo.batch}股/批`)
     return (
-      <span className="text-[10px] text-accent/80 bg-accent/8 rounded px-1.5 py-px font-mono font-medium">
+      <Badge size="xs" variant="light" className={`${chipCls} font-mono bg-accent/8 text-accent/80`}>
         {parts.join(' · ')}
-      </span>
+      </Badge>
     )
   }
 
@@ -71,17 +75,17 @@ function CapBadge({ hasCap, isLocal, tierLabel, tierReq, capInfo, localSuffix, c
     // 缺权限且非 Free 档(付费档位才提示升级);Free 档人人可用,
     // 若显示"需 Free"会造成 Expert 等用户困惑(通常是探测瞬时失败丢能力)
     return (
-      <span className="text-[10px] text-warning/90 bg-warning/8 rounded px-1.5 py-px font-medium">
+      <Badge size="xs" variant="light" className={`${chipCls} bg-warning/8 text-warning/90`}>
         需 {tierReq}
-      </span>
+      </Badge>
     )
   }
 
   if (hasCap) {
     return (
-      <span className="text-[10px] text-accent/80 bg-accent/8 rounded px-1.5 py-px font-medium">
+      <Badge size="xs" variant="light" className={`${chipCls} bg-accent/8 text-accent/80`}>
         {tierLabel ?? '已授权'}
-      </span>
+      </Badge>
     )
   }
 
@@ -139,13 +143,18 @@ export function StatCard({
     if (fieldTabs && fieldTabs.length > 0) return null
     if (onShowFields) {
       return (
-        <button
-          onClick={(e) => { e.stopPropagation(); onShowFields() }}
-          className="inline-flex align-middle ml-1 p-0.5 rounded hover:bg-elevated transition-colors text-secondary hover:text-accent"
-          title="查看字段说明"
-        >
-          <Table2 className="h-3 w-3" />
-        </button>
+        <Tooltip label="查看字段说明" position="top">
+          <ActionIcon
+            variant="subtle"
+            color="gray"
+            size="xs"
+            aria-label="查看字段说明"
+            onClick={(e) => { e.stopPropagation(); onShowFields() }}
+            className="inline-flex align-middle ml-1 text-secondary hover:text-accent"
+          >
+            <Table2 className="h-3 w-3" />
+          </ActionIcon>
+        </Tooltip>
       )
     }
     return null
@@ -153,14 +162,18 @@ export function StatCard({
 
   // 单个图标按钮 (复用样式)
   const fieldIconButton = (tab: FieldTab) => (
-    <button
-      key={tab.table}
-      onClick={(e) => { e.stopPropagation(); onShowFields?.(tab.table) }}
-      className="inline-flex align-middle -mt-px p-0.5 rounded hover:bg-elevated transition-colors text-secondary hover:text-accent"
-      title={`查看${tab.label}字段说明`}
-    >
-      <Table2 className="h-3 w-3" />
-    </button>
+    <Tooltip key={tab.table} label={`查看${tab.label}字段说明`} position="top">
+      <ActionIcon
+        variant="subtle"
+        color="gray"
+        size="xs"
+        aria-label={`查看${tab.label}字段说明`}
+        onClick={(e) => { e.stopPropagation(); onShowFields?.(tab.table) }}
+        className="inline-flex align-middle -mt-px text-secondary hover:text-accent"
+      >
+        <Table2 className="h-3 w-3" />
+      </ActionIcon>
+    </Tooltip>
   )
 
   // subLabel 文本内容 (不含图标)
@@ -208,7 +221,7 @@ export function StatCard({
   }
 
   return (
-    <div className={`rounded-card border ${borderCls} ${bgCls} flex flex-col transition-all duration-300 ${active ? 'shadow-[0_0_16px_rgba(61,214,140,0.08)]' : ''}`}>
+    <Card padding={0} className={`border ${borderCls} ${bgCls} flex flex-col transition-all duration-300 ${active ? 'shadow-[0_0_16px_rgba(61,214,140,0.08)]' : ''}`}>
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <h3 className="text-sm font-medium text-foreground">{title}</h3>
         <div className="flex items-center gap-1.5">
@@ -221,20 +234,23 @@ export function StatCard({
           {active && <Loader2 className="h-3.5 w-3.5 text-accent animate-spin" />}
           {done && !active && !skipped && <CheckCircle2 className="h-3.5 w-3.5 text-bear" />}
           {skipped && !active && (
-            <span className="text-[10px] text-muted bg-elevated rounded px-1.5 py-px font-medium">
+            <Badge size="xs" variant="light" className="h-auto min-h-0 px-1.5 py-px rounded text-[10px] leading-normal normal-case tracking-normal font-medium bg-elevated text-muted">
               本次跳过
-            </span>
+            </Badge>
           )}
           {onSettings && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSettings() }}
-              className={`p-0.5 rounded hover:bg-elevated transition-colors ${
-                settingsOpen ? 'text-accent' : 'text-secondary'
-              }`}
-              title="设置"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </button>
+            <Tooltip label="设置" position="top">
+              <ActionIcon
+                variant="subtle"
+                color="gray"
+                size="xs"
+                aria-label="设置"
+                onClick={(e) => { e.stopPropagation(); onSettings() }}
+                className={settingsOpen ? 'text-accent' : 'text-secondary'}
+              >
+                <Settings className="h-3.5 w-3.5" />
+              </ActionIcon>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -327,6 +343,6 @@ export function StatCard({
           />
         </div>
       )}
-    </div>
+    </Card>
   )
 }

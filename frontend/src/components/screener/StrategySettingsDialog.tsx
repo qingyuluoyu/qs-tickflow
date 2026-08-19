@@ -1,5 +1,6 @@
-﻿import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { Modal as MantineModal } from '@mantine/core'
 import { X, Settings2, RotateCcw, Save, ChevronDown, Filter, Star, TrendingUp, Sparkles, Download, Layers, Plus, Trash2 } from 'lucide-react'
 import { api, type StrategyDetail, type StrategyParamDef, type CompositeChildInfo } from '@/lib/api'
 import { BUILTIN_COLUMNS } from '@/lib/watchlist-columns'
@@ -370,7 +371,7 @@ export function StrategySettingsDialog({ strategyId, onClose, onSaved, onAiModif
     <Modal
       onClose={onClose}
       labelledBy="strategy-settings-title"
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      overlayClassName="bg-black/40 backdrop-blur-sm"
       panelClassName="w-[980px] max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
     >
           {/* 标题 */}
@@ -702,20 +703,19 @@ export function StrategySettingsDialog({ strategyId, onClose, onSaved, onAiModif
           </div>
     </Modal>
 
-    {/* 删除确认弹窗 — 必须放 Modal 外: Modal 面板有 backdrop-blur (为 fixed 后代建立定位上下文)
-        + overflow-hidden, 放里面会导致本应全屏居中的确认框相对面板定位并被裁剪/错位。 */}
-    {showDeleteConfirm && (
-      <AnimatePresence>
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-          onClick={() => setShowDeleteConfirm(false)}
-        >
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-            className="w-[380px] bg-surface border border-border/50 rounded-2xl shadow-2xl p-6"
-            onClick={e => e.stopPropagation()}
-          >
+    {/* 删除确认弹窗 — Mantine Modal 自带 portal, 不受外层面板裁剪/定位影响;
+        与外层 Modal 并存时后渲染者在上层。 */}
+    <MantineModal
+      opened={showDeleteConfirm}
+      onClose={() => setShowDeleteConfirm(false)}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+      classNames={{ content: 'w-[380px] bg-surface border border-border/50 rounded-2xl shadow-2xl p-6' }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
             <div className="text-center space-y-3">
               <div className="w-10 h-10 rounded-full bg-danger/10 flex items-center justify-center mx-auto">
                 <span className="text-danger text-lg">!</span>
@@ -741,10 +741,7 @@ export function StrategySettingsDialog({ strategyId, onClose, onSaved, onAiModif
                 </button>
               </div>
             </div>
-          </motion.div>
-        </motion.div>
-      </AnimatePresence>
-    )}
+    </MantineModal>
     </>
 
   )

@@ -1,12 +1,13 @@
-// 主题管理 — 暗色(默认) / 亮色切换
+// 主题管理 — 亮色(默认) / 暗色切换
 //
 // 机制:
-//   - 状态存 localStorage('tf-theme'), 默认 dark (保持老用户体验不变)
+//   - 状态存 localStorage('qs-theme'), 默认 light; 显式存 'dark' 才进暗色
 //   - 生效方式: html.dark class (index.css 的 CSS variables + Tailwind darkMode:class)
 //   - index.html 里有预渲染内联脚本, 首屏前就设好 class, 避免闪烁 (FOUC)
 //   - UI token (bg-surface/text-foreground 等) 自动跟随;
 //     图表画布不吃 CSS 变量, 统一走 useChartTheme() 取调色板
 import { useEffect, useState } from 'react'
+import { accountStorage } from './storage'
 
 const KEY = 'qs-theme'
 const EVENT = 'qs-theme-change'
@@ -15,14 +16,14 @@ export type Theme = 'dark' | 'light'
 
 export function getTheme(): Theme {
   try {
-    return localStorage.getItem(KEY) === 'dark' ? 'dark' : 'light'
+    return accountStorage.getItem(KEY) === 'dark' ? 'dark' : 'light'
   } catch {
     return 'light'
   }
 }
 
 export function setTheme(theme: Theme) {
-  try { localStorage.setItem(KEY, theme) } catch { /* ignore */ }
+  accountStorage.setItem(KEY, theme)
   document.documentElement.classList.toggle('dark', theme === 'dark')
   window.dispatchEvent(new CustomEvent(EVENT, { detail: theme }))
 }

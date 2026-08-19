@@ -1,6 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import { api, type PriceLevel, type LevelType } from './api'
 
+function beijingToday(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
 /**
  * AI 个股分析 —— 全局任务/报告 store(与 aiReportStore 解耦、并行存在)。
  *
@@ -21,6 +25,7 @@ export interface ActiveTask {
   focus: string
   phase: Phase
   content: string
+  reasoning: string
   error: string
   meta: {
     summary?: string
@@ -31,6 +36,9 @@ export interface ActiveTask {
   savedReportId?: string
   doneAt?: number
   dismissed?: boolean
+  complete: boolean
+  truncated: boolean
+  continuing: boolean
 }
 
 export interface HistoryReport {
@@ -39,10 +47,13 @@ export interface HistoryReport {
   name: string
   focus: string
   content: string
+  reasoning?: string
   summary?: string
   close?: number | null
   levels?: Record<LevelType, PriceLevel[]>
   created_at: string
+  complete?: boolean
+  truncated?: boolean
 }
 
 const MAX_ACTIVE = 3
@@ -50,10 +61,12 @@ const MAX_ACTIVE = 3
 let activeTasks: ActiveTask[] = []
 let history: HistoryReport[] = []
 let historyLoaded = false
+let accountGeneration = 0
 const listeners = new Set<() => void>()
 
 let activeDialogTaskId: string | null = null
 let dialogMinimized = false
+const analysisControllers = new Map<string, AbortController>()
 
 function emit() { listeners.forEach(fn => fn()) }
 function subscribe(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn) } }
@@ -62,6 +75,20 @@ function normalizeAiError(msg: string) {
   return msg.includes('API Key') || msg.includes('api_key')
     ? 'AI 未配置或无效,请在「设置 → AI」中检查当前 AI 提供方'
     : msg
+}
+
+/** Drop all in-memory private state before the authenticated account changes. */
+export function resetAccountState(): void {
+  for (const controller of analysisControllers.values()) controller.abort()
+  analysisControllers.clear()
+  accountGeneration += 1
+  activeTasks = []
+  history = []
+  historyLoaded = false
+  activeDialogTaskId = null
+  dialogMinimized = false
+  rebuildSnap()
+  emit()
 }
 
 let _activeSnap: ActiveTask[] = []
@@ -132,8 +159,10 @@ export function useDialogTask(): { task: ActiveTask | HistoryReport | null; mode
 // ===== 动作 =====
 
 export async function loadHistory(): Promise<void> {
+  const generation = accountGeneration
   try {
     const res = await api.stockAnalysisReportsList()
+    if (generation !== accountGeneration) return
     history = res.reports ?? []
     historyLoaded = true
     rebuildSnap()
@@ -153,7 +182,7 @@ export async function findLatestHistoryReport(symbol: string): Promise<HistoryRe
  */
 export async function findTodayReport(symbol: string): Promise<HistoryReport | null> {
   if (!historyLoaded) await loadHistory()
-  const today = new Date().toISOString().slice(0, 10)  // YYYY-MM-DD
+  const today = beijingToday()
   return history.find(r => r.symbol === symbol && (r.created_at ?? '').slice(0, 10) === today) ?? null
 }
 
@@ -174,8 +203,9 @@ export async function startAnalysis(symbol: string, name: string, focus = ''): P
   const id = `stask_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
   const task: ActiveTask = {
     id, symbol, name, focus,
-    phase: 'loading', content: '', error: '',
+    phase: 'loading', content: '', reasoning: '', error: '',
     meta: null, createdAt: Date.now(),
+    complete: false, truncated: false, continuing: false,
   }
   activeTasks = [...activeTasks, task]
   activeDialogTaskId = id
@@ -188,29 +218,54 @@ export async function startAnalysis(symbol: string, name: string, focus = ''): P
 }
 
 async function runStream(id: string, symbol: string, _name: string, focus: string) {
+  const controller = new AbortController()
+  analysisControllers.set(id, controller)
   try {
     let firstDelta = true
-    for await (const chunk of api.stockAnalyzeStream(symbol, focus)) {
+    let sawDone = false
+    for await (const chunk of api.stockAnalyzeStream(symbol, focus, controller.signal)) {
       const cur = activeTasks.find(t => t.id === id)
       if (!cur) return
       switch (chunk.type) {
         case 'meta':
           patchTask(id, { meta: { summary: chunk.summary, levels: chunk.levels, close: chunk.close } })
           break
+        case 'reasoning_delta':
+          patchTask(id, { reasoning: cur.reasoning + (chunk.content ?? '') })
+          break
+        case 'continuation':
+          patchTask(id, { continuing: true })
+          break
         case 'delta':
           if (firstDelta) { patchTask(id, { phase: 'streaming' }); firstDelta = false }
-          patchTask(id, { content: cur.content + (chunk.content ?? '') })
+          patchTask(id, { content: cur.content + (chunk.content ?? ''), continuing: false })
           break
         case 'error':
           patchTask(id, { phase: 'error', error: chunk.message ?? '分析失败' })
           return
         case 'done':
-          patchTask(id, { phase: 'done' })
+          sawDone = true
+          patchTask(id, {
+            phase: 'done',
+            complete: chunk.complete !== false,
+            truncated: chunk.truncated === true,
+            continuing: false,
+          })
           break
       }
     }
+    if (!sawDone) {
+      patchTask(id, {
+        phase: 'error',
+        error: '分析连接在完成前断开，请重试',
+        complete: false,
+        truncated: false,
+        continuing: false,
+      })
+      return
+    }
     const final = activeTasks.find(t => t.id === id)
-    if (final && final.phase !== 'error') {
+    if (final && final.phase !== 'error' && final.complete && !final.truncated) {
       // 兜底:流正常结束但从未收到 delta(后端在生成内容前异常断流)→ 标记失败,避免卡死
       if (!final.content) {
         patchTask(id, { phase: 'error', error: '分析未返回内容(后端可能异常中断),请重试' })
@@ -221,6 +276,9 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
           symbol: final.symbol, name: final.name, focus: final.focus,
           content: final.content, summary: final.meta?.summary ?? '',
           close: final.meta?.close ?? null, levels: final.meta?.levels,
+          reasoning: final.reasoning,
+          complete: final.complete,
+          truncated: final.truncated,
         })
         if (res.report) {
           patchTask(id, { savedReportId: res.report.id })
@@ -232,12 +290,33 @@ async function runStream(id: string, symbol: string, _name: string, focus: strin
       } catch { /* 持久化失败不影响展示 */ }
     }
   } catch (e: any) {
+    const aborted = e?.name === 'AbortError' || controller.signal.aborted
     const msg = String(e?.message ?? '分析失败')
     patchTask(id, {
       phase: 'error',
-      error: normalizeAiError(msg),
+      error: aborted ? '已中止' : normalizeAiError(msg),
+      complete: false,
+      truncated: false,
+      continuing: false,
     })
+  } finally {
+    if (analysisControllers.get(id) === controller) analysisControllers.delete(id)
   }
+}
+
+export function cancelAnalysis(taskId?: string): void {
+  const id = taskId ?? activeDialogTaskId
+  if (!id) return
+  const task = activeTasks.find(item => item.id === id)
+  if (!task || (task.phase !== 'loading' && task.phase !== 'streaming')) return
+  analysisControllers.get(id)?.abort()
+  patchTask(id, {
+    phase: 'error',
+    error: '已中止',
+    complete: false,
+    truncated: false,
+    continuing: false,
+  })
 }
 
 export function openDialog(taskId: string) {

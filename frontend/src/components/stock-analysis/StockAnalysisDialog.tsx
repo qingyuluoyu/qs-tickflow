@@ -1,18 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { ActionIcon, Modal as MantineModal, Tooltip } from '@mantine/core'
 import {
-  X, Sparkles, Loader2, AlertTriangle, Copy, Check, RefreshCw,
-  Settings2, Send, Wand2, Minimize2, History, LineChart,
+  X, Sparkles, Loader2, AlertTriangle, Copy, Check, RefreshCw, Square,
+  Settings2, Send, Wand2, Minimize2, Maximize2, History, LineChart, ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/cn'
 import { copyText } from '@/lib/clipboard'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
 import {
   type ActiveTask, type HistoryReport,
-  minimizeDialog, closeDialog, startAnalysis,
+  minimizeDialog, closeDialog, startAnalysis, cancelAnalysis,
 } from '@/lib/stockAnalysisStore'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
 
 /**
  * AI 个股分析对话框 —— 蓝色主题,与财务分析对话框区分。
@@ -35,6 +34,13 @@ function getPhase(task: ActiveTask | HistoryReport | null): Phase {
 function getContent(task: ActiveTask | HistoryReport | null): string {
   return task?.content ?? ''
 }
+function getReasoning(task: ActiveTask | HistoryReport | null): string {
+  return task?.reasoning ?? ''
+}
+function getCompletion(task: ActiveTask | HistoryReport | null): { complete: boolean; truncated: boolean } {
+  if (!task || !('complete' in task)) return { complete: true, truncated: false }
+  return { complete: task.complete !== false, truncated: task.truncated === true }
+}
 function getMeta(task: ActiveTask | HistoryReport | null) {
   if (!task) return null
   if ('meta' in task) return task.meta
@@ -45,13 +51,19 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [focus, setFocus] = useState('')
   const [copied, setCopied] = useState(false)
+  const [reasoningOpen, setReasoningOpen] = useState(false)
+  /** 放大态:默认大尺寸(1200px × 85vh) ↔ 近全屏(96vw × 94vh) */
+  const [expanded, setExpanded] = useState(false)
 
   const phase = getPhase(task)
   const content = getContent(task)
+  const reasoning = getReasoning(task)
+  const completion = getCompletion(task)
   const meta = getMeta(task)
   const isHistory = mode === 'history'
   const isWorking = phase === 'loading' || phase === 'streaming'
   const open = !!task && !minimized
+  const taskId = task && 'id' in task ? task.id : null
 
   useEffect(() => {
     if (open && phase === 'streaming' && scrollRef.current) {
@@ -61,7 +73,8 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
 
   useEffect(() => {
     setFocus(task && 'focus' in task ? task.focus : '')
-  }, [task])
+    setReasoningOpen(false)
+  }, [taskId])
 
   const handleStartNew = useCallback(async () => {
     if (!task) return
@@ -81,24 +94,31 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const backdrop = useDialogBackdrop(closeDialog, () => !isWorking)
-
+  // 生成中禁止遮罩点击/ESC 关闭 (只能通过最小化气泡后台运行)
   if (!open) return null
 
   const error = task && 'error' in task ? task.error : ''
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
-        {...backdrop}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 12 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.96, y: 12 }}
-          transition={{ type: 'spring', damping: 26, stiffness: 320 }}
-          className="w-full max-w-3xl max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
-        >
+    <MantineModal
+      opened
+      onClose={closeDialog}
+      withCloseButton={false}
+      closeOnClickOutside={!isWorking}
+      closeOnEscape={!isWorking}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.5, blur: 4 }}
+      classNames={{
+        content: cn(
+          'bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden',
+          expanded ? 'w-[96vw] max-w-[96vw] h-[94vh]' : 'w-full max-w-[1200px] h-[85vh]',
+        ),
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
           {/* 头部 —— 蓝色主题 */}
           <div className="relative px-5 py-3.5 border-b border-border/50 bg-gradient-to-r from-sky-500/[0.06] via-blue-500/[0.04] to-transparent">
             <div className="flex items-center gap-3">
@@ -145,6 +165,26 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
                     <Minimize2 className="h-4 w-4" />
                   </button>
                 )}
+                {!isHistory && isWorking && task && 'id' in task && (
+                  <button
+                    onClick={() => cancelAnalysis(task.id)}
+                    title="停止生成"
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] text-sky-300 hover:bg-sky-500/10 transition-colors"
+                  >
+                    <Square className="h-3 w-3" />停止
+                  </button>
+                )}
+                <Tooltip label={expanded ? '还原默认尺寸' : '放大至近全屏'} position="bottom">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    size="md"
+                    onClick={() => setExpanded(v => !v)}
+                    aria-label={expanded ? '还原默认尺寸' : '放大至近全屏'}
+                  >
+                    {expanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </ActionIcon>
+                </Tooltip>
                 {(!isWorking || isHistory) && (
                   <button onClick={closeDialog} title="关闭"
                     className="p-1.5 rounded-lg hover:bg-elevated text-muted hover:text-foreground transition-colors">
@@ -192,9 +232,34 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
 
             {(content || phase === 'streaming') && (
               <div className="relative">
+                {reasoning && (
+                  <div className="mb-4 rounded-lg border border-border/60 bg-elevated/40">
+                    <button
+                      type="button"
+                      aria-expanded={reasoningOpen}
+                      onClick={() => setReasoningOpen(openState => !openState)}
+                      className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[11px] text-secondary transition-colors hover:text-foreground"
+                    >
+                      <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', reasoningOpen && 'rotate-90')} />
+                      <span>思考过程（模型草稿）</span>
+                      {task && 'continuing' in task && task.continuing && <span className="text-sky-300">正在补齐回答…</span>}
+                    </button>
+                    {reasoningOpen && (
+                      <div className="border-t border-border/50 px-3 py-2 text-[11px] leading-relaxed text-muted whitespace-pre-wrap">
+                        {reasoning}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {reasoning && <div className="mb-2 text-[11px] font-medium text-foreground/70">回答</div>}
                 <MarkdownRenderer content={content} />
                 {phase === 'streaming' && (
                   <span className="inline-block w-1.5 h-3.5 bg-sky-400 ml-0.5 align-middle animate-pulse rounded-sm" />
+                )}
+                {(!completion.complete || completion.truncated) && (
+                  <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+                    回答达到模型输出上限，当前内容可能未完整生成，请点击“重新分析”补齐。
+                  </div>
                 )}
               </div>
             )}
@@ -245,9 +310,7 @@ export function StockAnalysisDialog({ task, mode, minimized }: Props) {
                 : '报告由项目已配置的 AI 模型基于本地行情与财务数据生成;消息面维度暂依据价量异动推断。报告仅供参考,不构成投资建议。'}
             </p>
           </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+    </MantineModal>
   )
 }
 

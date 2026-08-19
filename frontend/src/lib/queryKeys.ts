@@ -18,14 +18,23 @@ export const QK = {
   quoteStatus:    ['quote-status'] as const,
   quoteInterval:  ['quote-interval'] as const,
   overviewMarket: (asOf?: string) => ['overview-market', asOf ?? 'latest'] as const,
+  overviewMarketLocal: (asOf?: string) => ['overview-market', 'local', asOf ?? 'latest'] as const,
   indexQuotes:    ['index-quotes'] as const,
   indexList:      ['index-list'] as const,
 
   // Watchlist
   watchlist:            ['watchlist'] as const,
+  /** 用户私有自选查询键；账户切换后旧请求只能写回旧账户的键。 */
+  watchlistFor:         (userId: string) => ['watchlist', userId] as const,
   watchlistQuotes:      ['watchlist-quotes'] as const,
   watchlistEnriched:    (ext?: string) => ['watchlist-enriched', ext] as const,
+  watchlistEnrichedFor: (userId: string, ext?: string) => ['watchlist-enriched', userId, ext] as const,
   watchlistKlineBatch:  (symbols: string) => ['watchlist-kline-batch', symbols] as const,
+  watchlistKlineBatchFor: (userId: string, symbols: string) => ['watchlist-kline-batch', userId, symbols] as const,
+  watchlistNewsFor: (userId: string, category: string, symbol?: string | null, query?: string, cursor?: string | null) =>
+    ['watchlist-news', userId, category, symbol ?? '', query ?? '', cursor ?? ''] as const,
+  watchlistNewsDetailFor: (userId: string, category: string, itemId: string) =>
+    ['watchlist-news-detail', userId, category, itemId] as const,
   // 不用 watchlist- 前缀: 避免被 SSE quotes_updated 高频失效(expert 1s/pro 2s)
   // 导致每次都拉 TickFlow 触限流。分时图用固定 refetchInterval 刷新即可。
   minuteBatch:          (symbols: string) => ['minute-batch', symbols] as const,
@@ -66,6 +75,15 @@ export const QK = {
                            ['index-daily', symbol, start, end] as const,
   indexMinute:          (symbol: string, date: string) =>
                            ['index-minute', symbol, date] as const,
+
+  // 个股洞察 (stock-insight) — 子板块折叠展开时才请求, 不进 SSE 刷新
+  stockInsightValuation:     (symbol: string) => ['stock-insight', 'valuation', symbol] as const,
+  stockInsightFinancials:    (symbol: string) => ['stock-insight', 'financials', symbol] as const,
+  stockInsightReports:       (symbol: string) => ['stock-insight', 'reports', symbol] as const,
+  stockInsightAnnouncements: (symbol: string) => ['stock-insight', 'announcements', symbol] as const,
+  stockInsightNews:          (symbol: string) => ['stock-insight', 'news', symbol] as const,
+  stockInsightFundFlow:      (symbol: string) => ['stock-insight', 'fund-flow', symbol] as const,
+  stockInsightDragonTiger:   (symbol: string) => ['stock-insight', 'dragon-tiger', symbol] as const,
 
   // Schema
   extDataSchemaAll:     ['ext-data-schema-all'] as const,

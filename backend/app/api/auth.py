@@ -152,7 +152,7 @@ def auth_status(request: Request) -> dict:
     return {
         "configured": store.has_users(),
         "authenticated": user is not None,
-        "user": ({"id": user.id, "name": user.name, "phone": user.phone} if user else None),
+        "user": ({"id": user.id, "name": user.name, "phone": user.phone, "role": user.role} if user else None),
     }
 
 
@@ -162,12 +162,12 @@ def current_account(request: Request) -> dict:
     user = _accounts().user_for_token(request.cookies.get(COOKIE_NAME))
     if user is None:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
-    return {"user": {"id": user.id, "name": user.name, "phone": user.phone}}
+    return {"user": {"id": user.id, "name": user.name, "phone": user.phone, "role": user.role}}
 
 
 @router.post("/entry")
 def account_entry(req: AccountEntryIn, request: Request, response: Response) -> dict:
-    """创建账户或登录已有电话，作为站点唯一入口。"""
+    """创建账户或登录已有账户(电话或用户名),作为站点唯一入口。"""
     content_length = request.headers.get("content-length")
     if content_length:
         try:
@@ -195,7 +195,7 @@ def account_entry(req: AccountEntryIn, request: Request, response: Response) -> 
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result is None:
         _record_login_fail(store, ip)
-        raise HTTPException(status_code=401, detail="电话或密码错误")
+        raise HTTPException(status_code=401, detail="用户名/电话或密码错误")
     _clear_login_fails(store, ip)
     directory = getattr(request.app.state, "account_directory", None)
     if directory is not None:
@@ -229,7 +229,7 @@ def account_entry(req: AccountEntryIn, request: Request, response: Response) -> 
         "ok": True,
         "created": result.created,
         "authenticated": True,
-        "user": {"id": result.user.id, "name": result.user.name, "phone": result.user.phone},
+        "user": {"id": result.user.id, "name": result.user.name, "phone": result.user.phone, "role": result.user.role},
     }
 
 

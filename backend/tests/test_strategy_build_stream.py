@@ -101,3 +101,15 @@ async def test_build_strategy_stream_repairs_missing_meta_once(monkeypatch):
     assert result["valid"] is True
     assert result["meta"]["id"] == "ai_repaired"
     assert result["meta"]["name"] == "修复后策略"
+
+
+def test_build_request_accepts_history_strategy_backend():
+    req = BuildRequest(
+        step=1,
+        name="历史策略",
+        description="需要多日窗口",
+        rules="最近 5 日出现过放量",
+        execution_backend="python_history_legacy",
+    )
+
+    assert req.execution_backend == "python_history_legacy"

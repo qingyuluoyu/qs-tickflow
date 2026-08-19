@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Activity, Loader2, Lock, RefreshCw, Search } from 'lucide-react'
+import { Activity, Lock, RefreshCw, Search } from 'lucide-react'
+import { Button, TextInput } from '@mantine/core'
 import { api, type IndexInstrument, type KlineRow, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { useCapabilities } from '@/lib/useSharedQueries'
 import { EChartsCandlestick, type OHLC } from '@/components/EChartsCandlestick'
+import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
+import { DatePicker } from '@/components/DatePicker'
 import { EChartsIntraday } from '@/components/EChartsIntraday'
 
 function defaultRange() {
@@ -159,6 +163,14 @@ export function Indices() {
   const selectedQuotePct = selectedQuote?.change_pct ?? selectedQuote?.pct
 
   const chartRows = useMemo(() => toOHLC(daily.data?.rows ?? []), [daily.data?.rows])
+  const latestDaily = chartRows[chartRows.length - 1]
+  const dailyPct = latestDaily && chartRows.length > 1 && chartRows[chartRows.length - 2].close !== 0
+    ? (latestDaily.close - chartRows[chartRows.length - 2].close) / chartRows[chartRows.length - 2].close * 100
+    : null
+  const displayedQuoteValue = selectedQuoteValue ?? latestDaily?.close ?? null
+  const displayedQuotePct = selectedQuotePct ?? dailyPct
+  const displayedAsOf = selectedQuote?.as_of ?? selectedQuote?.date ?? latestDaily?.date ?? null
+  const displayedIsRealtime = selectedQuote?.is_realtime === true
   const selectedInfo = [...topRows, ...listRows].find(r => r.symbol === selectedSymbol) || daily.data?.index_info
   const minuteRows: MinuteKlineRow[] = minute.data?.rows ?? []
   const selectedIdx = selectedDate ? chartRows.findIndex(r => r.date === selectedDate) : -1
@@ -202,49 +214,49 @@ export function Indices() {
   }
 
   return (
-    <div className="h-full overflow-auto bg-base p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">指数</h1>
-          <p className="mt-1 text-xs text-muted">
-            指数使用独立 kline_index_* parquet，不进入股票选股和策略链路。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => syncInstruments.mutate()}
-            disabled={syncInstruments.isPending}
-            className="inline-flex items-center gap-1.5 rounded-btn bg-elevated px-3 py-1.5 text-xs text-secondary hover:text-foreground disabled:opacity-50"
-          >
-            {syncInstruments.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            同步指数列表
-          </button>
-          <button
-            onClick={() => syncDaily.mutate()}
-            disabled={syncDaily.isPending}
-            className="inline-flex items-center gap-1.5 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-base hover:bg-accent/90 disabled:opacity-50"
-          >
-            {syncDaily.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            同步指数日K
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-[15rem_1fr] gap-4">
-        <aside className="rounded-card border border-border bg-surface p-3">
-          <div className="relative mb-3">
-            <Search className="pointer-events-none absolute left-2 top-2 h-3.5 w-3.5 text-muted" />
-            <input
-              value={keyword}
-              onChange={e => setKeyword(e.target.value)}
-              placeholder="搜索指数代码/名称"
-              className="w-full rounded-btn border border-border bg-base py-1.5 pl-7 pr-2 text-xs text-foreground outline-none focus:border-accent"
-            />
+    <PageContainer className="h-full overflow-auto bg-base">
+      <PageHeader
+        title="指数"
+        subtitle="指数使用独立 kline_index_* parquet，不进入股票选股和策略链路。"
+        className="mb-4"
+        right={
+          <div className="flex items-center gap-2">
+            <Button
+              size="xs"
+              variant="default"
+              onClick={() => syncInstruments.mutate()}
+              loading={syncInstruments.isPending}
+              leftSection={!syncInstruments.isPending && <RefreshCw className="h-3.5 w-3.5" />}
+            >
+              同步指数列表
+            </Button>
+            <Button
+              size="xs"
+              onClick={() => syncDaily.mutate()}
+              loading={syncDaily.isPending}
+              leftSection={!syncDaily.isPending && <RefreshCw className="h-3.5 w-3.5" />}
+            >
+              同步指数日K
+            </Button>
           </div>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[15rem_minmax(0,1fr)]">
+        <aside className="rounded-card border border-border bg-surface p-3">
+          <TextInput
+            size="xs"
+            value={keyword}
+            onChange={e => setKeyword(e.currentTarget.value)}
+            placeholder="搜索指数代码/名称"
+            leftSection={<Search className="h-3.5 w-3.5 text-muted" />}
+            leftSectionPointerEvents="none"
+            className="mb-3"
+          />
           <div className="mb-3 space-y-1 border-b border-border/60 pb-3">
             {topRows.map(renderIndexItem)}
           </div>
-          <div className="max-h-[calc(100vh-24rem)] space-y-1 overflow-auto pr-1">
+          <div className="max-h-72 space-y-1 overflow-auto pr-1 lg:max-h-[calc(100vh-24rem)]">
             {(list.isLoading || search.isLoading) && <div className="py-4 text-center text-xs text-muted">加载中…</div>}
             {!list.isLoading && listRows.length === 0 && (
               <div className="rounded-btn bg-elevated p-3 text-xs text-muted">
@@ -256,7 +268,7 @@ export function Indices() {
         </aside>
 
         <main className="min-w-0 rounded-card border border-border bg-surface p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Activity className="h-4 w-4 text-accent" />
@@ -264,26 +276,24 @@ export function Indices() {
                   {selectedInfo?.name || selectedSymbol || '未选择指数'}
                 </h2>
                 {selectedSymbol && <span className="font-mono text-xs text-muted">{selectedSymbol}</span>}
-                {selectedSymbol && <span className="font-mono text-xs text-foreground">{fmtNum(selectedQuoteValue)}</span>}
-                {selectedSymbol && <span className={`font-mono text-xs ${Number(selectedQuotePct ?? 0) >= 0 ? 'text-bull' : 'text-bear'}`}>{fmtPct(selectedQuotePct)}</span>}
+                {selectedSymbol && <span className="font-mono text-xs text-foreground">{fmtNum(displayedQuoteValue)}</span>}
+                {selectedSymbol && <span className={`font-mono text-xs ${Number(displayedQuotePct ?? 0) >= 0 ? 'text-bull' : 'text-bear'}`}>{fmtPct(displayedQuotePct)}</span>}
               </div>
               <div className="mt-1 text-xs text-muted">
-                实时缓存 {quotes.data?.count ?? 0} 只指数 · 日K来源 {daily.data?.source ?? '--'}
+                {displayedIsRealtime ? '实时快照' : '日线收盘'}
+                {displayedAsOf ? ` · 截至 ${displayedAsOf}` : ''}
+                {' · '}实时缓存 {quotes.data?.count ?? 0} 只指数 · 日K来源 {daily.data?.source ?? '--'}
               </div>
             </div>
             <div className="flex items-center gap-2 text-xs">
-              <input
-                type="date"
+              <DatePicker
                 value={range.start}
-                onChange={e => setRange(r => ({ ...r, start: e.target.value }))}
-                className="rounded-btn border border-border bg-base px-2 py-1 text-secondary outline-none focus:border-accent"
+                onChange={v => setRange(r => ({ ...r, start: v }))}
               />
               <span className="text-muted">至</span>
-              <input
-                type="date"
+              <DatePicker
                 value={range.end}
-                onChange={e => setRange(r => ({ ...r, end: e.target.value }))}
-                className="rounded-btn border border-border bg-base px-2 py-1 text-secondary outline-none focus:border-accent"
+                onChange={v => setRange(r => ({ ...r, end: v }))}
               />
             </div>
           </div>
@@ -296,8 +306,8 @@ export function Indices() {
             </div>
           )}
           {chartRows.length > 0 && (
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
+            <div className="space-y-3">
+              <div className="min-w-0">
                 <EChartsCandlestick
                   data={chartRows}
                   height={620}
@@ -307,11 +317,11 @@ export function Indices() {
                   symbol={selectedSymbol}
                   linkedPrice={linkedPrice}
                   onDateClick={setSelectedDate}
-                  visibleBars={48}
+                  visibleBars={96}
                   activeIndicators={['vol', 'macd']}
                 />
               </div>
-              <div className="min-w-0 flex-1 border-l border-border pl-3" style={{ height: 620 }}>
+              <div className="min-w-0 border-t border-border pt-3" style={{ height: 620 }}>
                 {!hasMinuteCap ? (
                   <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                     <Lock className="h-5 w-5 text-muted" />
@@ -344,6 +354,6 @@ export function Indices() {
           )}
         </main>
       </div>
-    </div>
+    </PageContainer>
   )
 }

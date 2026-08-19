@@ -22,6 +22,7 @@ from typing import AsyncIterator
 import polars as pl
 
 from app.indicators.levels import compute_levels, summarize_levels
+from app.market_time import cn_today
 from app.services.financial_sync import get_financial_df
 
 logger = logging.getLogger(__name__)
@@ -41,9 +42,9 @@ def _load_kline(repo, symbol: str) -> pl.DataFrame:
 
     repo: KlineRepository;走内存缓存,性能可控。
     """
-    from datetime import date, timedelta
+    from datetime import timedelta
 
-    end = date.today()
+    end = cn_today()
     start = end - timedelta(days=_KLINE_WINDOW * 2)  # 多取一些保证交易日够
     # 按资产类型分流: ETF/指数走独立 enriched 存储 (无财务数据, 提示词已有兜底)
     df = repo.get_daily_asset(repo.resolve_asset_type(symbol), symbol, start, end)
@@ -111,12 +112,12 @@ def _load_financials(data_dir: Path, symbol: str) -> dict[str, list[dict]]:
 
 
 # ================================================================
-# 系统提示词 —— 客观技术分析四维框架(与财务分析明确区分)
+# 系统提示词 —— 客观技术分析框架(多维指标交叉验证为核心)
 # 重要原则:只描述"指标/价位处于什么客观状态",不输出"应该怎么操作"。
 # 本报告定位为客观行情分析,不提供任何买卖建议、仓位建议或交易指令。
 # ================================================================
 
-_SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术分析分析师,擅长从 K 线、量价、关键价位与基本面交叉验证中客观解读个股的技术状态。你的任务是:基于提供的个股数据,产出一份**客观、中立、不包含任何买卖或操作建议**的技术分析报告。
+_SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术分析分析师,擅长用**多维指标交叉验证**还原个股的真实技术状态:K 线形态、均线系统、MACD/KDJ/RSI、量价与关键价位互为证据。你的任务是:基于提供的个股数据,产出一份**客观、中立、不包含任何买卖或操作建议**的技术分析报告。
 
 ## 核心红线(务必遵守)
 
@@ -125,19 +126,29 @@ _SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术�
 - 你的角色是**客观陈述**该股当前的技术状态、价位结构、量价特征与潜在风险,让读者自行判断
 - 换成"一个中立财经记者能不能写出来"——能写就保留,不能写就删除
 
+## 交叉验证准则(本报告的核心方法)
+
+1. **结论必须有证据链**:趋势、形态、动能的每个判断至少由两个独立指标互证(如"上升趋势稳固"需均线排列 + MACD 状态或量价配合共同支撑)。
+2. **主动寻找背离**:逐项检查以下组合,发现背离必须显式指出并解读:
+   - 价格创新高/新低 vs MACD/KDJ/RSI 是否同步(顶背离/底背离)
+   - 价格上涨/下跌 vs 成交量、换手率是否配合(缩量上涨、放量滞涨)
+   - 均线排列方向 vs 最新 K 线位置(如多头排列但收盘跌破 20 日线)
+   - 技术面强弱 vs 基本面水平(业绩支撑或纯资金推动)
+3. **数据不支持时直言无法判断**;禁止复述分析过程,直接给结论。
+
 ## 输出规范
 
 用 **Markdown** 格式输出,严格遵循以下结构。不要输出任何 JSON 或代码块,直接输出 Markdown 正文。
 
 ### 1. 🎯 一句话定调(1-2 句)
-用一句话概括该股当前的**技术状态**(如"近期高位放量滞涨,量能持续性存疑"/"价格在 60 日均线上方运行,均线呈多头排列")。结尾用【当前状态:企稳 / 反弹 / 震荡 / 调整 / 走弱】客观描述技术形态,**不评价好坏、不下操作结论**。
+用一句话概括该股当前的**技术状态**,并直接给出互证依据(如"价格在 60 日均线上方运行但 MACD 红柱收缩,趋势未破、动能减弱")。结尾用【当前状态:企稳 / 反弹 / 震荡 / 调整 / 走弱】客观描述技术形态,**不评价好坏、不下操作结论**。
 
-### 2. 📈 技术面分析(核心维度)
+### 2. 📈 趋势结构与技术指标(核心维度)
 这是你的主战场,务必深入,只陈述客观事实:
 - **趋势判断**:均线多头/空头排列、20/60 日均线方向、价格在均线之上/下
 - **形态结构**:近期是否出现突破/破位/双底/双顶/旗形等关键形态
-- **指标信号**:MACD 金叉/死叉/背离、KDJ 超买超卖、RSI 强弱、布林通道位置
-- **量价配合**:放量上涨/缩量回调/量价背离/换手率异动
+- **指标互证**:MACD、KDJ、RSI、布林通道各自状态,彼此印证还是背离(背离必须点出)
+- **短线情绪**:涨停/连板/炸板记录、换手率与量比异动、近期资金活跃度的客观表现
 每条结论必须引用具体数值(如"MACD 在 6/12 出现金叉,DIF 0.32 上穿 DEA 0.18"),客观陈述,不下买卖定性。
 
 ### 3. 💰 关键价位(客观价位结构)
@@ -166,19 +177,20 @@ _SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术�
 - 突破放量 → 可能存在催化剂
 明确标注"[推断]",告诉读者这是基于价量的客观推测,真实消息面数据待接入。若无明显异动,直说"近期价量平稳,无明显异动信号"。
 
-### 6. ⚖️ 综合研判与风险提示
+### 6. ⚖️ 风险与后续观察(核心维度)
 2-3 段,只做客观描述,不下操作结论:
-- 客观描述该股当前所处的技术阶段(底部企稳 / 上升途中 / 高位震荡 / 下跌趋势)
+- 客观描述该股当前所处的技术阶段(底部企稳 / 上升途中 / 高位震荡 / 下跌趋势)及证据链
 - 客观评估当前价位的"空间不对称性"(距上方压力位与下方支撑位的距离),不评价好坏
-- 客观列出后续值得关注的量价信号(如量能能否维持、某均线得失、是否放量突破压力位),**不附任何操作结论**
+- 列出具体可验证的观察信号:量能能否维持(给出对照量级)、20/60 日均线得失、是否放量突破具体压力位价格,**不附任何操作结论**
+- 客观列出风险点(高位放量滞涨、指标背离扩大、跌破关键均线等)
 
 ## 分析准则(务必遵守)
 
 1. **技术面优先**:技术面和量价是主要分析对象,基本面是交叉验证手段,主次分明
 2. **数据说话**:每个判断引用具体数值,严禁空泛套话("走势良好"必须改成"连续 3 日站稳 20 日均线且放量")
-3. **客观中立**:看多就客观陈述多头特征,看空就客观陈述空头特征,不下"该买/该卖"结论;数据不支持时直言无法判断
-4. **价位精确**:压力位/支撑位必须落到具体价格,基于提供的关键价位数据陈述
-5. **不输出操作指令**:不写"买入/卖出/止损/加仓/减仓/仓位建议/操作建议"等任何交易指令;提示潜在风险但不下操作结论
+3. **互证优先**:单一指标不下结论;指标间冲突时,以背离形式并列呈现
+4. **客观中立**:看多就客观陈述多头特征,看空就客观陈述空头特征,不下"该买/该卖"结论;数据不支持时直言无法判断
+5. **价位精确**:压力位/支撑位必须落到具体价格,基于提供的关键价位数据陈述
 6. **简明客观**:用读者能扫读的密度输出,总字数 1000-1800 字,重在客观信息密度
 
 ## 重要免责
@@ -277,57 +289,66 @@ async def analyze_stock_stream(
 ) -> AsyncIterator[str]:
     """流式个股分析:yield 出每个 NDJSON 事件。
 
-    协议(与 financial_analyzer 一致,前端解析无差异):
+    协议(与 financial_analyzer 兼容,新增思考/续写状态):
       {"type":"meta","symbol","summary","levels"}  数据 + 价位摘要
+      {"type":"reasoning_delta","content":"..."}       模型思考草稿(前端默认收起)
       {"type":"delta","content":"..."}             逐 chunk 文本
+      {"type":"continuation","attempt":1}            输出达到上限时的受控续写
       {"type":"error","message":"..."}
-      {"type":"done"}
+      {"type":"done","complete":true|false,"truncated":false|true}
     """
-    # 1. 加载 K 线
-    df = _load_kline(repo, symbol)
-    if df.is_empty():
-        yield json.dumps({
-            "type": "error",
-            "message": f"标的 {symbol} 暂无日 K 数据,请先同步",
-        }, ensure_ascii=False)
-        return
-
-    # 2. 价位计算(基于 K 线)
-    levels = compute_levels(df)
-    close = float(df.tail(1)["close"][0]) if "close" in df.columns else None
-
-    # 3. 财务(辅助)
-    fins = _load_financials(data_dir, symbol)
-
-    # 4. meta
     yield json.dumps({
-        "type": "meta",
-        "symbol": symbol,
-        "summary": summarize_levels(levels, close),
-        "levels": levels,
-        "close": close,
+        "type": "status",
+        "message": "正在读取行情与价位数据…",
+        "padding": " " * 2048,
     }, ensure_ascii=False)
 
-    # 5+6. 构建提示词 + 流式调用 LLM(整体 try-except,任何异常都 yield error,避免前端卡死)
+    # Preflight and model execution share the same error boundary. A data
+    # adapter failure must become an NDJSON error event, never a silent EOF.
     try:
-        from app.services.ai_provider import stream_ai_text
+        # 1. 加载 K 线
+        df = _load_kline(repo, symbol)
+        if df.is_empty():
+            yield json.dumps({
+                "type": "error",
+                "message": f"标的 {symbol} 暂无日 K 数据,请先同步",
+            }, ensure_ascii=False)
+            return
+
+        # 2. 价位计算(基于 K 线)
+        levels = compute_levels(df)
+        close = float(df.tail(1)["close"][0]) if "close" in df.columns else None
+
+        # 3. 财务(辅助)
+        fins = _load_financials(data_dir, symbol)
+
+        # 4. meta
+        yield json.dumps({
+            "type": "meta",
+            "symbol": symbol,
+            "summary": summarize_levels(levels, close),
+            "levels": levels,
+            "close": close,
+        }, ensure_ascii=False)
+
+        # 5+6. 构建提示词 + 流式调用 LLM
+        from app.services.ai_provider import stream_ai_events
 
         kline_tail = _clean_rows(df, _KLINE_KEEP_COLS)
         user_prompt = _build_user_prompt(kline_tail, fins, levels, close, symbol, focus,
                                          asset_type=repo.resolve_asset_type(symbol))
-        async for delta in stream_ai_text(
+        async for event in stream_ai_events(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.5,
-            max_tokens=4500,
+            max_tokens=6000,
+            max_continuations=2,
         ):
-            yield json.dumps({"type": "delta", "content": delta}, ensure_ascii=False)
+            yield json.dumps(event, ensure_ascii=False)
 
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.exception("AI stock analysis failed for %s: %s", symbol, e)
         yield json.dumps({"type": "error", "message": f"AI 分析失败: {e}"}, ensure_ascii=False)
         return
-
-    yield json.dumps({"type": "done"}, ensure_ascii=False)

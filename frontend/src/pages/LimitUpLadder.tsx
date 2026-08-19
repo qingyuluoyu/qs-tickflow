@@ -14,7 +14,10 @@ import { EmptyState } from '@/components/EmptyState'
 import { useTheme } from '@/lib/theme'
 import { useCapabilities, usePreferences } from '@/lib/useSharedQueries'
 import { SealedBadge } from '@/components/SealedBadge'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { Modal as MantineModal, ActionIcon, Button, NumberInput, SegmentedControl, Select, Switch, TextInput } from '@mantine/core'
+import { Modal } from '@/components/Modal'
+import { PageContainer } from '@/components/PageContainer'
+import { DataFreshnessNotice } from '@/components/DataFreshnessNotice'
 import type { ExtColumnDisplayConfig } from '@/lib/watchlist-columns'
 
 // ===== Ext 字段配置 =====
@@ -140,7 +143,7 @@ function fmtSealAmount(v: number): string {
 // ===== 板块标识 =====
 
 function boardTag(symbol: string): { label: string; cls: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '创', cls: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
+  if (/^(300|301)/.test(symbol)) return { label: '创', cls: 'text-[#0ea5e9] bg-[#0ea5e9]/12 border-[#0ea5e9]/25' }
   if (/^688/.test(symbol))       return { label: '科', cls: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
   if (/\.BJ$/.test(symbol))      return { label: '北', cls: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
   return null
@@ -263,19 +266,21 @@ const StockCard = React.memo(function StockCard({ stock, extFields, direction, s
   return (
     <div className="relative group w-full">
       {/* 监控设置按钮 (右上角): 不能嵌在卡片 button 内 */}
-      <button
+      <ActionIcon
         onClick={e => {
           e.stopPropagation()
           setMenuAnchor(e.currentTarget.getBoundingClientRect())
           setShowMonitorMenu(v => !v)
         }}
         title={monitored ? '封单监控已开启' : '开启封单监控'}
-        className={`absolute top-1 right-1 z-20 p-0.5 rounded transition-opacity cursor-pointer ${
-          monitored ? 'opacity-100 text-amber-400' : 'opacity-0 group-hover:opacity-70 text-muted hover:!opacity-100'
+        variant="transparent"
+        size="xs"
+        className={`absolute top-1 right-1 z-20 transition-opacity ${
+          monitored ? 'opacity-100 text-warning' : 'opacity-0 group-hover:opacity-70 text-muted hover:!opacity-100'
         }`}
       >
         {monitored ? <Bell className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
-      </button>
+      </ActionIcon>
       {/* 监控菜单 */}
       {showMonitorMenu && menuAnchor && (
         <MonitorMenu
@@ -298,7 +303,7 @@ const StockCard = React.memo(function StockCard({ stock, extFields, direction, s
         event.preventDefault()
         onClick(stock.symbol, stock.name ?? undefined)
       }}
-      className={`w-full flex flex-col items-start gap-1 px-2.5 py-2 rounded-md transition-all duration-200 cursor-pointer hover:opacity-100 ${style.bg} ${style.bar} ${monitored ? 'ring-1 ring-amber-400/50 ring-inset' : ''}`}
+      className={`w-full flex flex-col items-start gap-1 px-2.5 py-2 rounded-md transition-all duration-200 cursor-pointer hover:opacity-100 ${style.bg} ${style.bar} ${monitored ? 'ring-1 ring-warning/50 ring-inset' : ''}`}
       style={style.cardStyle ? { ...style.cardStyle } : undefined}
       onMouseEnter={e => {
         if (!style.cardStyle || !style.hoverShadow) return
@@ -340,7 +345,7 @@ const StockCard = React.memo(function StockCard({ stock, extFields, direction, s
                 : fmtSealVol(stock.sealed_vol)}
             </span>
           ) : stock.sealed_status === 'pending' ? (
-            <span className="text-[9px] text-yellow-500/60 leading-none">待确认</span>
+            <span className="text-[9px] text-warning/60 leading-none">待确认</span>
           ) : (
             /* 未修正: 显示连板数 */
             <span className="text-[10px] font-semibold tabular-nums text-accent/80">
@@ -408,7 +413,6 @@ function MonitorMenu({ stock, direction, sealMode, monitorRule, anchorRect, hasD
   // 推送渠道默认值: 取偏好设置中的全局默认 (已有规则沿用其值)
   const { data: prefs } = usePreferences()
   const webhookDefaultChannels = prefs?.webhook_default_channels ?? []
-  const backdrop = useDialogBackdrop(onClose)
 
   // 单位倍率: 输入值 × 倍率 = 原始单位 (量=手, 额=元)
   const VOL_UNITS = [
@@ -507,20 +511,28 @@ function MonitorMenu({ stock, direction, sealMode, monitorRule, anchorRect, hasD
     ? Math.max(8, anchorRect.top - MENU_H)
     : anchorBottom + 4
 
+  // Mantine Modal 接管遮罩/ESC/焦点; 面板仍按齿轮锚点定位 (inner 改为左上角对齐 + margin 偏移)
   return (
-    <>
-      <div className="fixed inset-0 z-40" {...backdrop} />
-      <div
-        className="fixed z-50 w-60 rounded-lg bg-surface border border-border shadow-xl text-xs overflow-hidden"
-        style={{ left, top }}
-      >
+    <MantineModal
+      opened
+      onClose={onClose}
+      withCloseButton={false}
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0, blur: 0 }}
+      classNames={{ content: 'w-60 rounded-lg bg-surface border border-border shadow-xl text-xs overflow-hidden' }}
+      styles={{
+        inner: { justifyContent: 'flex-start', padding: 0 },
+        content: { flex: '0 0 auto', marginLeft: left, marginTop: top },
+      }}
+    >
         {/* 标题栏: 股票名 + 预警类型 */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-elevated/40">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Bell className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+            <Bell className="h-3.5 w-3.5 text-warning shrink-0" />
             <span className="font-medium text-foreground truncate">{stock.name ?? stock.symbol}</span>
           </div>
-          <button onClick={onClose} className="text-muted hover:text-foreground shrink-0"><X className="h-3.5 w-3.5" /></button>
+          <ActionIcon onClick={onClose} variant="subtle" color="gray" size="sm" className="text-muted hover:text-foreground shrink-0"><X className="h-3.5 w-3.5" /></ActionIcon>
         </div>
 
         <div className="px-3 py-2.5 space-y-2.5">
@@ -532,40 +544,43 @@ function MonitorMenu({ stock, direction, sealMode, monitorRule, anchorRect, hasD
             </span>
           </div>
 
-          {/* 监控指标: 段控风格 */}
+          {/* 监控指标: SegmentedControl */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted shrink-0 w-8">指标</span>
-            <div className="flex gap-0.5 flex-1 bg-elevated/50 rounded p-0.5">
-              <button
-                onClick={() => switchMetric('sealed_vol')}
-                className={`flex-1 px-2 py-1 rounded text-[11px] transition-colors ${metric === 'sealed_vol' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-secondary'}`}
-              >封单量</button>
-              <button
-                onClick={() => switchMetric('sealed_amount')}
-                className={`flex-1 px-2 py-1 rounded text-[11px] transition-colors ${metric === 'sealed_amount' ? 'bg-surface text-foreground shadow-sm' : 'text-muted hover:text-secondary'}`}
-              >封单额</button>
-            </div>
+            <SegmentedControl
+              size="xs"
+              fullWidth
+              value={metric}
+              onChange={v => switchMetric(v as 'sealed_vol' | 'sealed_amount')}
+              data={[
+                { value: 'sealed_vol', label: '封单量' },
+                { value: 'sealed_amount', label: '封单额' },
+              ]}
+              className="flex-1"
+            />
           </div>
 
           {/* 阈值: 输入 + 单位 */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-muted shrink-0 w-8">阈值</span>
-            <input
-              type="number"
+            <NumberInput
+              size="xs"
+              hideControls
               value={threshold}
-              onChange={e => setThreshold(e.target.value)}
+              onChange={v => setThreshold(v === '' ? '' : String(v))}
               placeholder="≤ 报警"
-              className="flex-1 min-w-0 h-7 px-2 rounded bg-base border border-border text-foreground text-center tabular-nums placeholder:text-muted/40 focus:outline-none focus:border-accent/50"
+              className="flex-1 min-w-0"
+              classNames={{ input: 'bg-base text-center tabular-nums placeholder:text-muted/40' }}
             />
-            <select
+            <Select
+              size="xs"
+              data={units.map(u => ({ value: u.key, label: u.label }))}
               value={unitKey}
-              onChange={e => setUnitKey(e.target.value)}
-              className="h-7 px-1.5 rounded bg-base border border-border text-secondary text-[11px] focus:outline-none focus:border-accent/50 cursor-pointer"
-            >
-              {units.map(u => (
-                <option key={u.key} value={u.key}>{u.label}</option>
-              ))}
-            </select>
+              onChange={v => v && setUnitKey(v)}
+              allowDeselect={false}
+              w={72}
+              classNames={{ input: 'bg-base' }}
+            />
           </div>
 
           {/* 推送渠道: 胶囊标签 (飞书 / 企业微信 各自独立勾选), 选中带强调色 */}
@@ -596,7 +611,7 @@ function MonitorMenu({ stock, direction, sealMode, monitorRule, anchorRect, hasD
 
           {/* 权限提示 (免费用户) */}
           {!hasDepth && (
-            <div className="flex items-start gap-1.5 rounded border border-amber-400/30 bg-amber-400/5 px-2 py-1.5 text-[10px] leading-relaxed text-amber-400/90">
+            <div className="flex items-start gap-1.5 rounded border border-warning/30 bg-warning/5 px-2 py-1.5 text-[10px] leading-relaxed text-warning/90">
               <AlertCircle className="h-3 w-3 shrink-0 mt-px" />
               <span>当前 Key 权限无法获取五档行情,后续会适配免费数据源</span>
             </div>
@@ -606,23 +621,27 @@ function MonitorMenu({ stock, direction, sealMode, monitorRule, anchorRect, hasD
         {/* 底部按钮区 */}
         <div className="flex items-center gap-2 px-3 py-2.5 border-t border-border bg-elevated/30">
           {existing && (
-            <button
+            <Button
               onClick={handleRemove}
               disabled={saving || !hasDepth}
-              className="shrink-0 h-7 px-2.5 rounded text-[11px] text-muted hover:text-danger hover:bg-danger/5 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
-            >关闭监控</button>
+              variant="subtle"
+              color="gray"
+              size="xs"
+              className="shrink-0 text-muted hover:!text-danger hover:!bg-danger/5"
+            >关闭监控</Button>
           )}
-          <button
+          <Button
             onClick={handleSave}
             disabled={saving || !threshold || !hasDepth}
             title={!hasDepth ? '需 Pro+ 套餐 (批量五档能力)' : ''}
-            className="flex-1 h-7 rounded text-[11px] font-medium transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed bg-accent text-white hover:bg-accent/90 active:scale-[0.98] disabled:active:scale-100"
+            color="accent"
+            size="xs"
+            className="flex-1"
           >
             {saving ? '保存中…' : !hasDepth ? '需 Pro+ 套餐' : existing ? '更新监控' : '开启监控'}
-          </button>
+          </Button>
         </div>
-      </div>
-    </>
+    </MantineModal>
   )
 }
 
@@ -732,13 +751,13 @@ function loadFilterKeys(): Set<FilterKey> {
 
 const TIER_COLORS: Record<number, string> = {
   1: 'border-border',
-  2: 'border-yellow-600/40',
+  2: 'border-warning/40',
   3: 'border-orange-500/50',
 }
 
 const TIER_TEXT: Record<number, string> = {
   1: 'text-muted',
-  2: 'text-yellow-500',
+  2: 'text-warning',
   3: 'text-orange-400',
 }
 
@@ -790,7 +809,7 @@ function OverviewBar({ tiers, dateValue, onDateChange, filterKeys, bf, direction
   const failedLabel = direction === 'down' ? '止跌' : '断板'
 
   return (
-    <div className="flex items-center gap-4 px-5 py-2">
+    <div className="flex items-center gap-4 flex-wrap">
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-secondary">
         {tiers.map((t, idx) => {
           const luCount = limitUpCounts[idx]
@@ -809,7 +828,7 @@ function OverviewBar({ tiers, dateValue, onDateChange, filterKeys, bf, direction
           <span className="text-purple-400 font-medium">{brokenLabel} {totalBroken}</span>
         )}
         {showFailed && totalFailed > 0 && (
-          <span className="text-yellow-500 font-medium">{failedLabel} {totalFailed}</span>
+          <span className="text-warning font-medium">{failedLabel} {totalFailed}</span>
         )}
       </div>
       <div className="ml-auto">
@@ -861,7 +880,7 @@ function TagStats({ title, tiers, extFields, fieldKey, color, selectedTag, onSel
   const needsExpand = stats.length > 10
 
   return (
-    <div className="px-4">
+    <div>
       <button
         onClick={() => needsExpand && setExpanded(v => !v)}
         className={`flex items-center gap-1.5 mb-1.5 w-full group ${needsExpand ? 'cursor-pointer' : 'cursor-default'}`}
@@ -993,7 +1012,7 @@ function TierGroup({ tier, defaultOpen, extFields, filterKeys, bf, onStockClick,
         onClick={() => setOpen(v => !v)}
         className="w-full flex items-center gap-2 px-3 py-2 hover:bg-surface/80 transition-colors"
       >
-        <Flame className={`h-3.5 w-3.5 ${tier.boards >= 5 ? 'text-orange-500' : tier.boards >= 3 ? 'text-yellow-500' : 'text-muted'}`} />
+        <Flame className={`h-3.5 w-3.5 ${tier.boards >= 5 ? 'text-orange-500' : tier.boards >= 3 ? 'text-warning' : 'text-muted'}`} />
         <span className={`text-sm font-bold tabular-nums ${tierTextCls(tier.boards)}`}>{tierLabel(tier.boards, direction)}<span className="text-muted/40 mx-1">·</span>{luCount}</span>
         {(showBroken && brCount > 0) || (showFailed && faCount > 0) ? (
           <span className="text-[11px] text-muted/60">
@@ -1148,20 +1167,11 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   return (
     <label className="flex items-center justify-between gap-2 text-xs cursor-pointer">
       <span className="text-secondary">{label}</span>
-      <span
-        role="switch"
-        aria-checked={checked}
-        onClick={() => onChange(!checked)}
-        style={{ width: 32, height: 18, position: 'relative', borderRadius: 9, transition: 'background-color 0.15s', cursor: 'pointer' }}
-        className={checked ? 'bg-accent/60' : 'bg-border'}
-      >
-        <span
-          style={{
-            position: 'absolute', top: 2, left: 0, width: 14, height: 14, borderRadius: '50%', background: '#fff',
-            transition: 'transform 0.15s', transform: checked ? 'translateX(16px)' : 'translateX(2px)',
-          }}
-        />
-      </span>
+      <Switch
+        size="xs"
+        checked={checked}
+        onChange={e => onChange(e.currentTarget.checked)}
+      />
     </label>
   )
 }
@@ -1173,21 +1183,23 @@ function NumInput({ label, value, onChange, min, max, placeholder }: {
   return (
     <label className="flex items-center justify-between gap-2 text-xs">
       <span className="text-secondary">{label}</span>
-      <input
-        type="number"
+      <NumberInput
+        size="xs"
+        hideControls
         min={min}
         max={max}
         value={value ?? ''}
-        onChange={e => {
-          let v = e.target.value ? Number(e.target.value) : undefined
-          if (v != null) {
-            if (min != null && v < min) v = min
-            if (max != null && v > max) v = max
+        onChange={v => {
+          let val = v === '' ? undefined : Number(v)
+          if (val != null) {
+            if (min != null && val < min) val = min
+            if (max != null && val > max) val = max
           }
-          onChange(v)
+          onChange(val)
         }}
         placeholder={placeholder}
-        className="w-16 h-7 bg-elevated border border-border rounded text-xs text-foreground text-center px-1 placeholder:text-muted focus:outline-none focus:border-accent/50"
+        w={64}
+        classNames={{ input: 'bg-elevated text-center' }}
       />
     </label>
   )
@@ -1198,24 +1210,22 @@ function FieldSelect({ value, onChange, options }: {
   value: string; onChange: (v: string) => void; options: SchemaOption[]
 }) {
   return (
-    <div className="flex-1 min-w-0 overflow-hidden">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="w-full h-7 bg-elevated border border-border rounded text-xs text-foreground px-2 focus:outline-none focus:border-accent/50"
-      >
-      <option value="">不显示</option>
-      {options.map(o => (
-        <optgroup key={o.id} label={o.label}>
-          {o.columns.map(col => (
-            <option key={`${o.id}.${col.name}`} value={`${o.id}.${col.name}`}>
-              {col.label || col.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-    </div>
+    <Select
+      size="xs"
+      searchable
+      placeholder="不显示"
+      value={value || null}
+      onChange={v => onChange(v ?? '')}
+      className="flex-1 min-w-0"
+      classNames={{ input: 'bg-elevated' }}
+      data={[
+        { value: '', label: '不显示' },
+        ...options.map(o => ({
+          group: o.label,
+          items: o.columns.map(col => ({ value: `${o.id}.${col.name}`, label: col.label || col.name })),
+        })),
+      ]}
+    />
   )
 }
 
@@ -1243,21 +1253,29 @@ function ExtFieldSection({ item, onChange, options }: {
         <>
           <div className="flex items-center gap-2">
             <span className="text-xs text-secondary shrink-0 w-16">显示模式</span>
-            <div className="flex flex-1 min-w-0 rounded overflow-hidden border border-border">
-              <button onClick={() => updateDisplay({ displayMode: 'tag' })} className={`flex-1 py-1 text-xs transition-colors ${displayMode === 'tag' ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary'}`}>标签</button>
-              <button onClick={() => updateDisplay({ displayMode: 'text' })} className={`flex-1 py-1 text-xs transition-colors border-l border-border ${displayMode === 'text' ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary'}`}>文本</button>
-            </div>
+            <SegmentedControl
+              size="xs"
+              fullWidth
+              value={displayMode}
+              onChange={v => updateDisplay({ displayMode: v as ExtColumnDisplayConfig['displayMode'] })}
+              data={[
+                { value: 'tag', label: '标签' },
+                { value: 'text', label: '文本' },
+              ]}
+              className="flex-1 min-w-0"
+            />
           </div>
           {displayMode === 'tag' && (
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-secondary shrink-0 w-16">分隔符</span>
-                <input
-                  type="text"
+                <TextInput
+                  size="xs"
                   value={cfg?.separator ?? ''}
                   onChange={e => updateDisplay({ separator: e.target.value })}
                   placeholder="留空"
-                  className="flex-1 min-w-0 h-7 bg-elevated border border-border rounded text-xs text-foreground px-2 placeholder:text-muted focus:outline-none focus:border-accent/50"
+                  className="flex-1 min-w-0"
+                  classNames={{ input: 'bg-elevated placeholder:text-muted' }}
                 />
               </div>
               <div className="text-[10px] text-muted mt-1" style={{ paddingLeft: 72 }}>
@@ -1268,15 +1286,18 @@ function ExtFieldSection({ item, onChange, options }: {
           {displayMode === 'tag' && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-secondary shrink-0 w-16">显示前N个</span>
-              <input
-                type="number" min={0}
+              <NumberInput
+                size="xs"
+                hideControls
+                min={0}
                 value={cfg?.maxTags ?? ''}
-                onChange={e => {
-                  const v = e.target.value ? Number(e.target.value) : undefined
-                  updateDisplay({ maxTags: v, ...(v ? {} : { hiddenIndices: undefined }) })
+                onChange={v => {
+                  const val = v === '' ? undefined : Number(v)
+                  updateDisplay({ maxTags: val, ...(val ? {} : { hiddenIndices: undefined }) })
                 }}
                 placeholder="不限制"
-                className="flex-1 min-w-0 h-7 bg-elevated border border-border rounded text-xs text-foreground px-2 placeholder:text-muted focus:outline-none focus:border-accent/50"
+                className="flex-1 min-w-0"
+                classNames={{ input: 'bg-elevated placeholder:text-muted' }}
               />
             </div>
           )}
@@ -1304,10 +1325,17 @@ function ExtFieldSection({ item, onChange, options }: {
           {displayMode === 'tag' && (
             <div className="flex items-center gap-2">
               <span className="text-xs text-secondary shrink-0 w-16">排列方向</span>
-              <div className="flex flex-1 min-w-0 rounded overflow-hidden border border-border">
-                <button onClick={() => updateDisplay({ tagLayout: 'horizontal' })} className={`flex-1 py-1 text-xs transition-colors ${(cfg?.tagLayout ?? 'horizontal') === 'horizontal' ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary'}`}>横</button>
-                <button onClick={() => updateDisplay({ tagLayout: 'vertical' })} className={`flex-1 py-1 text-xs transition-colors border-l border-border ${cfg?.tagLayout === 'vertical' ? 'bg-accent/15 text-accent' : 'bg-elevated text-secondary'}`}>竖</button>
-              </div>
+              <SegmentedControl
+                size="xs"
+                fullWidth
+                value={cfg?.tagLayout ?? 'horizontal'}
+                onChange={v => updateDisplay({ tagLayout: v as ExtColumnDisplayConfig['tagLayout'] })}
+                data={[
+                  { value: 'horizontal', label: '横' },
+                  { value: 'vertical', label: '竖' },
+                ]}
+                className="flex-1 min-w-0"
+              />
             </div>
           )}
           <div className="flex justify-end">
@@ -1341,7 +1369,7 @@ function BrokenFailedSection({ bf, onChange }: {
       <div className="h-px bg-border" />
       {/* 断板 */}
       <div className="space-y-2">
-        <span className="text-[10px] font-semibold text-yellow-500 uppercase tracking-wider">断板</span>
+        <span className="text-[10px] font-semibold text-warning uppercase tracking-wider">断板</span>
         <Toggle label="显示断板股票" checked={bf.failedShow ?? true} onChange={v => update({ failedShow: v })} />
         <Toggle label="计入断板数量" checked={bf.failedCount ?? true} onChange={v => update({ failedCount: v })} />
         <NumInput label="最低板数（含）" value={bf.failedMinBoards ?? 0} onChange={v => update({ failedMinBoards: v ?? 0 })} min={0} max={50} placeholder="0=不限" />
@@ -1359,7 +1387,6 @@ function ExtConfigDialog({ fields, onSave, onClose }: {
   onClose: () => void
 }) {
   const [draft, setDraft] = useState(fields)
-  const backdrop = useDialogBackdrop(onClose)
   const { data: schemaData } = useQuery({
     queryKey: QK.extDataSchemaAll,
     queryFn: api.extDataSchemaAll,
@@ -1380,22 +1407,20 @@ function ExtConfigDialog({ fields, onSave, onClose }: {
   }, [schemaData])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" {...backdrop}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-surface border border-border rounded-lg shadow-xl max-w-[95vw] overflow-hidden"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal
+      onClose={onClose}
+      ariaLabel="配置"
+      panelClassName="bg-surface border border-border rounded-lg shadow-xl max-w-[95vw] max-h-[85vh] overflow-y-auto"
+      overlayClassName="bg-black/50"
+    >
         {/* 头部 */}
         <div className="flex items-center justify-between px-4 pt-3 pb-1">
           <span className="text-sm font-medium">配置</span>
-          <button onClick={onClose} className="p-0.5 text-muted hover:text-foreground"><X className="h-4 w-4" /></button>
+          <ActionIcon onClick={onClose} variant="subtle" color="gray" size="sm" className="text-muted hover:text-foreground"><X className="h-4 w-4" /></ActionIcon>
         </div>
-        {/* 三列平铺 */}
-        <div className="flex gap-0 border-b border-border px-2 overflow-hidden">
-          <div className="flex-1 min-w-0 p-3 border-r border-border" style={{ minWidth: 180 }}>
+        {/* 三列平铺 (窄屏堆叠) */}
+        <div className="flex flex-col md:flex-row gap-0 border-b border-border px-2 overflow-hidden">
+          <div className="flex-1 min-w-0 md:min-w-[180px] p-3 border-b md:border-b-0 md:border-r border-border">
             <span className="text-[10px] font-semibold text-sky-400 uppercase tracking-wider mb-2 block">概念</span>
             <ExtFieldSection item={draft.concept} onChange={v => setDraft(d => ({ ...d, concept: v }))} options={options} />
             <div className="h-px bg-border my-3" />
@@ -1403,7 +1428,7 @@ function ExtConfigDialog({ fields, onSave, onClose }: {
             <div className="h-px bg-border my-2" />
             <Toggle label="显示分组概念统计" checked={draft.showConceptGroupStats ?? false} onChange={v => setDraft(d => ({ ...d, showConceptGroupStats: v }))} />
           </div>
-          <div className="flex-1 min-w-0 p-3 border-r border-border" style={{ minWidth: 180 }}>
+          <div className="flex-1 min-w-0 md:min-w-[180px] p-3 border-b md:border-b-0 md:border-r border-border">
             <span className="text-[10px] font-semibold text-blue-400 uppercase tracking-wider mb-2 block">行业</span>
             <ExtFieldSection item={draft.industry} onChange={v => setDraft(d => ({ ...d, industry: v }))} options={options} />
             <div className="h-px bg-border my-3" />
@@ -1411,21 +1436,22 @@ function ExtConfigDialog({ fields, onSave, onClose }: {
             <div className="h-px bg-border my-2" />
             <Toggle label="显示分组行业统计" checked={draft.showIndustryGroupStats ?? false} onChange={v => setDraft(d => ({ ...d, showIndustryGroupStats: v }))} />
           </div>
-          <div className="flex-1 min-w-0 p-3" style={{ minWidth: 160 }}>
+          <div className="flex-1 min-w-0 md:min-w-[160px] p-3">
             <span className="text-[10px] font-semibold text-muted uppercase tracking-wider mb-2 block">炸板/断板</span>
             <BrokenFailedSection bf={{ ...DEFAULT_BF, ...draft.bf }} onChange={v => setDraft(d => ({ ...d, bf: v }))} />
           </div>
         </div>
         {/* 底部按钮 */}
         <div className="flex justify-end gap-2 px-4 py-3">
-          <button onClick={onClose} className="px-3 py-1.5 text-xs text-secondary hover:text-foreground">取消</button>
-          <button
+          <Button onClick={onClose} variant="subtle" color="gray" size="xs" className="text-secondary hover:text-foreground">取消</Button>
+          <Button
             onClick={() => { onSave(draft); onClose() }}
-            className="px-3 py-1.5 text-xs bg-accent/15 text-accent rounded hover:bg-accent/25"
-          >保存</button>
+            variant="light"
+            color="accent"
+            size="xs"
+          >保存</Button>
         </div>
-      </motion.div>
-    </div>
+    </Modal>
   )
 }
 
@@ -1547,6 +1573,7 @@ export function LimitUpLadder() {
     return (
       <div className="flex flex-col h-full">
         <PageHeader title={direction === 'down' ? '连跌梯队' : '连板梯队'} />
+        <DataFreshnessNotice freshness={data?.data_freshness} snapshotDate={data?.as_of} label="连板数据" />
         <EmptyState icon={Flame} title={direction === 'down' ? '暂无连跌数据' : '暂无连板数据'} hint={direction === 'down' ? '该日期无跌停股或 enriched 数据未就绪' : '该日期无涨停股或 enriched 数据未就绪'} />
       </div>
     )
@@ -1568,56 +1595,54 @@ export function LimitUpLadder() {
               rawUp={data?.counts_raw?.up}
               rawDown={data?.counts_raw?.down}
             />
-            {/* 涨跌停切换(胶囊式): 点击切换方向, 当前方向有背景 */}
-            <div className="flex items-center rounded-full bg-elevated/60 p-0.5">
-              <button
-                onClick={() => direction !== 'up' && toggleDirection('up')}
-                className={`flex items-center gap-1 px-2.5 h-7 rounded-full text-xs tabular-nums transition-all ${
-                  direction === 'up'
-                    ? 'bg-bull/15 text-bull font-semibold'
-                    : 'text-muted hover:text-bull/70'
-                }`}
-              >
-                <span>涨停</span>
-                <span>{data?.counts?.up ?? 0}</span>
-              </button>
-              <button
-                onClick={() => direction !== 'down' && toggleDirection('down')}
-                className={`flex items-center gap-1 px-2.5 h-7 rounded-full text-xs tabular-nums transition-all ${
-                  direction === 'down'
-                    ? 'bg-bear/15 text-bear font-semibold'
-                    : 'text-muted hover:text-bear/70'
-                }`}
-              >
-                <span>跌停</span>
-                <span>{data?.counts?.down ?? 0}</span>
-              </button>
-            </div>
+            {/* 涨跌停切换: SegmentedControl, 标签保留 bull/bear 语义色与计数 */}
+            <SegmentedControl
+              size="xs"
+              radius="xl"
+              value={direction}
+              onChange={v => toggleDirection(v as Direction)}
+              data={[
+                {
+                  value: 'up',
+                  label: (
+                    <span className={`flex items-center gap-1 tabular-nums ${direction === 'up' ? 'text-bull font-semibold' : 'text-muted'}`}>
+                      <span>涨停</span>
+                      <span>{data?.counts?.up ?? 0}</span>
+                    </span>
+                  ),
+                },
+                {
+                  value: 'down',
+                  label: (
+                    <span className={`flex items-center gap-1 tabular-nums ${direction === 'down' ? 'text-bear font-semibold' : 'text-muted'}`}>
+                      <span>跌停</span>
+                      <span>{data?.counts?.down ?? 0}</span>
+                    </span>
+                  ),
+                },
+              ]}
+            />
           </div>
         }
         right={
-          <div className="flex items-center gap-1">
-            {/* 封单模式: 成交量/金额(仅 sealed 就绪时显示) — 胶囊式 */}
+          <div className="flex items-center justify-end gap-1 flex-wrap">
+            {/* 封单模式: 成交量/金额(仅 sealed 就绪时显示) */}
             {data?.sealed_ready && (
               <>
-                <div className="flex items-center rounded-full bg-elevated/60 p-0.5">
-                  {(['vol', 'amount'] as const).map(m => (
-                    <button
-                      key={m}
-                      onClick={() => {
-                        setSealMode(m)
-                        storage.limitLadderSealMode.set(m)
-                      }}
-                      className={`flex items-center px-2 py-1 rounded-full text-xs transition-all ${
-                        sealMode === m
-                          ? 'bg-accent/15 text-accent font-medium'
-                          : 'text-muted hover:text-secondary'
-                      }`}
-                    >
-                      {m === 'vol' ? '封单量' : '封单额'}
-                    </button>
-                  ))}
-                </div>
+                <SegmentedControl
+                  size="xs"
+                  radius="xl"
+                  value={sealMode}
+                  onChange={m => {
+                    const v = m as 'vol' | 'amount'
+                    setSealMode(v)
+                    storage.limitLadderSealMode.set(v)
+                  }}
+                  data={[
+                    { value: 'vol', label: '封单量' },
+                    { value: 'amount', label: '封单额' },
+                  ]}
+                />
                 <div className="w-px h-4 bg-border mx-1" />
               </>
             )}
@@ -1679,24 +1704,34 @@ export function LimitUpLadder() {
             ))}
 
             <div className="w-px h-4 bg-border mx-1" />
-            <button
+            <ActionIcon
               onClick={() => setShowExtConfig(true)}
-              className="p-1.5 hover:bg-surface text-muted hover:text-accent"
+              variant="subtle"
+              color="gray"
+              size="sm"
+              className="text-muted hover:!text-accent"
               title="配置"
             >
               <Settings2 className="h-3.5 w-3.5" />
-            </button>
-            <button
+            </ActionIcon>
+            <ActionIcon
               onClick={() => refetch()}
               disabled={isFetching}
-              className="p-1.5 hover:bg-surface text-muted disabled:opacity-50"
+              variant="subtle"
+              color="gray"
+              size="sm"
+              className="text-muted"
+              title="刷新"
             >
               <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
-            </button>
+            </ActionIcon>
           </div>
         }
       />
 
+      {/* 页体: 总览条 + 标签统计 + 梯队列表, 统一容器边距, 单滚动区 */}
+      <PageContainer className="flex-1 overflow-y-auto flex flex-col gap-3">
+      <DataFreshnessNotice freshness={data?.data_freshness} snapshotDate={data?.as_of} label="连板数据" />
       {/* 总览条 + 日期 */}
       <OverviewBar tiers={tiers} dateValue={dateValue} onDateChange={setAsOf} filterKeys={filterKeys} bf={extFields.bf} direction={direction} />
 
@@ -1730,7 +1765,7 @@ export function LimitUpLadder() {
       )}
 
       {/* 梯队列表 */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+      <div className="space-y-2">
         {tiers.map(t => (
           <TierGroup
             key={t.boards}
@@ -1752,6 +1787,7 @@ export function LimitUpLadder() {
           />
         ))}
       </div>
+      </PageContainer>
 
       <DimensionMembersDialog
         target={dimensionTarget}
@@ -1769,16 +1805,14 @@ export function LimitUpLadder() {
         onClose={() => setPreviewSymbol(null)}
       />
 
-      {/* 字段配置弹窗 */}
-      <AnimatePresence>
-        {showExtConfig && (
-          <ExtConfigDialog
-            fields={extFields}
-            onSave={handleSaveExtFields}
-            onClose={() => setShowExtConfig(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* 字段配置弹窗 (Mantine Modal 接管遮罩/ESC/焦点) */}
+      {showExtConfig && (
+        <ExtConfigDialog
+          fields={extFields}
+          onSave={handleSaveExtFields}
+          onClose={() => setShowExtConfig(false)}
+        />
+      )}
     </div>
   )
 }

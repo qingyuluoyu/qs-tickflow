@@ -22,6 +22,21 @@ def _request(repo):
     return Request({"type": "http", "app": app})
 
 
+def test_provider_snapshot_does_not_confirm_previous_weekday_on_open_weekday():
+    assert screener_api._provider_snapshot_confirms_calendar(
+        date(2026, 8, 18), date(2026, 8, 19),
+    ) is False
+
+
+def test_provider_snapshot_confirms_same_day_and_latest_weekday_on_weekend():
+    assert screener_api._provider_snapshot_confirms_calendar(
+        date(2026, 8, 19), date(2026, 8, 19),
+    ) is True
+    assert screener_api._provider_snapshot_confirms_calendar(
+        date(2026, 8, 21), date(2026, 8, 22),
+    ) is True
+
+
 def test_limit_ladder_uses_latest_teajoin_snapshot_for_current_date(monkeypatch):
     live_date = date(2026, 8, 14)
     live_snapshot = pl.DataFrame([{

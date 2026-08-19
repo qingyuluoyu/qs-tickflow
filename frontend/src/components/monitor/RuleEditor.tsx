@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ActionIcon, Button, NumberInput, SegmentedControl, Select, Switch, TextInput } from '@mantine/core'
 import { Activity, Building2, ChartNoAxesCombined, Check, Layers3, Plus, RadioTower, Save, Search, Tags, TrendingUp, Waypoints, X } from 'lucide-react'
 import { api, genRuleId, type MonitorRule, type MonitorCondition, type SectorKind, type SectorMonitorTarget, type StrategyNotifyEvent } from '@/lib/api'
 import { DEFAULT_STRATEGY_NOTIFY_EVENTS, LEGACY_STRATEGY_NOTIFY_EVENTS, STRATEGY_NOTIFY_EVENT_OPTIONS } from '@/lib/strategyMonitorEvents'
@@ -285,9 +286,9 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       <div className="rounded-card border border-border bg-surface p-5 space-y-4">
         <div className="flex items-center justify-between gap-3">
           <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控' : '加入监控'}</h3>
-          <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
+          <ActionIcon variant="subtle" color="gray" size="sm" aria-label="关闭" onClick={onClose}>
             <X className="h-4 w-4" />
-          </button>
+          </ActionIcon>
         </div>
 
         {draft.symbols.length > 0 && (
@@ -321,9 +322,9 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted">价位条件 (可选)</span>
-            <button onClick={() => addCond('threshold')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-              <Plus className="h-3 w-3" />添加价位
-            </button>
+            <Button variant="subtle" color="accent" size="compact-xs" leftSection={<Plus className="h-3 w-3" />} onClick={() => addCond('threshold')}>
+              添加价位
+            </Button>
           </div>
           {thresholdConds.length > 0 && (
             <div className="space-y-1.5">
@@ -332,16 +333,34 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 return (
                   <div key={i} className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '当' : draft.logic === 'and' ? '且' : '或'}</span>
-                    <select value={c.field} onChange={e => updateCond(realIdx, { field: e.target.value })} className="flex-1 h-7 px-1.5 rounded bg-base border border-border text-[11px] text-foreground focus:outline-none focus:border-accent/50">
-                      {thresholdFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                    </select>
-                    <select value={c.op} onChange={e => updateCond(realIdx, { op: e.target.value })} className="w-12 h-7 px-1 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50">
-                      {operators.map(op => <option key={op} value={op}>{op}</option>)}
-                    </select>
-                    <input type="number" value={c.value ?? 0} onChange={e => updateCond(realIdx, { value: parseFloat(e.target.value) })} step="any" className="w-24 h-7 px-1.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50" />
-                    <button onClick={() => removeCond(realIdx)} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10 cursor-pointer">
+                    <Select
+                      value={c.field}
+                      onChange={v => v && updateCond(realIdx, { field: v })}
+                      data={thresholdFields.map(f => ({ value: f.key, label: f.label }))}
+                      size="xs"
+                      className="flex-1 min-w-0"
+                      comboboxProps={{ withinPortal: true }}
+                    />
+                    <Select
+                      value={c.op}
+                      onChange={v => v && updateCond(realIdx, { op: v })}
+                      data={operators.map(op => ({ value: op, label: op }))}
+                      size="xs"
+                      w={64}
+                      className="shrink-0"
+                      comboboxProps={{ withinPortal: true }}
+                    />
+                    <NumberInput
+                      value={c.value ?? 0}
+                      onChange={v => updateCond(realIdx, { value: typeof v === 'number' ? v : parseFloat(v) })}
+                      size="xs"
+                      w={96}
+                      hideControls
+                      className="shrink-0"
+                    />
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label="删除条件" className="shrink-0 hover:!text-danger" onClick={() => removeCond(realIdx)}>
                       <X className="h-3.5 w-3.5" />
-                    </button>
+                    </ActionIcon>
                   </div>
                 )
               })}
@@ -349,18 +368,21 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           )}
         </div>
 
-        <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">备注 (可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="给这条监控加个备注" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
-        </label>
+        <TextInput
+          label={<span className="text-[11px] text-muted">备注 (可选)</span>}
+          value={draft.message}
+          onChange={e => setDraft(d => ({ ...d, message: e.target.value }))}
+          placeholder="给这条监控加个备注"
+          size="sm"
+        />
 
         {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}
 
         <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
-          <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-            <Save className="h-3.5 w-3.5" />加入监控
-          </button>
+          <Button variant="default" size="xs" onClick={onClose}>取消</Button>
+          <Button color="accent" size="xs" loading={save.isPending} leftSection={<Save className="h-3.5 w-3.5" />} onClick={() => save.mutate()}>
+            加入监控
+          </Button>
         </div>
       </div>
     )
@@ -374,40 +396,39 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           <h3 className="text-sm font-medium text-foreground">{editing ? '编辑监控规则' : '新建监控规则'}</h3>
           <p className="mt-1 text-[11px] text-muted">规则标识自动生成,描述为可选。</p>
         </div>
-        <button onClick={onClose} className="rounded p-1 text-muted hover:bg-elevated hover:text-foreground cursor-pointer">
+        <ActionIcon variant="subtle" color="gray" size="sm" aria-label="关闭" onClick={onClose}>
           <X className="h-4 w-4" />
-        </button>
+        </ActionIcon>
       </div>
 
       {/* 资产类型: 股票 / ETF / 指数 (个股极简模式不显示) */}
       {!simple && draft.type !== 'sector' && (
         <div className="space-y-1.5">
           <span className="text-[11px] text-muted">资产类型</span>
-          <div className="inline-flex h-9 rounded-btn border border-border overflow-hidden">
-            {(['stock', 'etf', 'index'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                aria-pressed={assetType === t}
-                onClick={() => {
-                  if (assetType === t) return
-                  setDraft(d => ({
-                    ...d,
-                    asset_type: t,
-                    strategy_id: null,
-                    symbols: [],
-                    type: t === 'index' && d.type !== 'signal' && d.type !== 'price' ? 'signal' : d.type,
-                    scope: t === 'index' ? 'symbols' : d.scope,
-                  }))
-                  setStrategyQuery('')
-                  setStrategyCategory('all')
-                }}
-                className={`h-full px-4 text-xs font-medium transition-colors cursor-pointer
-                  ${assetType === t ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'}`}
-              >
-                {t === 'stock' ? '股票' : t === 'etf' ? 'ETF' : '指数'}
-              </button>
-            ))}
+          <div>
+            <SegmentedControl
+              size="sm"
+              value={assetType}
+              onChange={t => {
+                const asset = t as MonitorRule['asset_type']
+                if (assetType === asset) return
+                setDraft(d => ({
+                  ...d,
+                  asset_type: asset,
+                  strategy_id: null,
+                  symbols: [],
+                  type: asset === 'index' && d.type !== 'signal' && d.type !== 'price' ? 'signal' : d.type,
+                  scope: asset === 'index' ? 'symbols' : d.scope,
+                }))
+                setStrategyQuery('')
+                setStrategyCategory('all')
+              }}
+              data={[
+                { value: 'stock', label: '股票' },
+                { value: 'etf', label: 'ETF' },
+                { value: 'index', label: '指数' },
+              ]}
+            />
           </div>
         </div>
       )}
@@ -452,10 +473,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         </div>
       </div>
 
-      <label className="space-y-1.5">
-        <span className="text-[11px] text-muted">描述 (可选)</span>
-        <input value={draft.name} onChange={e => setDraft(d => ({ ...d, name: e.target.value }))} placeholder="留空用默认名称" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
-      </label>
+      <TextInput
+        label={<span className="text-[11px] text-muted">描述 (可选)</span>}
+        value={draft.name}
+        onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+        placeholder="留空用默认名称"
+        size="sm"
+      />
 
       {draft.type === 'sector' && (
         <div className="space-y-4 border-t border-border/60 pt-4">
@@ -486,23 +510,21 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           {sectorKind === 'industry' && (
             <div className="space-y-1.5">
               <span className="text-[11px] text-muted">行业层级</span>
-              <div className="inline-flex h-8 overflow-hidden rounded-btn border border-border bg-base">
-                {([1, 2, 3] as const).map(level => (
-                  <button
-                    key={level}
-                    type="button"
-                    aria-pressed={industryLevel === level}
-                    onClick={() => {
-                      setIndustryLevel(level)
-                      setDraft(d => ({ ...d, sector_targets: [] }))
-                    }}
-                    className={`px-3 text-[11px] transition-colors cursor-pointer ${
-                      industryLevel === level ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {level}级
-                  </button>
-                ))}
+              <div>
+                <SegmentedControl
+                  size="xs"
+                  value={String(industryLevel)}
+                  onChange={v => {
+                    const level = Number(v) as 1 | 2 | 3
+                    setIndustryLevel(level)
+                    setDraft(d => ({ ...d, sector_targets: [] }))
+                  }}
+                  data={[
+                    { value: '1', label: '1级' },
+                    { value: '2', label: '2级' },
+                    { value: '3', label: '3级' },
+                  ]}
+                />
               </div>
             </div>
           )}
@@ -524,15 +546,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 ))}
               </div>
             )}
-            <label className="relative block">
-              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" />
-              <input
-                value={sectorQuery}
-                onChange={event => setSectorQuery(event.target.value)}
-                placeholder={`搜索${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板块'}`}
-                className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
-              />
-            </label>
+            <TextInput
+              value={sectorQuery}
+              onChange={event => setSectorQuery(event.target.value)}
+              placeholder={`搜索${SECTOR_KIND_OPTIONS.find(option => option.key === sectorKind)?.label ?? '板块'}`}
+              size="sm"
+              leftSection={<Search className="h-3.5 w-3.5" />}
+            />
             <div className="grid max-h-48 grid-cols-1 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
               {visibleSectorTargets.length === 0 ? (
                 <div className="col-span-full rounded-btn border border-dashed border-border py-6 text-center text-xs text-muted">
@@ -575,73 +595,51 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           <div className="grid gap-3 border-t border-border/60 pt-4 sm:grid-cols-2">
             <div className="space-y-1.5">
               <span className="text-[11px] text-muted">触发方式</span>
-              <div className="grid h-9 grid-cols-2 overflow-hidden rounded-btn border border-border bg-base">
-                {([
-                  ['change_pct', '涨跌幅到达'],
-                  ['momentum', '快速异动'],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={(draft.sector_trigger ?? 'change_pct') === key}
-                    onClick={() => setDraft(d => ({ ...d, sector_trigger: key }))}
-                    className={`text-[11px] font-medium transition-colors cursor-pointer ${
-                      (draft.sector_trigger ?? 'change_pct') === key ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                size="xs"
+                fullWidth
+                value={draft.sector_trigger ?? 'change_pct'}
+                onChange={key => setDraft(d => ({ ...d, sector_trigger: key as MonitorRule['sector_trigger'] }))}
+                data={[
+                  { value: 'change_pct', label: '涨跌幅到达' },
+                  { value: 'momentum', label: '快速异动' },
+                ]}
+              />
             </div>
             <div className="space-y-1.5">
               <span className="text-[11px] text-muted">方向</span>
-              <div className="grid h-9 grid-cols-2 overflow-hidden rounded-btn border border-border bg-base">
-                {([
-                  ['up', draft.sector_trigger === 'momentum' ? '快速上涨' : '上涨'],
-                  ['down', draft.sector_trigger === 'momentum' ? '快速下跌' : '下跌'],
-                ] as const).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={draft.direction === key}
-                    onClick={() => setDraft(d => ({ ...d, direction: key }))}
-                    className={`text-[11px] font-medium transition-colors cursor-pointer ${
-                      draft.direction === key ? 'bg-accent/10 text-accent' : 'text-muted hover:text-foreground'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                size="xs"
+                fullWidth
+                value={draft.direction}
+                onChange={key => setDraft(d => ({ ...d, direction: key as MonitorRule['direction'] }))}
+                data={[
+                  { value: 'up', label: draft.sector_trigger === 'momentum' ? '快速上涨' : '上涨' },
+                  { value: 'down', label: draft.sector_trigger === 'momentum' ? '快速下跌' : '下跌' },
+                ]}
+              />
             </div>
             {draft.sector_trigger === 'momentum' && (
-              <label className="space-y-1.5">
-                <span className="text-[11px] text-muted">统计窗口</span>
-                <select
-                  value={draft.window_minutes ?? 5}
-                  onChange={event => setDraft(d => ({ ...d, window_minutes: Number(event.target.value) as MonitorRule['window_minutes'] }))}
-                  className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground"
-                >
-                  {[1, 3, 5, 10, 15].map(window => <option key={window} value={window}>{window} 分钟</option>)}
-                </select>
-              </label>
+              <Select
+                label={<span className="text-[11px] text-muted">统计窗口</span>}
+                value={String(draft.window_minutes ?? 5)}
+                onChange={v => v && setDraft(d => ({ ...d, window_minutes: Number(v) as MonitorRule['window_minutes'] }))}
+                data={[1, 3, 5, 10, 15].map(window => ({ value: String(window), label: `${window} 分钟` }))}
+                size="sm"
+                allowDeselect={false}
+              />
             )}
-            <label className="space-y-1.5">
-              <span className="text-[11px] text-muted">{draft.sector_trigger === 'momentum' ? '窗口变化阈值' : '板块涨跌幅阈值'}</span>
-              <span className="relative block">
-                <input
-                  type="number"
-                  min="0.01"
-                  max="20"
-                  step="0.1"
-                  value={draft.threshold_pct ?? 1}
-                  onChange={event => setDraft(d => ({ ...d, threshold_pct: Number(event.target.value) }))}
-                  className="h-9 w-full rounded-btn border border-border bg-base pl-3 pr-8 text-xs font-mono text-foreground"
-                />
-                <span className="absolute right-3 top-2.5 text-xs text-muted">%</span>
-              </span>
-            </label>
+            <NumberInput
+              label={<span className="text-[11px] text-muted">{draft.sector_trigger === 'momentum' ? '窗口变化阈值' : '板块涨跌幅阈值'}</span>}
+              min={0.01}
+              max={20}
+              step={0.1}
+              value={draft.threshold_pct ?? 1}
+              onChange={v => setDraft(d => ({ ...d, threshold_pct: typeof v === 'number' ? v : Number(v) }))}
+              size="sm"
+              rightSection={<span className="text-xs text-muted pr-1">%</span>}
+              rightSectionWidth={28}
+            />
           </div>
           {sectorKind !== 'index' && (
             <div className="flex flex-wrap gap-1.5 text-[9px] text-muted">
@@ -657,9 +655,15 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       {draft.type !== 'sector' && <div className="space-y-2">
         <span className="text-[11px] text-muted">作用范围</span>
         <div className="flex items-center gap-2">
-          <select value={draft.scope} onChange={e => setDraft(d => ({ ...d, scope: e.target.value as MonitorRule['scope'] }))} className="h-9 w-32 rounded-btn border border-border bg-base px-3 text-xs text-foreground">
-            {visibleScopes.map(s => <option key={s.key} value={s.key} disabled={hasIntradaySignal && s.key !== 'symbols'}>{s.label}</option>)}
-          </select>
+          <Select
+            value={draft.scope}
+            onChange={v => v && setDraft(d => ({ ...d, scope: v as MonitorRule['scope'] }))}
+            data={visibleScopes.map(s => ({ value: s.key, label: s.label, disabled: hasIntradaySignal && s.key !== 'symbols' }))}
+            size="sm"
+            w={128}
+            allowDeselect={false}
+            className="shrink-0"
+          />
           {draft.scope === 'symbols' && (
             <div className="flex-1 flex flex-wrap items-center gap-1.5">
               {draft.symbols.map(sym => (
@@ -671,13 +675,14 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 </span>
               ))}
               <div className="relative">
-                <input
+                <TextInput
                   value={symbolQuery}
                   onChange={e => setSymbolQuery(e.target.value)}
                   placeholder="搜索代码或名称..."
-                  className="h-7 w-32 rounded border border-border bg-base pl-6 pr-2 text-[11px] text-foreground focus:outline-none focus:border-accent/50"
+                  size="xs"
+                  w={128}
+                  leftSection={<Search className="h-3.5 w-3.5" />}
                 />
-                <Search className="absolute left-1.5 top-1.5 h-3.5 w-3.5 text-muted" />
                 {symbolSearch.data && symbolSearch.data.results.length > 0 && (
                   <div className="absolute z-10 mt-1 max-h-48 w-48 overflow-auto rounded border border-border bg-surface shadow-lg">
                     {symbolSearch.data.results.map(r => (
@@ -703,15 +708,20 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-muted">触发条件</span>
             <div className="flex items-center gap-2">
-              <select value={draft.logic} onChange={e => setDraft(d => ({ ...d, logic: e.target.value as MonitorRule['logic'] }))} className="h-7 rounded border border-border bg-base px-1.5 text-[11px] text-foreground">
-                {(options.data?.logics ?? []).map(l => <option key={l.key} value={l.key}>{l.label}</option>)}
-              </select>
-              <button onClick={() => addCond('truth')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-                <Plus className="h-3 w-3" />信号条件
-              </button>
-              <button onClick={() => addCond('threshold')} className="inline-flex items-center gap-1 text-[11px] text-accent hover:text-accent/80 cursor-pointer">
-                <Plus className="h-3 w-3" />阈值条件
-              </button>
+              <Select
+                value={draft.logic}
+                onChange={v => v && setDraft(d => ({ ...d, logic: v as MonitorRule['logic'] }))}
+                data={(options.data?.logics ?? []).map(l => ({ value: l.key, label: l.label }))}
+                size="xs"
+                w={88}
+                allowDeselect={false}
+              />
+              <Button variant="subtle" color="accent" size="compact-xs" leftSection={<Plus className="h-3 w-3" />} onClick={() => addCond('truth')}>
+                信号条件
+              </Button>
+              <Button variant="subtle" color="accent" size="compact-xs" leftSection={<Plus className="h-3 w-3" />} onClick={() => addCond('threshold')}>
+                阈值条件
+              </Button>
             </div>
           </div>
 
@@ -743,16 +753,35 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                 return (
                   <div key={i} className="flex items-center gap-1.5">
                     <span className="text-[10px] text-muted/60 w-6 text-right shrink-0">{i === 0 && selectedSignals.length === 0 ? '当' : draft.logic === 'and' ? '且' : '或'}</span>
-                    <select value={c.field} onChange={e => updateCond(realIdx, { field: e.target.value })} className="w-32 h-7 px-1.5 rounded bg-base border border-border text-[11px] text-foreground focus:outline-none focus:border-accent/50">
-                      {thresholdFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                    </select>
-                    <select value={c.op} onChange={e => updateCond(realIdx, { op: e.target.value })} className="w-12 h-7 px-1 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50">
-                      {operators.map(op => <option key={op} value={op}>{op}</option>)}
-                    </select>
-                    <input type="number" value={c.value ?? 0} onChange={e => updateCond(realIdx, { value: parseFloat(e.target.value) })} step="any" className="w-24 h-7 px-1.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50" />
-                    <button onClick={() => removeCond(realIdx)} className="p-1 rounded text-muted hover:text-danger hover:bg-danger/10 cursor-pointer">
+                    <Select
+                      value={c.field}
+                      onChange={v => v && updateCond(realIdx, { field: v })}
+                      data={thresholdFields.map(f => ({ value: f.key, label: f.label }))}
+                      size="xs"
+                      w={128}
+                      className="shrink-0"
+                      comboboxProps={{ withinPortal: true }}
+                    />
+                    <Select
+                      value={c.op}
+                      onChange={v => v && updateCond(realIdx, { op: v })}
+                      data={operators.map(op => ({ value: op, label: op }))}
+                      size="xs"
+                      w={64}
+                      className="shrink-0"
+                      comboboxProps={{ withinPortal: true }}
+                    />
+                    <NumberInput
+                      value={c.value ?? 0}
+                      onChange={v => updateCond(realIdx, { value: typeof v === 'number' ? v : parseFloat(v) })}
+                      size="xs"
+                      w={96}
+                      hideControls
+                      className="shrink-0"
+                    />
+                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label="删除条件" className="shrink-0 hover:!text-danger" onClick={() => removeCond(realIdx)}>
                       <X className="h-3 w-3" />
-                    </button>
+                    </ActionIcon>
                   </div>
                 )
               })}
@@ -771,18 +800,16 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       {draft.type === 'strategy' && (
         <div className="space-y-3">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="min-w-0 flex-1 space-y-1.5">
+            <div className="min-w-0 flex-1 space-y-1.5">
               <span className="text-[11px] text-muted">搜索策略</span>
-              <span className="relative block">
-                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted" />
-                <input
-                  value={strategyQuery}
-                  onChange={e => setStrategyQuery(e.target.value)}
-                  placeholder="搜索名称、标签或策略 ID"
-                  className="h-9 w-full rounded-btn border border-border bg-base pl-8 pr-3 text-xs text-foreground placeholder:text-muted/50 focus:border-accent/50 focus:outline-none"
-                />
-              </span>
-            </label>
+              <TextInput
+                value={strategyQuery}
+                onChange={e => setStrategyQuery(e.target.value)}
+                placeholder="搜索名称、标签或策略 ID"
+                size="sm"
+                leftSection={<Search className="h-3.5 w-3.5" />}
+              />
+            </div>
             <div className="grid grid-cols-4 gap-1 rounded-btn border border-border bg-base p-1 sm:w-[19rem]">
               {strategyCategories.map(category => (
                 <button
@@ -856,15 +883,13 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
                   </div>
                   <div className="space-y-2">
                     {STRATEGY_NOTIFY_EVENT_OPTIONS.filter(option => option.group === group).map(option => (
-                      <label key={option.key} className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={(draft.notify_events ?? LEGACY_STRATEGY_NOTIFY_EVENTS).includes(option.key)}
-                          onChange={() => toggleStrategyEvent(option.key)}
-                          className="h-3.5 w-3.5 accent-accent cursor-pointer"
-                        />
-                        <span className="text-[11px] text-foreground">{option.label}</span>
-                      </label>
+                      <Switch
+                        key={option.key}
+                        size="xs"
+                        label={<span className="text-[11px] text-foreground">{option.label}</span>}
+                        checked={(draft.notify_events ?? LEGACY_STRATEGY_NOTIFY_EVENTS).includes(option.key)}
+                        onChange={() => toggleStrategyEvent(option.key)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -879,20 +904,30 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
 
       {/* 通知设置 */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">冷却期(秒)</span>
-          <input type="number" value={draft.cooldown_seconds} onChange={e => setDraft(d => ({ ...d, cooldown_seconds: parseInt(e.target.value) || 0 }))} min={0} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
-        </label>
-        <label className="space-y-1.5">
-          <span className="text-[11px] text-muted">严重级别</span>
-          <select value={draft.severity} onChange={e => setDraft(d => ({ ...d, severity: e.target.value as MonitorRule['severity'] }))} className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground">
-            {(options.data?.severities ?? []).map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-        </label>
-        <label className="space-y-1.5 md:col-span-1">
-          <span className="text-[11px] text-muted">自定义提示(可选)</span>
-          <input value={draft.message} onChange={e => setDraft(d => ({ ...d, message: e.target.value }))} placeholder="留空用默认文案" className="h-9 w-full rounded-btn border border-border bg-base px-3 text-xs text-foreground" />
-        </label>
+        <NumberInput
+          label={<span className="text-[11px] text-muted">冷却期(秒)</span>}
+          value={draft.cooldown_seconds}
+          onChange={v => setDraft(d => ({ ...d, cooldown_seconds: typeof v === 'number' ? Math.trunc(v) : (parseInt(v) || 0) }))}
+          min={0}
+          size="sm"
+          hideControls
+        />
+        <Select
+          label={<span className="text-[11px] text-muted">严重级别</span>}
+          value={draft.severity}
+          onChange={v => v && setDraft(d => ({ ...d, severity: v as MonitorRule['severity'] }))}
+          data={(options.data?.severities ?? []).map(s => ({ value: s.key, label: s.label }))}
+          size="sm"
+          allowDeselect={false}
+        />
+        <TextInput
+          label={<span className="text-[11px] text-muted">自定义提示(可选)</span>}
+          value={draft.message}
+          onChange={e => setDraft(d => ({ ...d, message: e.target.value }))}
+          placeholder="留空用默认文案"
+          size="sm"
+          className="md:col-span-1"
+        />
       </div>
 
       {/* Webhook 推送 — 飞书 / 企业微信 */}
@@ -905,38 +940,36 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
         {/* 渠道列表 */}
         <div className="space-y-1.5">
           {/* 飞书 (可用) */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-2">
+            <Switch
+              size="xs"
+              label={<span className="text-[11px] text-foreground">飞书</span>}
               checked={(draft.webhook_channels ?? []).includes('feishu')}
               onChange={() => toggleChannel('feishu')}
-              className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">飞书</span>
             <span className="text-[9px] text-muted">群推送 Webhook</span>
             {(draft.webhook_channels ?? []).includes('feishu') && (
               <span className={`ml-auto text-[9px] ${feishuConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                 {feishuConfigured ? '已配置' : '未配置'}
               </span>
             )}
-          </label>
+          </div>
 
           {/* 企业微信 (可用) */}
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-2">
+            <Switch
+              size="xs"
+              label={<span className="text-[11px] text-foreground">企业微信</span>}
               checked={(draft.webhook_channels ?? []).includes('wecom')}
               onChange={() => toggleChannel('wecom')}
-              className="h-3 w-3 accent-accent cursor-pointer"
             />
-            <span className="text-[11px] text-foreground">企业微信</span>
             <span className="text-[9px] text-muted">群推送 Webhook</span>
             {(draft.webhook_channels ?? []).includes('wecom') && (
               <span className={`ml-auto text-[9px] ${wecomConfigured ? 'text-emerald-500' : 'text-warning'}`}>
                 {wecomConfigured ? '已配置' : '未配置'}
               </span>
             )}
-          </label>
+          </div>
 
         </div>
 
@@ -971,10 +1004,10 @@ export function RuleEditor({ rule, preset, simple, onClose, onSaved }: Props) {
       {error && <div className="rounded-btn border border-danger/30 bg-danger/5 px-3 py-2 text-xs text-danger">{error}</div>}
 
       <div className="flex justify-end gap-2">
-        <button onClick={onClose} className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs cursor-pointer">取消</button>
-        <button onClick={() => save.mutate()} disabled={save.isPending} className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-btn bg-accent text-base text-xs font-medium disabled:opacity-50 cursor-pointer">
-          <Save className="h-3.5 w-3.5" />保存
-        </button>
+        <Button variant="default" size="xs" onClick={onClose}>取消</Button>
+        <Button color="accent" size="xs" loading={save.isPending} leftSection={<Save className="h-3.5 w-3.5" />} onClick={() => save.mutate()}>
+          保存
+        </Button>
       </div>
     </div>
   )

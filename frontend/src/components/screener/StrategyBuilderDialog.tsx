@@ -166,6 +166,59 @@ class CustomMatrixStrategy:
 MATRIX_STRATEGY = CustomMatrixStrategy()
 `
 
+const HISTORY_TEMPLATE = `"""历史窗口策略示例"""
+import polars as pl
+
+META = {
+    "id": "custom_history_strategy",
+    "name": "历史窗口策略",
+    "description": "使用最近交易日数据判断趋势",
+    "tags": ["自定义", "历史窗口"],
+    "asset_types": ["stock"],
+    "timeframes": ["1d"],
+    "params": [],
+    "scoring": {},
+    "order_by": "score",
+    "descending": True,
+    "limit": 100,
+}
+
+EXECUTION_BACKEND = "python_history_legacy"
+LOOKBACK_DAYS = 2
+ENTRY_SIGNALS = []
+EXIT_SIGNALS = []
+STOP_LOSS = -0.05
+MAX_HOLD_DAYS = 20
+ALERTS = []
+
+RULES = """
+1. 今日收盘价高于前一交易日收盘价
+2. 返回所有交易日的匹配结果,供回测使用
+"""
+
+def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
+    if df.is_empty() or "date" not in df.columns:
+        return df.head(0)
+    hist = df.sort(["symbol", "date"]).with_columns(
+        pl.col("close").shift(1).over("symbol").alias("_prev_close"),
+    )
+    return hist.filter(pl.col("close") > pl.col("_prev_close"))
+`
+
+type ExecutionBackend = 'polars_expr' | 'matrix_native' | 'python_history_legacy'
+
+function templateForBackend(backend: ExecutionBackend): string {
+  if (backend === 'matrix_native') return MATRIX_TEMPLATE
+  if (backend === 'python_history_legacy') return HISTORY_TEMPLATE
+  return CUSTOM_TEMPLATE
+}
+
+function detectExecutionBackend(code: string): ExecutionBackend {
+  if (code.includes('python_history_legacy') || /filter_history\s*\(/.test(code)) return 'python_history_legacy'
+  if (code.includes('matrix_native') || code.includes('MATRIX_STRATEGY')) return 'matrix_native'
+  return 'polars_expr'
+}
+
 interface Props {
   open: boolean
   onClose: () => void
@@ -183,7 +236,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [direction, setDirection] = useState('long')
-  const [executionBackend, setExecutionBackend] = useState<'polars_expr' | 'matrix_native'>('polars_expr')
+  const [executionBackend, setExecutionBackend] = useState<ExecutionBackend>('polars_expr')
   const [rules, setRules] = useState('')
   const [code, setCode] = useState('')
   const [instruction, setInstruction] = useState('')
@@ -222,10 +275,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
       const restoredSource = d.source ?? (d.strategyId?.startsWith('custom_') ? 'custom' : 'ai')
       setStep(d.step ?? 1); setName(d.name ?? ''); setDescription(d.description ?? '')
       setDirection(d.direction ?? 'long')
-      setExecutionBackend(
-        (d as any).executionBackend
-        ?? (String(d.code ?? '').includes('matrix_native') ? 'matrix_native' : 'polars_expr'),
-      )
+      setExecutionBackend((d as any).executionBackend ?? detectExecutionBackend(String(d.code ?? '')))
       setRules(d.rules ?? ''); setCode(d.code ?? ''); setStrategyId(d.strategyId ?? '')
       setSource(restoredSource)
       setTab(mode === 'modify' || restoredSource === 'custom' ? 'custom' : 'ai')
@@ -270,10 +320,10 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
     return slugId(target)
   }
 
-  const selectExecutionBackend = (backend: 'polars_expr' | 'matrix_native') => {
+  const selectExecutionBackend = (backend: ExecutionBackend) => {
     setExecutionBackend(backend)
-    if (tab === 'custom' && (!code || code === CUSTOM_TEMPLATE || code === MATRIX_TEMPLATE)) {
-      setCode(backend === 'matrix_native' ? MATRIX_TEMPLATE : CUSTOM_TEMPLATE)
+    if (tab === 'custom' && (!code || code === CUSTOM_TEMPLATE || code === MATRIX_TEMPLATE || code === HISTORY_TEMPLATE)) {
+      setCode(templateForBackend(backend))
     }
   }
 
@@ -398,7 +448,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
     <Modal
       onClose={handleClose}
       labelledBy="strategy-builder-title"
-      overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      overlayClassName="bg-black/40 backdrop-blur-sm"
       panelClassName="w-[820px] max-h-[88vh] bg-surface/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden"
     >
 
@@ -409,7 +459,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
               <button onClick={() => { setTab('ai'); if (mode === 'create') setSource('ai') }} className={cn('px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer', tab === 'ai' ? 'bg-amber-400/15 text-amber-400' : 'text-muted hover:text-foreground')}>
                 <Sparkles className="h-3 w-3 inline mr-1" />AI 生成
               </button>
-              <button onClick={() => { setTab('custom'); if (mode === 'create') { setSource('custom'); if (!code) setCode(executionBackend === 'matrix_native' ? MATRIX_TEMPLATE : CUSTOM_TEMPLATE) } }} className={cn('px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer', tab === 'custom' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-foreground')}>
+              <button onClick={() => { setTab('custom'); if (mode === 'create') { setSource('custom'); if (!code) setCode(templateForBackend(executionBackend)) } }} className={cn('px-3 py-1 rounded-md text-xs font-medium transition-all cursor-pointer', tab === 'custom' ? 'bg-accent/15 text-accent' : 'text-muted hover:text-foreground')}>
                 <FileText className="h-3 w-3 inline mr-1" />自定义编写
               </button>
             </div>
@@ -436,21 +486,11 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
               <div className="flex items-center gap-2 text-[11px]">
                 <Sparkles className="h-3.5 w-3.5 text-amber-400 shrink-0" />
                 <span className="text-amber-400/80">步骤 1 描述策略规则 → 步骤 2 预览代码 → 保存</span>
-                <a href="https://github.com/shy3130/tickflow-stock-panel/blob/main/backend/app/strategy/prompts/strategy-guide.md"
-                   target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-1 text-accent/70 hover:text-accent transition-colors">
-                  <FileText className="h-3 w-3" />策略开发指南
-                </a>
               </div>
             ) : (
               <div className="flex items-center gap-2 text-[11px]">
                 <Terminal className="h-3.5 w-3.5 text-accent shrink-0" />
                 <span className="text-muted">适合有 Python 基础的开发者，手动编写策略文件进行深度定制和二次开发</span>
-                <a href="https://github.com/shy3130/tickflow-stock-panel/blob/main/backend/app/strategy/prompts/strategy-guide.md"
-                   target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-1 text-accent/70 hover:text-accent transition-colors">
-                  <FileText className="h-3 w-3" />策略开发指南
-                </a>
               </div>
             )}
           </div>
@@ -490,6 +530,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
                   <div className="flex gap-1">
                     <button onClick={() => selectExecutionBackend('polars_expr')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'polars_expr' ? 'border-amber-400/40 bg-amber-400/10 text-amber-400' : 'border-border bg-base text-muted hover:border-amber-400/30')}>Polars 表达式</button>
                     <button onClick={() => selectExecutionBackend('matrix_native')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'matrix_native' ? 'border-amber-400/40 bg-amber-400/10 text-amber-400' : 'border-border bg-base text-muted hover:border-amber-400/30')}>矩阵原生</button>
+                    <button onClick={() => selectExecutionBackend('python_history_legacy')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'python_history_legacy' ? 'border-amber-400/40 bg-amber-400/10 text-amber-400' : 'border-border bg-base text-muted hover:border-amber-400/30')}>历史策略</button>
                   </div>
                 </div>
                 <div>
@@ -615,6 +656,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
                   <span className="mr-2 text-[10px] text-muted/50 uppercase tracking-wider">执行后端</span>
                   <button onClick={() => selectExecutionBackend('polars_expr')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'polars_expr' ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-base text-muted')}>Polars 表达式</button>
                   <button onClick={() => selectExecutionBackend('matrix_native')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'matrix_native' ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-base text-muted')}>矩阵原生</button>
+                  <button onClick={() => selectExecutionBackend('python_history_legacy')} className={'px-2.5 py-1 rounded text-[11px] font-medium border transition-colors ' + (executionBackend === 'python_history_legacy' ? 'border-accent/40 bg-accent/10 text-accent' : 'border-border bg-base text-muted')}>历史策略</button>
                 </div>
                 <div className="rounded-xl border border-border/40 bg-elevated/50 p-4 space-y-2.5">
                   <div className="flex items-center justify-between gap-2">
@@ -623,7 +665,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
                       <span className="text-sm font-medium text-foreground">自定义策略代码</span>
                       {validated && <span className="text-[10px] text-emerald-400">已校验</span>}
                     </div>
-                    <button onClick={() => { navigator.clipboard.writeText(code || (executionBackend === 'matrix_native' ? MATRIX_TEMPLATE : CUSTOM_TEMPLATE)); setCustomCopied(true); setTimeout(() => setCustomCopied(false), 2000) }}
+                    <button onClick={() => { navigator.clipboard.writeText(code || templateForBackend(executionBackend)); setCustomCopied(true); setTimeout(() => setCustomCopied(false), 2000) }}
                       className={cn('inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all cursor-pointer', customCopied ? 'bg-emerald-400/10 text-emerald-400' : 'bg-elevated text-muted hover:text-foreground hover:bg-accent/10')}>
                       {customCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                       {customCopied ? '已复制' : '复制代码'}
@@ -640,7 +682,7 @@ export function StrategyBuilderDialog({ open, onClose, onSavedId, mode = 'create
                   </div>
                   {error && <div className="text-[11px] text-danger bg-danger/10 border border-danger/20 rounded-lg px-3 py-2">{error}</div>}
                   <div className="flex items-center justify-end gap-2">
-                    <button onClick={() => { setCode(executionBackend === 'matrix_native' ? MATRIX_TEMPLATE : CUSTOM_TEMPLATE); setStrategyId(''); setSource('custom'); setValidated(false) }}
+                    <button onClick={() => { setCode(templateForBackend(executionBackend)); setStrategyId(''); setSource('custom'); setValidated(false) }}
                       className="h-8 px-3 rounded-lg border border-border text-xs text-secondary hover:text-foreground">
                       使用模板
                     </button>

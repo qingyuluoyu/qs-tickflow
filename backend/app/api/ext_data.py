@@ -15,6 +15,7 @@ import polars as pl
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from app.market_time import cn_today, is_market_snapshot_stale
 from app.services.ext_data import (
     ExtConfig,
     ExtConfigStore,
@@ -33,6 +34,32 @@ from app.services.ext_pull import fetch_and_ingest, pull_scheduler
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/ext-data", tags=["ext-data"])
 _BUILTIN_CONFIG_IDS = frozenset({"ext_gn_ths", "ext_hy_ths"})
+
+
+def _data_freshness(active_date: str | None, *, explicit_date: bool) -> dict[str, object]:
+    """Return explicit freshness metadata for the dimension pages.
+
+    ``active_date`` can be a partition date or a snapshot file timestamp. Only
+    the date portion participates in the market-day comparison. A caller that
+    explicitly selected a historical partition is not warned about that
+    intentional choice.
+    """
+    current_date = cn_today()
+    snapshot_date = str(active_date or "")[:10] or None
+    try:
+        parsed = date.fromisoformat(snapshot_date) if snapshot_date else None
+    except ValueError:
+        parsed = None
+    return {
+        "snapshot_date": snapshot_date,
+        "current_date": current_date.isoformat(),
+        "is_stale": (
+            False
+            if explicit_date
+            else is_market_snapshot_stale(parsed, current_date)
+        ),
+        "calendar_basis": "weekday_fallback",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -451,6 +478,7 @@ def list_rows(
         "label": config.label,
         "mode": config.mode,
         "date": active_date,
+        "data_freshness": _data_freshness(active_date, explicit_date=snapshot_date is not None),
         "total": total,
         "limit": limit,
         "fields": [f.to_dict() for f in config.fields],

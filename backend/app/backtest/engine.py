@@ -1587,8 +1587,6 @@ class BacktestEngine:
             exit_signal_ids=exit_signal_ids,
             minute_exit_trigger=config.exit_fill == "signal_next_minute",
         )
-        if not matrix.entry.any():
-            return self._empty_result()
         return self._simulate_portfolio_matrix(matrix, config, progress_cb, cancel_event)
 
     def simulate_market_matrix(
@@ -1600,8 +1598,6 @@ class BacktestEngine:
         options: SimulationOptions | None = None,
     ) -> SimResult:
         """Run the production Python matcher on a prebuilt MarketMatrix."""
-        if not matrix.entry.any():
-            return self._empty_result()
         return self._simulate_portfolio_matrix(matrix, config, progress_cb, cancel_event, options)
 
     def _simulate_portfolio_matrix(

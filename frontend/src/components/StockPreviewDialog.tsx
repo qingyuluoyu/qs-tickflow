@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, RefreshCw, Clock } from 'lucide-react'
+import { Modal as MantineModal } from '@mantine/core'
+import { X, RefreshCw, Clock, Star } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { cnSignal } from '@/lib/signals'
@@ -10,7 +11,8 @@ import { DatePicker } from '@/components/DatePicker'
 import { RuleEditor } from '@/components/monitor/RuleEditor'
 import { usePreferences, useQuoteStatus } from '@/lib/useSharedQueries'
 import { setFocusSymbol, clearFocusSymbol } from '@/lib/useQuoteStream'
-import { useDialogBackdrop } from '@/lib/useDialogBackdrop'
+import { useAuth } from '@/lib/auth'
+import { toast } from '@/lib/notify'
 
 interface Props {
   symbol: string | null
@@ -35,7 +37,7 @@ const PRESETS: { label: string; months: number }[] = [
 ]
 
 function boardTag(symbol: string): { label: string; color: string } | null {
-  if (/^(300|301)/.test(symbol)) return { label: '创', color: 'text-[#f97316] bg-[#f97316]/12 border-[#f97316]/25' }
+  if (/^(300|301)/.test(symbol)) return { label: '创', color: 'text-[#0ea5e9] bg-[#0ea5e9]/12 border-[#0ea5e9]/25' }
   if (/^688/.test(symbol))       return { label: '科', color: 'text-purple-400 bg-purple-400/12 border-purple-400/25' }
   if (/^[48]/.test(symbol))      return { label: '北', color: 'text-cyan-400 bg-cyan-400/12 border-cyan-400/25' }
   return null
@@ -46,10 +48,10 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
   const [dateRange, setDateRange] = useState(getDefaultRange)
   const [showMonitorEditor, setShowMonitorEditor] = useState(false)
   const qc = useQueryClient()
-  const backdrop = useDialogBackdrop(onClose)
+  const { user } = useAuth()
 
   const watchlist = useQuery({
-    queryKey: QK.watchlist,
+    queryKey: QK.watchlistFor(user.id),
     queryFn: api.watchlistList,
     enabled: !!symbol,
   })
@@ -58,20 +60,14 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
   const toggleWatchlist = useMutation({
     mutationFn: () => inWatchlist ? api.watchlistRemove(symbol!) : api.watchlistAdd(symbol!),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
+    onError: (error) => toast(error instanceof Error ? error.message : '自选操作失败', 'error'),
   })
 
-  // ESC 关闭
-  useEffect(() => {
-    if (!symbol) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [symbol, onClose])
+  // ESC 关闭 / 遮罩点击关闭 / 焦点管理由 Mantine Modal 内置处理
 
   // 焦点股票注册: SSE quotes_updated 推送时精准 invalidate 当前股票日K,
   // 让对话框日K最后一根蜡烛随实时价变化 (后端只读内存, 不调 TickFlow)。
@@ -101,28 +97,24 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
   }
 
   return (
-    <AnimatePresence>
+    <MantineModal
+      opened={!!symbol}
+      onClose={onClose}
+      withCloseButton={false}
+      centered
+      padding={0}
+      transitionProps={{ duration: 150 }}
+      overlayProps={{ backgroundOpacity: 0.6, blur: 4 }}
+      classNames={{
+        content: 'relative w-[92vw] max-w-[1100px] max-h-[95vh] rounded-card border border-border bg-base shadow-2xl overflow-hidden flex flex-col',
+        body: 'flex min-h-0 flex-1 flex-col',
+      }}
+      // 宽度交给 classNames 的 w-*/max-w-* 控制 (默认 flex-basis 会覆盖 width)
+      styles={{ content: { flex: '0 1 auto' } }}
+    >
       {symbol && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          {/* 遮罩 */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            {...backdrop}
-          />
-
-          {/* 弹窗主体 */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 8 }}
-            transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="relative w-[92vw] max-w-[1100px] max-h-[95vh] rounded-card border border-border bg-base shadow-2xl overflow-hidden flex flex-col"
-          >
-            {/* 顶栏 */}
+        <>
+          {/* 顶栏 */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
               <div className="flex items-center gap-2">
                 {(() => {
@@ -189,6 +181,24 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 >
                   <Clock className="h-3 w-3" />
                   分时
+                </button>
+
+                <span className="text-muted/20 mx-0.5">|</span>
+
+                {/* 弹窗顶栏提供明确的加入/移出自选入口；底部信息条仍保留星标快捷操作。 */}
+                <button
+                  onClick={() => toggleWatchlist.mutate()}
+                  disabled={watchlist.isLoading || toggleWatchlist.isPending}
+                  aria-pressed={inWatchlist}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors border disabled:cursor-not-allowed disabled:opacity-60 ${
+                    inWatchlist
+                      ? 'border-yellow-400/30 bg-yellow-400/10 text-yellow-300 hover:bg-yellow-400/15'
+                      : 'border-border bg-elevated text-secondary hover:border-accent/30 hover:text-foreground'
+                  }`}
+                  title={inWatchlist ? '移出自选' : '加入自选'}
+                >
+                  <Star className="h-3 w-3" fill={inWatchlist ? 'currentColor' : 'none'} />
+                  {watchlist.isLoading ? '读取中…' : toggleWatchlist.isPending ? '处理中…' : inWatchlist ? '已加自选' : '加入自选'}
                 </button>
 
                 <span className="text-muted/20 mx-0.5">|</span>
@@ -295,9 +305,8 @@ export function StockPreviewDialog({ symbol, name, onClose, triggerInfo }: Props
                 </motion.div>
               )}
             </AnimatePresence>
-          </motion.div>
-        </div>
+        </>
       )}
-    </AnimatePresence>
+    </MantineModal>
   )
 }

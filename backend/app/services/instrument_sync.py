@@ -124,6 +124,13 @@ def sync_instruments(data_dir: Path) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     df.write_parquet(out)
 
+    # 自定义数据源的 instruments 不带股本(写 None), 重写维表会清掉此前的回填结果;
+    # 立即用 financials/shares 重新回填, 否则回测 basic_filter 的市值下限会过滤掉全部标的。
+    try:
+        backfill_shares_from_financials(data_dir)
+    except Exception as e:
+        logger.warning("instruments shares backfill after sync failed: %s", e)
+
     logger.info("instruments synced: %d rows → %s", df.height, out)
     return df.height
 
@@ -174,3 +181,52 @@ def enrich_names_from_quotes(
     df.write_parquet(inst_path)
     logger.info("instruments name enriched from quotes: %d names", len(name_map))
     return len(name_map)
+
+
+def backfill_shares_from_financials(data_dir: Path) -> int:
+    """用 financials/shares 表的最新股本回填 instruments 中缺失的 total_shares/float_shares。
+
+    自定义日K数据源(如 TeaJoin)的 instruments 不带股本(写 None),
+    但 shares 表已从 daily_basic 转换出了真实股本。不回填会导致
+    回测 basic_filter 的 market_cap 下限把所有标的过滤掉(市值=0)。
+    返回回填的标的数。
+    """
+    inst_path = data_dir / "instruments" / "instruments.parquet"
+    shares_path = data_dir / "financials" / "shares" / "part.parquet"
+    if not inst_path.exists() or not shares_path.exists():
+        return 0
+    try:
+        inst = pl.read_parquet(inst_path)
+        shares = pl.read_parquet(shares_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("backfill shares 读取失败: %s", e)
+        return 0
+    if inst.is_empty() or shares.is_empty():
+        return 0
+    if not {"symbol", "period_end", "total_shares", "float_shares"} <= set(shares.columns):
+        return 0
+
+    latest = (
+        shares
+        .filter(pl.col("total_shares").is_not_null())
+        .sort(["symbol", "period_end"])
+        .unique(subset=["symbol"], keep="last")
+        .select([
+            "symbol",
+            pl.col("total_shares").alias("_total"),
+            pl.col("float_shares").alias("_float"),
+        ])
+    )
+    df = inst.join(latest, on="symbol", how="left")
+    df = df.with_columns([
+        pl.when(pl.col("total_shares").is_null() | (pl.col("total_shares") <= 0))
+        .then(pl.col("_total")).otherwise(pl.col("total_shares")).alias("total_shares"),
+        pl.when(pl.col("float_shares").is_null() | (pl.col("float_shares") <= 0))
+        .then(pl.col("_float")).otherwise(pl.col("float_shares")).alias("float_shares"),
+    ]).drop(["_total", "_float"])
+    filled = df.filter(pl.col("total_shares").is_not_null() & (pl.col("total_shares") > 0)).height
+    if df.equals(inst):
+        return 0
+    df.write_parquet(inst_path)
+    logger.info("instruments shares backfilled from financials/shares: %d/%d stocks", filled, df.height)
+    return filled

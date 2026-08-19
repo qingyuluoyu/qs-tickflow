@@ -2,12 +2,14 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus } from 'lucide-react'
+import { ActionIcon, Badge, Button, NumberInput, TextInput, Tooltip } from '@mantine/core'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, ChevronsUp, Clock, RotateCcw, ImagePlus, Newspaper } from 'lucide-react'
 import { api, type KlineRow, type MinuteKlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { storage } from '@/lib/storage'
+import { storageForUser } from '@/lib/storage'
 import { fmtPrice, fmtPct, fmtBigNum, priceColorClass, formatExtNumber } from '@/lib/format'
 import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { EmptyState } from '@/components/EmptyState'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import {
@@ -16,6 +18,8 @@ import {
   type DimensionMembersTarget,
 } from '@/components/DimensionMembersDialog'
 import { WatchlistImportDialog } from '@/components/WatchlistImportDialog'
+import { Modal } from '@/components/Modal'
+import { WatchlistNewsModal } from '@/components/WatchlistNewsModal'
 import { getOcrInstallHint } from '@/lib/ocrInstallHint'
 import { ColumnCustomizer } from '@/components/ColumnCustomizer'
 import { StockDataTable } from '@/components/stock-table/StockDataTable'
@@ -27,6 +31,7 @@ import { boardTag, renderBuiltinDataCell } from '@/components/stock-table/primit
 import { getSignals, signalCls, getSortValue, UNSORTABLE_KEYS } from '@/lib/stock-table'
 import { resolveCandleConfig, resolveIntradayConfig } from '@/lib/list-columns'
 import { useQuoteStatus, useCapabilities, usePreferences } from '@/lib/useSharedQueries'
+import { useAuth } from '@/lib/auth'
 import {
   type ColumnConfig,
   BUILTIN_COLUMNS,
@@ -54,10 +59,10 @@ function getBoardType(symbol: string): BoardType | null {
 // ===== 换手率分档色（卡片/表格用） =====
 
 function turnoverColor(rate: number | null | undefined): string {
-  if (rate == null || Number.isNaN(rate)) return 'text-[#888]'
-  if (rate < 5)   return 'text-[#888]'
+  if (rate == null || Number.isNaN(rate)) return 'text-muted'
+  if (rate < 5)   return 'text-muted'
   if (rate < 10)  return 'text-[#d4a800]'
-  if (rate < 20)  return 'text-[#f97316]'
+  if (rate < 20)  return 'text-[#0ea5e9]'
   if (rate < 35)  return 'text-[#d94a3d]'
   return 'text-[#b84a8a]'
 }
@@ -126,12 +131,12 @@ function renderExtValue(
           key={i}
           type="button"
           onClick={event => { event.stopPropagation(); onTagClick(tag) }}
-          className="inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight text-yellow-500 bg-yellow-500/10 hover:brightness-95"
+          className="inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight text-warning bg-warning/10 hover:brightness-95"
         >
           {tag}
         </button>
       ) : (
-        <span key={i} className="inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight text-yellow-500 bg-yellow-500/10">
+        <span key={i} className="inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight text-warning bg-warning/10">
           {tag}
         </span>
       ))}
@@ -267,19 +272,18 @@ function StockSearchBox({
 
   return (
     <div ref={containerRef} className="relative">
-      <div className="relative flex items-center">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted pointer-events-none" />
-        <input
-          ref={inputRef}
-          type="text"
-          placeholder="搜索…"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); setActiveIdx(-1) }}
-          onFocus={() => { if (query.trim()) setOpen(true) }}
-          onKeyDown={handleKeyDown}
-          className="w-44 h-8 pl-8 pr-2.5 rounded-btn bg-elevated border border-border text-xs text-foreground placeholder:text-muted focus:outline-none focus:border-accent/50 focus:w-56 transition-all duration-200"
-        />
-      </div>
+      <TextInput
+        ref={inputRef}
+        placeholder="搜索…"
+        value={query}
+        onChange={(e) => { setQuery(e.currentTarget.value); setOpen(true); setActiveIdx(-1) }}
+        onFocus={() => { if (query.trim()) setOpen(true) }}
+        onKeyDown={handleKeyDown}
+        size="sm"
+        leftSection={<Search className="h-3.5 w-3.5 text-muted pointer-events-none" />}
+        className="w-44 focus-within:w-56 transition-all duration-200"
+        classNames={{ input: 'h-8 min-h-0 rounded-btn bg-elevated border-border text-xs text-foreground placeholder:text-muted focus:border-accent/50' }}
+      />
 
       <AnimatePresence>
         {open && results.length > 0 && (
@@ -307,10 +311,10 @@ function StockSearchBox({
                     <span className="font-mono shrink-0 w-[80px]">{r.symbol}</span>
                     <span className="truncate text-secondary flex-1">{r.name}</span>
                     {r.asset_type === 'etf' && (
-                      <span className="shrink-0 px-1 py-0.5 rounded text-[10px] leading-none bg-accent/10 text-accent">ETF</span>
+                      <Badge size="xs" variant="light" className="shrink-0 h-auto min-h-0 px-1 py-0.5 rounded text-[10px] leading-none normal-case tracking-normal bg-accent/10 text-accent">ETF</Badge>
                     )}
                     {r.asset_type === 'index' && (
-                      <span className="shrink-0 px-1 py-0.5 rounded text-[10px] leading-none bg-sky-500/10 text-sky-400">指数</span>
+                      <Badge size="xs" variant="light" className="shrink-0 h-auto min-h-0 px-1 py-0.5 rounded text-[10px] leading-none normal-case tracking-normal bg-sky-500/10 text-sky-400">指数</Badge>
                     )}
                     {(() => {
                       const b = boardTag(r.symbol)
@@ -319,19 +323,21 @@ function StockSearchBox({
                       )
                     })()}
                   </button>
-                  <button
-                    type="button"
+                  <ActionIcon
                     onClick={e => { e.stopPropagation(); onAdd(r.symbol) }}
                     disabled={inWatchlist}
-                    className={`shrink-0 p-1 rounded transition-colors ${
+                    variant="subtle"
+                    size="sm"
+                    className={`shrink-0 h-6 w-6 min-h-0 rounded transition-colors ${
                       inWatchlist
                         ? 'text-accent bg-accent/10 cursor-default'
                         : 'text-muted hover:text-accent hover:bg-accent/10'
                     }`}
                     title={inWatchlist ? '已加自选' : '加入自选'}
+                    aria-label={inWatchlist ? '已加自选' : '加入自选'}
                   >
                     {inWatchlist ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-                  </button>
+                  </ActionIcon>
                 </div>
               )
             })}
@@ -448,24 +454,34 @@ const StockCard = React.memo(function StockCard({
       <div className="absolute top-1.5 right-1.5 z-10">
         {isConfirming ? (
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-            <button
+            <Button
               onClick={() => onConfirmRemove(r.symbol)}
-              className="px-1.5 py-0.5 rounded text-[10px] text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
+              variant="subtle"
+              size="compact-xs"
+              className="h-auto min-h-0 px-1.5 py-0.5 rounded text-[10px] font-normal text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
             >
               确认
-            </button>
-            <button onClick={() => onCancelRemove()} className="p-0.5 text-muted hover:text-foreground transition-colors">
+            </Button>
+            <ActionIcon
+              onClick={() => onCancelRemove()}
+              variant="subtle"
+              size="xs"
+              className="h-auto min-h-0 w-auto p-0.5 text-muted hover:text-foreground transition-colors"
+              aria-label="取消"
+            >
               <X className="h-3 w-3" />
-            </button>
+            </ActionIcon>
           </div>
         ) : (
-          <button
+          <ActionIcon
             onClick={e => { e.stopPropagation(); onRequestRemove(r.symbol) }}
-            className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
+            variant="subtle"
+            size="sm"
+            className="h-auto min-h-0 w-auto p-0.5 rounded opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 hover:bg-elevated"
             aria-label="移除"
           >
             <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          </ActionIcon>
         )}
       </div>
 
@@ -570,14 +586,16 @@ const StockCard = React.memo(function StockCard({
 
 export function Watchlist() {
   const qc = useQueryClient()
+  const { user } = useAuth()
+  const userStorage = useMemo(() => storageForUser(user.id), [user.id])
   const [viewMode, setViewMode] = useState<'table' | 'card'>(() => {
-    return (storage.watchlistView.get('table') as 'table' | 'card')
+    return (userStorage.watchlistView.get('table') as 'table' | 'card')
   })
   const [dailyKChartVisible, setDailyKChartVisible] = useState(() => {
-    return storage.watchlistCandle.get(true)
+    return userStorage.watchlistCandle.get(true)
   })
   const [intradayChartVisible, setIntradayChartVisible] = useState(() => {
-    return storage.watchlistIntraday.get(true)
+    return userStorage.watchlistIntraday.get(true)
   })
 
   // 列配置 — 从后端/localStorage 异步加载
@@ -586,13 +604,15 @@ export function Watchlist() {
   const [importOpen, setImportOpen] = useState(false)
   const [ocrAvailable, setOcrAvailable] = useState<boolean | null>(null)
   const [ocrInstallHint, setOcrInstallHint] = useState('')
+  const [newsOpen, setNewsOpen] = useState(false)
+  const [newsCategory, setNewsCategory] = useState<'announcement' | 'public_news' | 'today_highlight'>('announcement')
   const columnsLoaded = useRef(false)
 
   useEffect(() => {
     if (columnsLoaded.current) return
     columnsLoaded.current = true
-    loadColumnConfig().then(setColumns)
-  }, [])
+    loadColumnConfig(user.id).then(setColumns)
+  }, [user.id])
 
   useEffect(() => {
     let cancelled = false
@@ -615,8 +635,8 @@ export function Watchlist() {
 
   const handleColumnsChange = useCallback((next: ColumnConfig[]) => {
     setColumns(next)
-    saveColumnConfig(next)
-  }, [])
+    saveColumnConfig(next, user.id)
+  }, [user.id])
 
   const candleColumn = useMemo(() =>
     columns.find(c => c.source.type === 'builtin' && c.source.key === 'candle' && c.visible),
@@ -655,24 +675,24 @@ export function Watchlist() {
   const toggleView = useCallback(() => {
     setViewMode(v => {
       const next = v === 'table' ? 'card' : 'table'
-      storage.watchlistView.set(next)
+      userStorage.watchlistView.set(next)
       return next
     })
-  }, [])
+  }, [userStorage])
   const toggleDailyKChart = useCallback(() => {
     setDailyKChartVisible(v => {
       const next = !v
-      storage.watchlistCandle.set(next)
+      userStorage.watchlistCandle.set(next)
       return next
     })
-  }, [])
+  }, [userStorage])
   const toggleIntradayChart = useCallback(() => {
     setIntradayChartVisible(v => {
       const next = !v
-      storage.watchlistIntraday.set(next)
+      userStorage.watchlistIntraday.set(next)
       return next
     })
-  }, [])
+  }, [userStorage])
   const [previewSymbol, setPreviewSymbol] = useState<string | null>(null)
   const [previewName, setPreviewName] = useState<string>('')
   const [dimensionTarget, setDimensionTarget] = useState<DimensionMembersTarget | null>(null)
@@ -692,13 +712,13 @@ export function Watchlist() {
   }, [])
 
   const list = useQuery({
-    queryKey: QK.watchlist,
+    queryKey: QK.watchlistFor(user.id),
     queryFn: api.watchlistList,
   })
 
   // enriched 数据 — 传入 ext_columns 参数
   const enriched = useQuery({
-    queryKey: QK.watchlistEnriched(extColumnsParam),
+    queryKey: QK.watchlistEnrichedFor(user.id, extColumnsParam),
     queryFn: () => api.watchlistEnriched(extColumnsParam || undefined),
     enabled: (list.data?.symbols.length ?? 0) > 0,
   })
@@ -719,7 +739,7 @@ export function Watchlist() {
 
   // 批量日k数据 (天数由列配置决定)
   const klineBatch = useQuery({
-    queryKey: QK.watchlistKlineBatch(`${symbolsKey}|${candleDays}`),
+    queryKey: QK.watchlistKlineBatchFor(user.id, `${symbolsKey}|${candleDays}`),
     queryFn: () => api.klineDailyBatch(symbols, candleDays),
     enabled: dailyKVisible && symbols.length > 0,
     staleTime: 5 * 60_000,  // 5 分钟内不重请求
@@ -744,11 +764,11 @@ export function Watchlist() {
 
   const addMutation = useMutation({
     mutationFn: (sym: string) => api.watchlistAdd(sym),
-    onSuccess: (data) => {
-      qc.setQueryData(QK.watchlist, data)
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
-      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch'] })
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
@@ -756,24 +776,25 @@ export function Watchlist() {
     mutationFn: (sym: string) => api.watchlistRemove(sym),
     onSuccess: (_data, sym) => {
       // 1. 立即从 enriched 缓存中移除该股票，UI 即时更新
-      qc.setQueryData(['watchlist-enriched', extColumnsParam], (old: any) => {
+      qc.setQueryData(QK.watchlistEnrichedFor(user.id, extColumnsParam), (old: any) => {
         if (!old?.rows) return old
         return { ...old, rows: old.rows.filter((r: any) => r.symbol !== sym) }
       })
       // 2. 清除 list 缓存，触发后台 refetch
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
-      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch'] })
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
   const moveToTop = useMutation({
     mutationFn: (sym: string) => api.watchlistMoveToTop(sym),
-    onSuccess: (data) => {
-      qc.setQueryData(QK.watchlist, data)
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
-      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch'] })
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
       qc.invalidateQueries({ queryKey: QK.preferences })
       qc.invalidateQueries({ queryKey: QK.quoteStatus })
     },
@@ -784,10 +805,11 @@ export function Watchlist() {
     onSuccess: () => {
       setConfirmClear(false)
       // 立即清空 enriched 缓存
-      qc.setQueryData(['watchlist-enriched', extColumnsParam], { rows: [], as_of: null, elapsed_ms: 0 })
-      qc.invalidateQueries({ queryKey: QK.watchlist })
-      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
-      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch'] })
+      qc.setQueryData(QK.watchlistEnrichedFor(user.id, extColumnsParam), { rows: [], as_of: null, elapsed_ms: 0 })
+      qc.invalidateQueries({ queryKey: QK.watchlistFor(user.id) })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-kline-batch', user.id] })
+      qc.invalidateQueries({ queryKey: ['watchlist-news', user.id] })
     },
   })
 
@@ -826,13 +848,13 @@ export function Watchlist() {
 
   // 板块筛选（持久化）
   const [boardFilter, setBoardFilter] = useState<Set<string>>(() => {
-    const saved = storage.watchlistBoardFilter.get([])
+    const saved = userStorage.watchlistBoardFilter.get([])
     return saved.length > 0 ? new Set(saved) : new Set(BOARDS) // 默认全选
   })
   const persistBoardFilter = useCallback((next: Set<string>) => {
     setBoardFilter(next)
-    storage.watchlistBoardFilter.set([...next])
-  }, [])
+    userStorage.watchlistBoardFilter.set([...next])
+  }, [userStorage])
 
   const toggleBoard = useCallback((board: string) => {
     setBoardFilter(prev => {
@@ -1021,92 +1043,149 @@ export function Watchlist() {
         right={
           <div className="flex items-center gap-2">
             {/* 筛选 / 重置 / 搜索 */}
-            <button
-              onClick={() => setFilterOpen(v => !v)}
-              className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
-                filterOpen || hasActiveFilters
-                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
-                  : 'bg-elevated text-secondary hover:bg-elevated/80'
-              }`}
-              title={`筛选${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
-            >
-              <Filter className="h-4 w-4" />
-            </button>
-            {hasActiveFilters && (
-              <button
-                onClick={resetAllFilters}
-                className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated text-secondary hover:bg-danger/10 hover:text-danger transition-colors duration-150 ease-smooth"
-                title="重置全部筛选"
-                aria-label="重置全部筛选"
+            <Tooltip label={`筛选${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`} position="bottom">
+              <ActionIcon
+                onClick={() => setFilterOpen(v => !v)}
+                variant="subtle"
+                size="lg"
+                className={`h-8 w-8 min-h-0 rounded-btn transition-colors duration-150 ease-smooth ${
+                  filterOpen || hasActiveFilters
+                    ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                    : 'bg-elevated text-secondary hover:bg-elevated/80'
+                }`}
+                aria-label="筛选"
               >
-                <RotateCcw className="h-4 w-4" />
-              </button>
+                <Filter className="h-4 w-4" />
+              </ActionIcon>
+            </Tooltip>
+            {hasActiveFilters && (
+              <Tooltip label="重置全部筛选" position="bottom">
+                <ActionIcon
+                  onClick={resetAllFilters}
+                  variant="subtle"
+                  size="lg"
+                  className="h-8 w-8 min-h-0 rounded-btn bg-elevated text-secondary hover:bg-danger/10 hover:text-danger transition-colors duration-150 ease-smooth"
+                  aria-label="重置全部筛选"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </ActionIcon>
+              </Tooltip>
             )}
             <StockSearchBox
               onPreview={(sym, name) => { setPreviewSymbol(sym); setPreviewName(name) }}
               existingSymbols={allSymbols as string[]}
               onAdd={(sym) => addMutation.mutate(sym)}
             />
-            <button
-              onClick={() => {
-                if (ocrAvailable === false) return
-                setImportOpen(true)
-              }}
-              disabled={ocrAvailable === false}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-elevated disabled:hover:text-secondary"
-              title={
+            <Tooltip
+              label={
                 ocrAvailable === false
                   ? ocrInstallHint || 'OCR 不可用，请先安装 Tesseract'
                   : '从截图导入自选'
               }
+              position="bottom"
             >
-              <ImagePlus className="h-4 w-4" />
-            </button>
+              {/* span 包裹: disabled 元素不触发鼠标事件, 保证提示可显示 */}
+              <span className="inline-flex">
+                <ActionIcon
+                  onClick={() => {
+                    if (ocrAvailable === false) return
+                    setImportOpen(true)
+                  }}
+                  disabled={ocrAvailable === false}
+                  variant="subtle"
+                  size="lg"
+                  className="h-8 w-8 min-h-0 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-elevated disabled:hover:text-secondary"
+                  aria-label="从截图导入自选"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </ActionIcon>
+              </span>
+            </Tooltip>
             <div className="w-px h-5 bg-border" />
             {/* 视图 */}
-            <button
-              onClick={toggleView}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
-              title={viewMode === 'table' ? '卡片视图' : '列表视图'}
-            >
-              {viewMode === 'table' ? <LayoutGrid className="h-4 w-4" /> : <List className="h-4 w-4" />}
-            </button>
+            <Tooltip label={viewMode === 'table' ? '卡片视图' : '列表视图'} position="bottom">
+              <ActionIcon
+                onClick={toggleView}
+                variant="subtle"
+                size="lg"
+                className="h-8 w-8 min-h-0 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
+                aria-label={viewMode === 'table' ? '卡片视图' : '列表视图'}
+              >
+                {viewMode === 'table' ? <LayoutGrid className="h-4 w-4" /> : <List className="h-4 w-4" />}
+              </ActionIcon>
+            </Tooltip>
             <div className="w-px h-5 bg-border" />
             {/* 自定义列 / 刷新 */}
-            <button
-              onClick={() => setCustomizerOpen(true)}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
-              title="自定义列"
-            >
-              <Settings2 className="h-4 w-4" />
-            </button>
-            <button
-              onClick={() => enriched.refetch()}
-              disabled={enriched.isFetching}
-              className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-50"
-              title="刷新"
-            >
-              <RefreshCw className={`h-4 w-4 ${enriched.isFetching ? 'animate-spin' : ''}`} />
-            </button>
+            <Tooltip label="自定义列" position="bottom">
+              <ActionIcon
+                onClick={() => setCustomizerOpen(true)}
+                variant="subtle"
+                size="lg"
+                className="h-8 w-8 min-h-0 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth"
+                aria-label="自定义列"
+              >
+                <Settings2 className="h-4 w-4" />
+              </ActionIcon>
+            </Tooltip>
+            <Tooltip label="刷新" position="bottom">
+              <span className="inline-flex">
+                <ActionIcon
+                  onClick={() => enriched.refetch()}
+                  disabled={enriched.isFetching}
+                  variant="subtle"
+                  size="lg"
+                  className="h-8 w-8 min-h-0 rounded-btn bg-elevated hover:bg-elevated/80 text-secondary hover:text-foreground transition-colors duration-150 ease-smooth disabled:opacity-50"
+                  aria-label="刷新"
+                >
+                  <RefreshCw className={`h-4 w-4 ${enriched.isFetching ? 'animate-spin' : ''}`} />
+                </ActionIcon>
+              </span>
+            </Tooltip>
             {allSymbols.length > 0 && (
               <>
                 <div className="w-px h-5 bg-border" />
-                <button
-                  onClick={() => setConfirmClear(true)}
-                  className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-danger/10 text-danger hover:bg-danger/20 transition-colors duration-150 ease-smooth"
-                  title="清空自选"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <Tooltip label="清空自选" position="bottom">
+                  <ActionIcon
+                    onClick={() => setConfirmClear(true)}
+                    variant="subtle"
+                    size="lg"
+                    className="h-8 w-8 min-h-0 rounded-btn bg-danger/10 text-danger hover:bg-danger/20 transition-colors duration-150 ease-smooth"
+                    aria-label="清空自选"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </ActionIcon>
+                </Tooltip>
               </>
             )}
           </div>
         }
       />
 
+      <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface/70 px-4 py-2 lg:px-6">
+        <div className="mr-1 inline-flex items-center gap-1.5 text-xs font-medium text-secondary">
+          <Newspaper className="h-3.5 w-3.5 text-accent" />
+          资讯雷达
+        </div>
+        {[
+          ['announcement', 'A股公告'],
+          ['public_news', '公开新闻'],
+          ['today_highlight', '今日要点'],
+        ].map(([value, label]) => (
+          <Button
+            key={value}
+            variant="subtle"
+            size="compact-sm"
+            onClick={() => { setNewsCategory(value as typeof newsCategory); setNewsOpen(true) }}
+            className="h-7 rounded-md bg-elevated px-2.5 text-xs text-secondary hover:bg-accent/10 hover:text-accent"
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+
       {/* 筛选栏 */}
       {filterOpen && (
-        <div className="px-5 py-2 border-b border-border bg-surface/50 max-h-[184px] overflow-y-auto">
+        <div className="px-4 lg:px-6 py-2 border-b border-border bg-surface/50 max-h-[184px] overflow-y-auto">
           {/* 板块筛选 */}
           <div className="mb-2">
             <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">板块</div>
@@ -1114,17 +1193,19 @@ export function Watchlist() {
               {BOARDS.map(board => {
                 const active = boardFilter.has(board)
                 return (
-                  <button
+                  <Button
                     key={board}
                     onClick={() => toggleBoard(board)}
-                    className={`px-2 py-0.5 rounded text-[11px] transition-colors ${
+                    variant="subtle"
+                    size="compact-xs"
+                    className={`h-auto min-h-0 px-2 py-0.5 rounded text-[11px] font-normal transition-colors ${
                       active
-                        ? 'bg-accent/15 text-accent'
+                        ? 'bg-accent/15 text-accent hover:bg-accent/25'
                         : 'bg-elevated text-secondary hover:text-foreground hover:bg-elevated/80'
                     }`}
                   >
                     {board}
-                  </button>
+                  </Button>
                 )
               })}
             </div>
@@ -1142,24 +1223,30 @@ export function Watchlist() {
                     return (
                       <div key={item.id} className="flex items-center gap-0.5 text-[11px]">
                         <span className={`whitespace-nowrap ${hasFilter ? 'text-accent' : 'text-secondary'}`}>{item.label}</span>
-                        <input
-                          type="number"
+                        <NumberInput
                           value={f.min ?? ''}
-                          onChange={e => updateFilter(item.id, { min: e.target.value })}
+                          onChange={val => updateFilter(item.id, { min: val == null || val === '' ? '' : String(val) })}
                           placeholder="min"
-                          className={`w-12 h-5 rounded border text-[10px] px-1 placeholder:text-muted focus:outline-none ${
-                            hasFilter ? 'border-accent/30 bg-accent/5' : 'border-border bg-elevated'
-                          } text-foreground focus:border-accent/50`}
+                          hideControls
+                          size="xs"
+                          classNames={{
+                            input: `w-12 h-5 min-h-0 rounded border text-[10px] px-1 placeholder:text-muted focus:outline-none ${
+                              hasFilter ? 'border-accent/30 bg-accent/5' : 'border-border bg-elevated'
+                            } text-foreground focus:border-accent/50`,
+                          }}
                         />
                         <span className="text-muted">~</span>
-                        <input
-                          type="number"
+                        <NumberInput
                           value={f.max ?? ''}
-                          onChange={e => updateFilter(item.id, { max: e.target.value })}
+                          onChange={val => updateFilter(item.id, { max: val == null || val === '' ? '' : String(val) })}
                           placeholder="max"
-                          className={`w-12 h-5 rounded border text-[10px] px-1 placeholder:text-muted focus:outline-none ${
-                            hasFilter ? 'border-accent/30 bg-accent/5' : 'border-border bg-elevated'
-                          } text-foreground focus:border-accent/50`}
+                          hideControls
+                          size="xs"
+                          classNames={{
+                            input: `w-12 h-5 min-h-0 rounded border text-[10px] px-1 placeholder:text-muted focus:outline-none ${
+                              hasFilter ? 'border-accent/30 bg-accent/5' : 'border-border bg-elevated'
+                            } text-foreground focus:border-accent/50`,
+                          }}
                         />
                       </div>
                     )
@@ -1169,16 +1256,21 @@ export function Watchlist() {
             )
           })}
           {hasActiveFilters && (
-            <button onClick={resetAllFilters} className="mt-1 text-[10px] text-danger hover:text-danger/80 transition-colors">
+            <Button
+              onClick={resetAllFilters}
+              variant="subtle"
+              size="compact-xs"
+              className="mt-1 h-auto min-h-0 px-0 text-[10px] font-normal text-danger hover:text-danger/80 hover:bg-transparent transition-colors"
+            >
               重置全部筛选
-            </button>
+            </Button>
           )}
         </div>
       )}
 
       {/* 可滚动列表区 — 占满剩余高度，内部独立滚动，表头 sticky 固定 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <div className="px-5 py-3">
+        <PageContainer>
           {/* 列表 */}
           {list.isLoading && <div className="text-sm text-muted">加载中…</div>}
           {list.isError && <div className="text-sm text-danger">读取自选失败</div>}
@@ -1204,10 +1296,11 @@ export function Watchlist() {
                   return (
                     <span className="inline-flex items-center justify-center gap-1.5">
                       <span>{col.label}</span>
-                      <button
-                        type="button"
+                      <ActionIcon
                         onClick={(event) => { event.stopPropagation(); toggleDailyKChart() }}
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
+                        variant="subtle"
+                        size="xs"
+                        className={`w-5 h-5 min-h-0 rounded transition-colors ${
                           dailyKChartVisible
                             ? 'text-accent bg-accent/10 hover:bg-accent/20'
                             : 'text-muted hover:text-foreground hover:bg-elevated'
@@ -1216,7 +1309,7 @@ export function Watchlist() {
                         aria-label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
                       >
                         {dailyKChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      </button>
+                      </ActionIcon>
                     </span>
                   )
                 }
@@ -1225,10 +1318,11 @@ export function Watchlist() {
                   return (
                     <span className="inline-flex items-center justify-center gap-1.5">
                       <span>{col.label}</span>
-                      <button
-                        type="button"
+                      <ActionIcon
                         onClick={(event) => { event.stopPropagation(); toggleIntradayChart() }}
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
+                        variant="subtle"
+                        size="xs"
+                        className={`w-5 h-5 min-h-0 rounded transition-colors ${
                           intradayChartVisible
                             ? 'text-accent bg-accent/10 hover:bg-accent/20'
                             : 'text-muted hover:text-foreground hover:bg-elevated'
@@ -1237,19 +1331,20 @@ export function Watchlist() {
                         aria-label={intradayChartVisible ? '隐藏分时图' : '显示分时图'}
                       >
                         {intradayChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      </button>
+                      </ActionIcon>
                       {/* 分时图显示 且 未开自动轮询时, 提供手动刷新按钮 */}
                       {intradayChartVisible && !intradayAutoRefresh && (
-                        <button
-                          type="button"
+                        <ActionIcon
                           onClick={(event) => { event.stopPropagation(); minuteBatch.refetch() }}
                           disabled={minuteBatch.isFetching}
-                          className="inline-flex items-center justify-center w-5 h-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
+                          variant="subtle"
+                          size="xs"
+                          className="w-5 h-5 min-h-0 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors disabled:opacity-40"
                           title="刷新分时数据"
                           aria-label="刷新分时数据"
                         >
                           <RefreshCw className={`h-3.5 w-3.5 ${minuteBatch.isFetching ? 'animate-spin' : ''}`} />
-                        </button>
+                        </ActionIcon>
                       )}
                       {/* 自动轮询中: 显示旋转图标提示正在实时刷新 */}
                       {intradayChartVisible && intradayAutoRefresh && (
@@ -1299,38 +1394,47 @@ export function Watchlist() {
                         <div className="ml-auto pl-1 shrink-0">
                           {confirmRemove === r.symbol ? (
                             <div className="flex items-center gap-1">
-                              <button
+                              <Button
                                 onClick={() => { remove.mutate(r.symbol); setConfirmRemove(null) }}
-                                className="px-1.5 py-0.5 rounded text-[10px] text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
+                                variant="subtle"
+                                size="compact-xs"
+                                className="h-auto min-h-0 px-1.5 py-0.5 rounded text-[10px] font-normal text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
                               >
                                 确认
-                              </button>
-                              <button
+                              </Button>
+                              <ActionIcon
                                 onClick={() => setConfirmRemove(null)}
-                                className="p-0.5 text-muted hover:text-foreground transition-colors"
+                                variant="subtle"
+                                size="xs"
+                                className="h-auto min-h-0 w-auto p-0.5 text-muted hover:text-foreground transition-colors"
+                                aria-label="取消"
                               >
                                 <X className="h-3 w-3" />
-                              </button>
+                              </ActionIcon>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1">
-                              <button
+                              <ActionIcon
                                 onClick={() => setConfirmRemove(r.symbol)}
-                                className="p-0.5 text-muted hover:text-danger transition-colors duration-150 ease-smooth"
+                                variant="subtle"
+                                size="xs"
+                                className="h-auto min-h-0 w-auto p-0.5 text-muted hover:text-danger transition-colors duration-150 ease-smooth"
                                 aria-label="移除"
                                 title="移除"
                               >
                                 <Minus className="h-3.5 w-3.5" />
-                              </button>
-                              <button
+                              </ActionIcon>
+                              <ActionIcon
                                 onClick={() => moveToTop.mutate(r.symbol)}
                                 disabled={moveToTop.isPending || allSymbols[0] === r.symbol}
-                                className="p-0.5 text-muted hover:text-accent transition-colors duration-150 ease-smooth disabled:opacity-30 disabled:hover:text-muted"
+                                variant="subtle"
+                                size="xs"
+                                className="h-auto min-h-0 w-auto p-0.5 text-muted hover:text-accent transition-colors duration-150 ease-smooth disabled:opacity-30 disabled:hover:text-muted"
                                 aria-label="移到顶部"
                                 title="移到顶部"
                               >
                                 <ChevronsUp className="h-3.5 w-3.5" />
-                              </button>
+                              </ActionIcon>
                             </div>
                           )}
                         </div>
@@ -1443,51 +1547,50 @@ export function Watchlist() {
               })}
             </div>
           )}
-        </div>
+        </PageContainer>
       </div>
 
-      {/* 清空确认弹窗 */}
-      <AnimatePresence>
-        {confirmClear && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.15 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      <WatchlistNewsModal
+        opened={newsOpen}
+        onClose={() => setNewsOpen(false)}
+        userId={user.id}
+        symbols={list.data?.symbols ?? []}
+        initialCategory={newsCategory}
+      />
+
+      {/* 清空确认弹窗 (Mantine Modal) */}
+      {confirmClear && (
+        <Modal
+          onClose={() => setConfirmClear(false)}
+          ariaLabel="确认清空自选"
+          panelClassName="w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
+          overlayClassName="bg-black/60 backdrop-blur-sm"
+        >
+          <h3 className="text-sm font-medium text-foreground mb-2">确认清空自选</h3>
+          <p className="text-xs text-secondary mb-5">
+            将移除全部 {allSymbols.length} 只自选股，此操作不可恢复。
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <Button
               onClick={() => setConfirmClear(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.97, y: 8 }}
-              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-              className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
+              variant="subtle"
+              size="sm"
+              className="px-3 py-1.5 h-auto min-h-0 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm font-normal transition-colors"
             >
-              <h3 className="text-sm font-medium text-foreground mb-2">确认清空自选</h3>
-              <p className="text-xs text-secondary mb-5">
-                将移除全部 {allSymbols.length} 只自选股，此操作不可恢复。
-              </p>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  onClick={() => setConfirmClear(false)}
-                  className="px-3 py-1.5 rounded-btn bg-elevated text-secondary hover:bg-elevated/80 text-sm transition-colors"
-                >
-                  取消
-                </button>
-                <button
-                  onClick={() => clearAll.mutate()}
-                  disabled={clearAll.isPending}
-                  className="px-3 py-1.5 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
-                >
-                  {clearAll.isPending ? '清除中...' : '确认清空'}
-                </button>
-              </div>
-            </motion.div>
+              取消
+            </Button>
+            <Button
+              onClick={() => clearAll.mutate()}
+              disabled={clearAll.isPending}
+              variant="subtle"
+              size="sm"
+              className="px-3 py-1.5 h-auto min-h-0 rounded-btn bg-danger/15 text-danger hover:bg-danger/25 text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              {clearAll.isPending ? '清除中...' : '确认清空'}
+            </Button>
           </div>
-        )}
-      </AnimatePresence>
+        </Modal>
+      )}
 
       {/* 列自定义侧栏 */}
       <ColumnCustomizer

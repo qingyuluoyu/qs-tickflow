@@ -11,17 +11,22 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as echarts from 'echarts'
 import {
-  Activity, RefreshCw, Loader2, Gauge, TrendingUp, TrendingDown, Minus,
+  Activity, RefreshCw, Gauge, TrendingUp, TrendingDown, Minus,
   Pencil, CalendarDays, Repeat, Rows3, LayoutGrid,
 } from 'lucide-react'
+import { Button, NumberInput, SegmentedControl } from '@mantine/core'
 import {
   api, type RegimeRow, type RegimeState,
   REGIME_STATE_LABELS, REGIME_STATE_COLORS,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
+import { useIsAdmin } from '@/lib/auth'
+import { useDataStatus } from '@/lib/useSharedQueries'
 import { useChartTheme } from '@/lib/theme'
-import { toast } from '@/components/Toast'
+import { toast } from '@/lib/notify'
 import { Modal } from '@/components/Modal'
+import { PageHeader } from '@/components/PageHeader'
+import { PageContainer } from '@/components/PageContainer'
 import { cn } from '@/lib/cn'
 
 const STATE_ORDER: RegimeState[] = ['strong', 'lean_strong', 'range', 'lean_weak', 'weak']
@@ -67,10 +72,6 @@ function resolveDays(
   if (preset === '2y') return 500
   if (preset === 'all') return coverage?.rows && coverage.rows > 0 ? coverage.rows : 1000
   return Math.max(1, Math.min(1000, preset.custom))
-}
-
-function isPresetKey(p: RangePreset, k: '1y' | '2y' | 'all'): boolean {
-  return p === k
 }
 
 // ── EChart hook ───────────────────────────────────────────
@@ -124,6 +125,7 @@ export function Regime() {
     queryFn: () => api.regimeCoverage(),
     staleTime: 5 * 60 * 1000,
   })
+  const dataStatus = useDataStatus({ staleTime: 60_000 })
 
   const days = resolveDays(range, coverage.data)
   const histRange = resolveHistoryRange(range, coverage.data)
@@ -143,6 +145,9 @@ export function Regime() {
 
   const rows: RegimeRow[] = history.data?.rows ?? []
   const latest = rows.length > 0 ? rows[rows.length - 1] : null
+  const enrichedLatest = dataStatus.data?.enriched?.latest_date ?? null
+  const regimeLatestDate = coverage.data?.latest_date ?? latest?.date ?? null
+  const regimeIsBehind = !!enrichedLatest && !!regimeLatestDate && regimeLatestDate < enrichedLatest
 
   // ── 当前势头: 末尾连续同态天数 + score 5日斜率(改善/恶化) + 上次弱势距今 ──
   const momentum = useMemo(() => {
@@ -245,7 +250,7 @@ export function Regime() {
           itemStyle: { color: REGIME_STATE_COLORS.strong, opacity: 0.35 }, z: 1 },
         // 4 子维度曲线(右轴=综合分): 帮助理解综合分由什么驱动(点图例可切换)
         { name: '赚钱', type: 'line', data: profit, smooth: true, symbol: 'none', yAxisIndex: 1,
-          lineStyle: { ...subLineStyle, color: '#f59e0b' }, z: 2 },
+          lineStyle: { ...subLineStyle, color: '#0ea5e9' }, z: 2 },
         { name: '投机', type: 'line', data: speculation, smooth: true, symbol: 'none', yAxisIndex: 1,
           lineStyle: { ...subLineStyle, color: '#a855f7' }, z: 2 },
         { name: '抗跌', type: 'line', data: resilience, smooth: true, symbol: 'none', yAxisIndex: 1,
@@ -357,6 +362,9 @@ export function Regime() {
     }
   }, [calendarExpanded, calendarMonths])
 
+  // 重算(POST /api/regime/recompute)为管理员操作,普通用户隐藏入口
+  const isAdmin = useIsAdmin()
+
   const handleRecompute = async () => {
     setRecomputing(true)
     try {
@@ -381,53 +389,62 @@ export function Regime() {
     : '自定义'
 
   return (
-    <div className="mx-auto max-w-[1440px] px-4 py-5 space-y-4">
-      {/* ── 头部 (Dashboard 渐变条卡片) ── */}
-      <div className={cn(cardCls, 'relative overflow-hidden rounded-card bg-gradient-to-r from-surface/90 to-surface/70 px-4 py-3')}>
-        <div className="absolute left-0 top-0 h-full w-1 bg-gradient-to-b from-accent to-accent/20" />
-        <div className="flex items-center gap-3">
-          <Activity className="h-5 w-5 text-accent" />
-          <h1 className="text-base font-semibold text-foreground">市场环境</h1>
-          <span className="text-xs text-muted">每日环境状态 · 赚钱效应 · 趋势分析</span>
-          <div className="ml-auto flex items-center gap-2">
-            {/* 时间范围按钮组 */}
-            <div className="flex items-center rounded-btn border border-border bg-base/60 p-0.5">
-              {(['1y', '2y', 'all'] as const).map(k => (
-                <button
-                  key={k}
-                  onClick={() => setRange(k)}
-                  className={cn(
-                    'h-6 rounded-[5px] px-2.5 text-xs font-medium transition-colors',
-                    isPresetKey(range, k)
-                      ? 'bg-accent text-white shadow-sm'
-                      : 'text-secondary hover:text-foreground',
-                  )}
-                >
-                  {RANGE_LABEL[k]}
-                </button>
-              ))}
-              <button
-                onClick={() => setCustomOpen(true)}
-                className={cn(
-                  'inline-flex items-center gap-1 h-6 rounded-[5px] px-2.5 text-xs font-medium transition-colors',
-                  typeof range === 'object'
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'text-secondary hover:text-foreground',
-                )}
-              >
-                {typeof range === 'object' && <Pencil className="h-3 w-3" />}
-                {customLabel}
-              </button>
-            </div>
-            {/* 重算 */}
-            <button onClick={handleRecompute} disabled={recomputing}
-              className="inline-flex items-center gap-1.5 h-7 px-3 rounded-btn border border-border bg-base text-xs text-secondary hover:text-accent disabled:opacity-50">
-              {recomputing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+    <PageContainer className="mx-auto max-w-[1440px] space-y-4">
+      {/* ── 头部 (统一 PageHeader, 右侧为时间范围 + 重算) ── */}
+      <PageHeader
+        title="市场环境"
+        subtitle="每日环境状态 · 赚钱效应 · 趋势分析"
+        right={
+          <div className="flex items-center gap-2">
+            {/* 时间范围切换 (SegmentedControl; 自定义段点开弹窗) */}
+            <SegmentedControl
+              size="xs"
+              value={typeof range === 'object' ? 'custom' : range}
+              onChange={(v) => {
+                if (v === 'custom') setCustomOpen(true)
+                else setRange(v as '1y' | '2y' | 'all')
+              }}
+              data={[
+                { value: '1y', label: RANGE_LABEL['1y'] },
+                { value: '2y', label: RANGE_LABEL['2y'] },
+                { value: 'all', label: RANGE_LABEL.all },
+                {
+                  value: 'custom',
+                  // label 上加 onClick: 已选中"自定义"时再点可重新打开弹窗
+                  label: (
+                    <span className="inline-flex items-center gap-1" onClick={() => setCustomOpen(true)}>
+                      {typeof range === 'object' && <Pencil className="h-3 w-3" />}
+                      {customLabel}
+                    </span>
+                  ),
+                },
+              ]}
+            />
+            {/* 重算 (仅管理员) */}
+            {isAdmin && (
+            <Button
+              size="xs"
+              variant="default"
+              onClick={handleRecompute}
+              loading={recomputing}
+              leftSection={!recomputing && <RefreshCw className="h-3.5 w-3.5" />}
+            >
               {recomputing ? '重算中…' : '重算'}
-            </button>
+            </Button>
+            )}
           </div>
+        }
+      />
+
+      {regimeIsBehind && (
+        <div className="flex items-start gap-2 rounded-card border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            市场环境计算滞后：最新环境为 {regimeLatestDate}，但股票 enriched 日线已到 {enrichedLatest}。
+            当前图表不会把旧环境状态当成最新结论；管理员可点击“重算”补齐。
+          </span>
         </div>
-      </div>
+      )}
 
       {/* ── 最新日概览 (4 个指标卡, 去掉与看板重复的涨停/涨跌/成交额) ── */}
       {latest ? (
@@ -477,7 +494,7 @@ export function Regime() {
             </div>
             <div className="mt-2 space-y-1">
               {([
-                { label: '赚钱', val: latest.profit_score, color: '#f59e0b' },
+                { label: '赚钱', val: latest.profit_score, color: '#0ea5e9' },
                 { label: '投机', val: latest.speculation_score, color: '#a855f7' },
                 { label: '抗跌', val: latest.resilience_score, color: '#10b981' },
                 { label: '趋势', val: latest.trend_score, color: '#3b82f6' },
@@ -556,13 +573,15 @@ export function Regime() {
         <div className={cn(cardCls, 'p-3')}>
           <SectionTitle icon={CalendarDays} title="日历热力图"
             hint={
-              <button
+              <Button
+                size="compact-xs"
+                variant="default"
                 onClick={() => setCalendarExpanded(v => !v)}
-                className="inline-flex items-center gap-1 rounded-btn border border-border bg-base px-2 py-0.5 text-[10px] text-secondary hover:text-accent hover:border-accent/40 transition-colors"
+                leftSection={calendarExpanded ? <Rows3 className="h-3 w-3" /> : <LayoutGrid className="h-3 w-3" />}
                 title={calendarExpanded ? '切换为单行紧凑' : '切换为月份展开'}
               >
-                {calendarExpanded ? <><Rows3 className="h-3 w-3" />单行</> : <><LayoutGrid className="h-3 w-3" />展开</>}
-              </button>
+                {calendarExpanded ? '单行' : '展开'}
+              </Button>
             }
           />
           {calendarExpanded ? (
@@ -657,7 +676,7 @@ export function Regime() {
           onApply={(d) => { setRange({ custom: d }); setCustomOpen(false) }}
         />
       )}
-    </div>
+    </PageContainer>
   )
 }
 
@@ -687,34 +706,30 @@ function CustomDaysModal({ current, onClose, onApply }: {
           <div className="text-xs font-medium text-foreground">自定义天数</div>
           <div className="mt-0.5 text-[10px] text-muted">范围 1 ~ 1000 个交易日</div>
         </div>
-        <input
+        <NumberInput
           ref={inputRef}
-          type="number"
+          size="sm"
           min={1}
           max={1000}
           value={val}
-          onChange={e => setVal(e.target.value)}
+          onChange={v => setVal(String(v))}
           onKeyDown={e => { if (e.key === 'Enter') apply() }}
-          className="h-8 w-full rounded-input border border-border bg-base px-2.5 text-sm text-foreground outline-none focus:border-accent"
         />
         {/* 快捷预设 */}
         <div className="flex flex-wrap gap-1.5">
           {[60, 90, 180, 365].map(d => (
-            <button key={d} onClick={() => setVal(String(d))}
-              className="h-6 rounded-btn border border-border bg-base px-2 text-[11px] text-secondary hover:text-accent hover:border-accent/40 transition-colors">
+            <Button key={d} size="compact-xs" variant="default" onClick={() => setVal(String(d))}>
               {d}天
-            </button>
+            </Button>
           ))}
         </div>
         <div className="flex justify-end gap-2 pt-1">
-          <button onClick={onClose}
-            className="h-7 rounded-btn px-3 text-xs text-secondary hover:text-foreground transition-colors">
+          <Button size="xs" variant="subtle" color="gray" onClick={onClose}>
             取消
-          </button>
-          <button onClick={apply}
-            className="h-7 rounded-btn bg-accent px-3 text-xs font-medium text-white hover:bg-accent/90 transition-colors">
+          </Button>
+          <Button size="xs" onClick={apply}>
             应用
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

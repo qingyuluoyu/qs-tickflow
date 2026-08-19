@@ -65,8 +65,8 @@ const TIER_STYLE: Record<string, TierStyle> = {
   expert: {
     desc: 'WebSocket · 财务数据',
     tagBg: { background: 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(168,85,247,0.2), rgba(245,158,11,0.2))' },
-    dotStyle: { background: 'linear-gradient(135deg, #3b82f6, #a855f7, #f59e0b)' },
-    labelTextStyle: { background: 'linear-gradient(135deg, #60a5fa, #c084fc, #fbbf24)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
+    dotStyle: { background: 'linear-gradient(135deg, #3b82f6, #a855f7, #0ea5e9)' },
+    labelTextStyle: { background: 'linear-gradient(135deg, #60a5fa, #c084fc, #38bdf8)', WebkitBackgroundClip: 'text', backgroundClip: 'text', color: 'transparent' },
   },
 }
 
@@ -92,8 +92,8 @@ export function tierTextStyle(label: string): { color?: string; background?: str
 export function TierTag({ label, className = '' }: { label: string; className?: string }) {
   const t = tierStyle(label)
   const base = tierBaseName(label)
-  // none 档显示英文「None」,其余档显示英文档名
-  const display = base === 'none' ? 'None' : base
+  // 未配置状态不展示内部档位名。
+  const display = base === 'none' ? '未配置' : base
   return (
     <span
       className={`inline-flex h-[18px] max-w-[80px] shrink-0 items-center overflow-hidden rounded px-1.5 text-[10px] font-bold font-mono leading-none ${className}`}
@@ -103,4 +103,3 @@ export function TierTag({ label, className = '' }: { label: string; className?: 
     </span>
   )
 }
-

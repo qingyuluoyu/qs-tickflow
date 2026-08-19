@@ -164,8 +164,8 @@ export const SUB_CHARTS: SubChartDef[] = [
           type: 'line',
           data: ma5Data,
           smooth: true, symbol: 'none', animation: false,
-          lineStyle: { width: 1, color: '#FACC15' },
-          itemStyle: { color: '#FACC15' },
+          lineStyle: { width: 1, color: '#38BDF8' },
+          itemStyle: { color: '#38BDF8' },
         },
         {
           name: 'VOL10',
@@ -194,8 +194,8 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.macd_dif != null ? Number(d.macd_dif) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: '#38BDF8' },
+        itemStyle: { color: '#38BDF8' },
       },
       {
         name: 'DEA',
@@ -223,7 +223,7 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'DIF', color: '#FACC15', value: d.macd_dif != null ? d.macd_dif.toFixed(3) : '—' },
+        { label: 'DIF', color: '#38BDF8', value: d.macd_dif != null ? d.macd_dif.toFixed(3) : '—' },
         { label: 'DEA', color: '#8B5CF6', value: d.macd_dea != null ? d.macd_dea.toFixed(3) : '—' },
         { label: 'MACD', color: d.macd_hist != null && d.macd_hist >= 0 ? '#C74040' : '#2D9B65', value: d.macd_hist != null ? d.macd_hist.toFixed(3) : '—' },
       ]
@@ -240,8 +240,8 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.rsi_6 != null ? Number(d.rsi_6) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: '#38BDF8' },
+        itemStyle: { color: '#38BDF8' },
       },
       {
         name: 'RSI14',
@@ -263,7 +263,7 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'RSI6', color: '#FACC15', value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
+        { label: 'RSI6', color: '#38BDF8', value: d.rsi_6 != null ? d.rsi_6.toFixed(1) : '—' },
         { label: 'RSI14', color: '#3B82F6', value: d.rsi_14 != null ? d.rsi_14.toFixed(1) : '—' },
         { label: 'RSI24', color: '#8B5CF6', value: d.rsi_24 != null ? d.rsi_24.toFixed(1) : '—' },
       ]
@@ -279,8 +279,8 @@ export const SUB_CHARTS: SubChartDef[] = [
         type: 'line',
         data: data.map(d => d.kdj_k != null ? Number(d.kdj_k) : '-'),
         smooth: true, symbol: 'none', animation: false,
-        lineStyle: { width: 1, color: '#FACC15' },
-        itemStyle: { color: '#FACC15' },
+        lineStyle: { width: 1, color: '#38BDF8' },
+        itemStyle: { color: '#38BDF8' },
       },
       {
         name: 'D',
@@ -302,7 +302,7 @@ export const SUB_CHARTS: SubChartDef[] = [
     buildInfo: (d) => {
       if (!d) return []
       return [
-        { label: 'K', color: '#FACC15', value: d.kdj_k != null ? d.kdj_k.toFixed(1) : '—' },
+        { label: 'K', color: '#38BDF8', value: d.kdj_k != null ? d.kdj_k.toFixed(1) : '—' },
         { label: 'D', color: '#3B82F6', value: d.kdj_d != null ? d.kdj_d.toFixed(1) : '—' },
         { label: 'J', color: '#8B5CF6', value: d.kdj_j != null ? d.kdj_j.toFixed(1) : '—' },
       ]
@@ -348,7 +348,7 @@ const THEME = {
   bearAlpha: 'rgba(18,183,106,0.7)',
   ma5: '#A1A1AA',
   ma10: '#3B82F6',
-  ma20: '#F97316',
+  ma20: '#0EA5E9',
   ma60: '#8B5CF6',
   bg: 'transparent',
 }
@@ -389,7 +389,7 @@ function buildSubInfoGraphics(
       }
       const vol5 = calcVolMa(5)
       const vol10 = calcVolMa(10)
-      items.push({ label: 'VOL5', color: '#FACC15', value: fmtVol(vol5) })
+      items.push({ label: 'VOL5', color: '#38BDF8', value: fmtVol(vol5) })
       items.push({ label: 'VOL10', color: '#8B5CF6', value: fmtVol(vol10) })
       if (volumeCompare.enabled) {
         const ratio = volumeRatioAt(data, infoIdx, volumeCompare.days)
@@ -487,7 +487,7 @@ function buildOption(
       const isSell = m.kind === 'sell'
 
       if (m.above) {
-        const dotColor = m.color ?? (isBuy ? '#FACC15' : CT().text)
+        const dotColor = m.color ?? (isBuy ? '#38BDF8' : CT().text)
         if (compact) {
           markPointData.push({
             name: m.date, coord: [m.date, d.high],
@@ -1028,7 +1028,7 @@ export function EChartsCandlestick({
       const isBuy = m.kind === 'buy'
       const isSell = m.kind === 'sell'
       if (m.above) {
-        const dotColor = m.color ?? (isBuy ? '#FACC15' : CT().text)
+        const dotColor = m.color ?? (isBuy ? '#38BDF8' : CT().text)
         if (compact) {
           markPointData.push({
             name: m.date, coord: [m.date, d.high],
