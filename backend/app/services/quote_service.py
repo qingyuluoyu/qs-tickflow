@@ -332,14 +332,14 @@ class QuoteService:
     def boot_check(self) -> None:
         """启动时检查 preferences，若 enabled 则自动启动。
 
-        none 档无实时行情权限:即使 preferences 标记为 enabled,
-        也不启动,并同步 preferences 为关闭(避免 UI 误显示已开启)。
+        none 档无实时行情权限时本次不启动, 但不改写持久化开关 ——
+        档位探测可能是启动瞬间的瞬态失败 (密钥端点波动/网络抖动),
+        若永久写关, 每次抖动后的重启都会静默丢掉实时行情。
+        UI 展示以 quote_status 的 running/enabled 实际状态为准。
         """
         from app.services import preferences
         if not self.is_realtime_allowed():
-            if preferences.get_realtime_quotes_enabled():
-                self._save_enabled(False)
-            logger.info("实时行情未启动:当前档位(none)无实时行情权限")
+            logger.info("实时行情未启动:当前档位(none)无实时行情权限 (偏好开关保持原值)")
             return
         if preferences.get_realtime_quotes_enabled():
             self.start()
