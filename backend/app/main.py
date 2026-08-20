@@ -464,9 +464,14 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     if request.url.path not in {"/docs", "/redoc", "/openapi.json"}:
+        # 静态教学页/小游戏 (asset-allocation.html, games/*) 使用内联脚本,
+        # 对这几个静态路径单独放宽 script-src; API 与 SPA 保持严格 CSP。
+        path = request.url.path
+        is_static_teaching = path == "/asset-allocation.html" or path.startswith("/games/")
+        script_src = "'self' 'unsafe-inline'" if is_static_teaching else "'self'"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; "
-            "object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            f"default-src 'self'; base-uri 'self'; frame-ancestors 'self'; "
+            f"object-src 'none'; script-src {script_src}; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; font-src 'self' data:; "
             "connect-src 'self' ws: wss:; form-action 'self'"
         )
