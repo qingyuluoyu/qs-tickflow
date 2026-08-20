@@ -459,12 +459,13 @@ async def security_headers_middleware(request: Request, call_next):
     """Apply browser hardening without changing API payload contracts."""
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
+    # SAMEORIGIN: 资产配置/教学游戏等页面以同源 iframe 嵌入, DENY 会一并屏蔽
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
     if request.url.path not in {"/docs", "/redoc", "/openapi.json"}:
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; "
+            "default-src 'self'; base-uri 'self'; frame-ancestors 'self'; "
             "object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: blob:; font-src 'self' data:; "
             "connect-src 'self' ws: wss:; form-action 'self'"

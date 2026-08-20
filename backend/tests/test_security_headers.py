@@ -14,9 +14,9 @@ def test_production_responses_include_browser_security_headers():
     response = TestClient(app, base_url="https://testserver").get("/health")
 
     assert response.headers["x-content-type-options"] == "nosniff"
-    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["x-frame-options"] == "SAMEORIGIN"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
-    assert "frame-ancestors 'none'" in response.headers["content-security-policy"]
+    assert "frame-ancestors 'self'" in response.headers["content-security-policy"]
     assert response.headers["strict-transport-security"].startswith("max-age=")
 
 
