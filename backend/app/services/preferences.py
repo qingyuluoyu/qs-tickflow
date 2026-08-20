@@ -309,14 +309,13 @@ def get_pipeline_pull_index() -> bool:
 
 
 def get_pipeline_regime_enabled() -> bool:
-    """盘后管道是否自动计算市场环境(regime)。默认 False。服务器级开关。
+    """盘后管道是否自动计算市场环境(regime)。默认 True。服务器级开关。
 
-    regime 是本地聚合计算(非拉取), 首次/regime 表为空时需全量回填多日,
-    内存与耗时较高, 故默认关闭; 用户可在数据页「市场环境」卡片设置里开启,
-    或直接在该页面点「重算」手动触发(不受此开关影响)。
+    regime 是本地聚合计算(非拉取), 已做分批控制内存; 默认开启保证
+    「市场环境」页每天都有新数据。用户可在数据页「市场环境」卡片设置里关闭。
     """
     from app.services import server_preferences
-    return bool(server_preferences.get("pipeline_regime_enabled", False))
+    return bool(server_preferences.get("pipeline_regime_enabled", True))
 
 
 # regime 全量回填分批参数范围:

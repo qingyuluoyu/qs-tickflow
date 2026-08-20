@@ -24,6 +24,7 @@ from zoneinfo import ZoneInfo
 import polars as pl
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.indicators.pipeline import filter_halt_days, run_pipeline
@@ -97,6 +98,21 @@ def _is_pipeline_snapshot_ready(
     latest_enriched = repo.latest_enriched_date("stock")
     if not latest_daily or latest_daily < target or not latest_enriched or latest_enriched < target:
         return False
+    if _prefs.get_pipeline_regime_enabled():
+        # regime 缺口也要触发重试/补跑 — 此前只看日K/enriched/指数,
+        # regime 步骤软失败后无人兜底, 「市场环境」页会静默停更。
+        # 检查本身出错 (如表损坏) 不阻塞判定: 重跑管道也修不了读表错误。
+        try:
+            from app.services import regime_builder
+
+            latest_regime = regime_builder.get_regime_coverage(
+                repo.store.data_dir
+            ).get("latest_date")
+        except Exception:  # noqa: BLE001
+            logger.debug("regime readiness check failed, ignoring", exc_info=True)
+        else:
+            if not latest_regime or latest_regime < target.isoformat():
+                return False
     if pull_index:
         configured = _prefs.get_pipeline_index_symbols()
         if configured:
@@ -1698,6 +1714,27 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             misfire_grace_time=1800,
             replace_existing=True,
         )
+
+    # 启动补跑: 服务器若错过了收盘管道及其重试 (宕机/部署重启), 启动 3 分钟后
+    # 检查目标日快照; 未就绪则补跑一次, 避免数据停在旧交易日直到下一个 15:30。
+    def _boot_catchup() -> None:
+        if _pipeline_snapshot_ready():
+            logger.info("boot catchup skipped: market snapshot already up to date")
+            return
+        if not _provider_snapshot_ready_for_retry():
+            logger.info("boot catchup deferred: provider has not published the target snapshot")
+            return
+        logger.warning("boot catchup: market snapshot outdated, running pipeline now")
+        _run_tracked(_pipeline_then_refresh, "boot_catchup")
+
+    scheduler.add_job(
+        _boot_catchup,
+        trigger=DateTrigger(
+            run_date=_datetime.now(BEIJING_TZ) + _timedelta(minutes=3),
+        ),
+        id="boot_catchup",
+        replace_existing=True,
+    )
 
     # 盘后: 五档盘口 sealed 定版(时间由偏好决定, 默认15:02, 范围15:01~18:00)
     depth_sched = preferences.get_depth_finalize_time()
