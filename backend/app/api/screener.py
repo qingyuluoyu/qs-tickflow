@@ -728,9 +728,13 @@ def limit_ladder(
                 live_source = "teajoin.daily"
         except Exception as exc:  # noqa: BLE001
             logger.warning("limit ladder live snapshot unavailable: %s", type(exc).__name__)
-    if live_snapshot is None and (as_of is None or as_of == cn_today()):
-        # provider 日线快照缺当日 (如 teajoin 收盘后才更新) 时, 用预热的盘中
-        # 实时快照 (新浪源兜底) 推导涨跌停, 盘中梯队显示当天真实状态。
+    if (
+        (live_snapshot is None or live_date is None or live_date < cn_today())
+        and (as_of is None or as_of == cn_today())
+    ):
+        # provider 日线快照缺当日/停在昨日 (如 teajoin 收盘后才更新) 时, 用预热的
+        # 盘中实时快照 (新浪源兜底) 推导涨跌停, 盘中梯队显示当天真实状态。
+        # 非交易日预热快照的 snapshot_date 会落后于当天, 不会误触发。
         try:
             preloader = getattr(request.app.state, "market_overview_preloader", None)
             snap = preloader.snapshot() if preloader else None
