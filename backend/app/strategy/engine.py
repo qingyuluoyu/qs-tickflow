@@ -556,7 +556,7 @@ class StrategyEngine:
     # ================================================================
 
     def list_strategies(self) -> list[dict]:
-        """返回所有策略的元信息"""
+        """返回所有策略的元信息(清数一号默认置顶, 其余保持注册顺序)"""
         result = []
         for s in self._strategies.values():
             result.append({
@@ -564,6 +564,7 @@ class StrategyEngine:
                 "source": s.source,
                 "execution_backend": s.execution_backend,
             })
+        result.sort(key=lambda meta: (meta.get("id") != "qingshu_one",))
         return result
 
     def strategy_definitions(self) -> tuple[StrategyDef, ...]:

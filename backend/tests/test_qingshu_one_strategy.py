@@ -10,11 +10,14 @@ from app.strategy.engine import StrategyDataContext, StrategyEngine
 BUILTIN_DIR = Path(__file__).resolve().parents[1] / "app" / "strategy" / "builtin"
 
 
-def test_qingshu_one_is_the_nineteenth_builtin_strategy():
+def test_qingshu_one_is_pinned_first_of_nineteen_builtin_strategies():
     engine = StrategyEngine(strategy_dirs=[BUILTIN_DIR])
 
     assert engine.load_errors() == []
-    assert len(engine.list_strategies()) == 19
+    strategies = engine.list_strategies()
+    assert len(strategies) == 19
+    # 清数一号是旗舰策略, 列表默认置顶
+    assert strategies[0]["id"] == "qingshu_one"
     strategy = engine.get("qingshu_one")
     assert strategy.meta["name"] == "清数一号"
     assert strategy.source == "builtin"
