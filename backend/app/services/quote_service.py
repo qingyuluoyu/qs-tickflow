@@ -242,14 +242,19 @@ class QuoteService:
         logger.info("行情服务已启动, 轮询间隔 %.1fs", self._interval)
 
     def stop(self) -> None:
-        """停止后台行情轮询线程。"""
+        """停止后台行情轮询线程。
+
+        进程关停 (lifespan shutdown) 也走这里 — 不写 preferences:
+        停止是运行时动作, 用户的开关偏好应跨重启保留。此前 stop()
+        会把开关静默写成 False, 每次重启/部署后实时行情都被关掉,
+        看板停在昨日数据。
+        """
         self._running = False
         self._enabled = False
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None
         self._stop_monitor_executor()
-        self._save_enabled(False)
         logger.info("行情服务已停止")
 
     def enable(self) -> bool:
@@ -287,8 +292,9 @@ class QuoteService:
             executor.shutdown(wait=False, cancel_futures=True)
 
     def disable(self) -> None:
-        """关闭自动行情。"""
+        """关闭自动行情 (用户主动关闭 — 持久化偏好为 False)。"""
         self.stop()
+        self._save_enabled(False)
         logger.info("行情服务已关闭")
 
     # ================================================================
