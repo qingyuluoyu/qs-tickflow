@@ -514,6 +514,42 @@ def market_snapshot(request: Request):
     if df.is_empty():
         return {"as_of": str(as_of), "rows": []}
 
+    # 盘中实时覆盖: 预热的行情快照 (teajoin 空时自动新浪兜底) 含当日最新价,
+    # 覆盖到昨日指标行上, 让概念/行业聚合页在交易时段显示当天真实数据,
+    # 而不是等收盘管道跑完才更新。停牌行 (close=0) 不覆盖, 保留昨日指标。
+    preloader = getattr(request.app.state, "market_overview_preloader", None)
+    live = preloader.snapshot() if preloader else None
+    if (
+        live is not None
+        and not live.frame.is_empty()
+        and live.snapshot_date is not None
+        and live.snapshot_date > as_of
+        and "symbol" in live.frame.columns
+    ):
+        live_cols = [c for c in ("close", "change_pct", "volume", "amount") if c in live.frame.columns]
+        live_df = live.frame.select(["symbol", *live_cols])
+        if "close" in live_df.columns:
+            live_df = live_df.filter(pl.col("close") > 0)
+        live_df = live_df.rename({c: f"_live_{c}" for c in live_df.columns if c != "symbol"})
+        df = df.join(live_df, on="symbol", how="left")
+        # 换手率按最新量能重算 (volume 单位: 手; turnover_rate 单位: %)
+        if "turnover_rate" in df.columns and "float_shares" in df.columns and "_live_volume" in df.columns:
+            df = df.with_columns(
+                pl.when(pl.col("_live_volume").is_not_null() & (pl.col("float_shares") > 0))
+                .then(pl.col("_live_volume") * 10000.0 / pl.col("float_shares"))
+                .otherwise(pl.col("turnover_rate"))
+                .alias("turnover_rate")
+            )
+        for col in ("close", "change_pct", "volume", "amount"):
+            live_col = f"_live_{col}"
+            if live_col not in df.columns:
+                continue
+            if col in df.columns:
+                df = df.with_columns(pl.coalesce(live_col, col).alias(col)).drop(live_col)
+            else:
+                df = df.rename({live_col: col})
+        as_of = live.snapshot_date
+
     if "close" in df.columns and "total_shares" in df.columns and "market_cap" not in df.columns:
         df = df.with_columns((pl.col("close") * pl.col("total_shares")).alias("market_cap"))
     if "close" in df.columns and "float_shares" in df.columns and "float_market_cap" not in df.columns:
@@ -682,13 +718,27 @@ def limit_ladder(
     # dates and the previous-day run length, but it may lag the provider.
     live_date = None
     live_snapshot = None
+    live_source = "persisted.enriched"
     if as_of is None or as_of == cn_today():
         try:
             from app.services.market_overview_builder import _dashboard_daily_snapshot
 
             live_date, live_snapshot = _dashboard_daily_snapshot(repo)
+            if live_snapshot is not None:
+                live_source = "teajoin.daily"
         except Exception as exc:  # noqa: BLE001
             logger.warning("limit ladder live snapshot unavailable: %s", type(exc).__name__)
+    if live_snapshot is None and (as_of is None or as_of == cn_today()):
+        # provider 日线快照缺当日 (如 teajoin 收盘后才更新) 时, 用预热的盘中
+        # 实时快照 (新浪源兜底) 推导涨跌停, 盘中梯队显示当天真实状态。
+        try:
+            preloader = getattr(request.app.state, "market_overview_preloader", None)
+            snap = preloader.snapshot() if preloader else None
+            if snap is not None and not snap.frame.is_empty() and snap.snapshot_date == cn_today():
+                live_date, live_snapshot = snap.snapshot_date, snap.frame
+                live_source = "sina.intraday"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("limit ladder intraday fallback unavailable: %s", type(exc).__name__)
     if as_of is None:
         as_of = live_date or svc.latest_date()
     elif live_date != as_of:
@@ -727,7 +777,7 @@ def limit_ladder(
         return {
             "as_of": str(as_of),
             "data_freshness": {
-                "source": "teajoin.daily" if live_snapshot is not None else "persisted.enriched",
+                "source": live_source if live_snapshot is not None else "persisted.enriched",
                 "snapshot_date": str(as_of),
                 "current_date": cn_today().isoformat(),
                 "is_stale": (
@@ -943,7 +993,7 @@ def limit_ladder(
     return {
         "as_of": str(as_of),
         "data_freshness": {
-            "source": "teajoin.daily" if live_snapshot is not None else "persisted.enriched",
+            "source": live_source if live_snapshot is not None else "persisted.enriched",
             "snapshot_date": str(as_of),
             "current_date": cn_today().isoformat(),
             "is_stale": (
