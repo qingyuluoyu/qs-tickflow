@@ -9,6 +9,7 @@ import {
   Zap,
   Webhook,
   ChevronDown,
+  Users,
 } from 'lucide-react'
 import {
   usePreferences,
@@ -18,6 +19,7 @@ import {
 } from '@/lib/useSharedQueries'
 import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { api } from '@/lib/api'
+import type { UsageStatsSummary } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { tierRank } from '@/lib/capability-labels'
 import { toast } from '@/lib/notify'
@@ -107,6 +109,13 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     queryKey: QK.watchlistFor(user.id),
     queryFn: () => api.watchlistList(),
     enabled: isFreeTier && watchlistSymbols.length > 0,
+  })
+  // 访问统计 (仅管理员): 每 60s 刷新
+  const usageStats = useQuery({
+    queryKey: QK.usageStats,
+    queryFn: () => api.usageStats(),
+    enabled: isAdmin,
+    refetchInterval: 60_000,
   })
   const watchlistNameBySymbol = new Map(
     (watchlist.data?.symbols ?? []).map(row => [row.symbol, row.name] as const),
@@ -280,7 +289,11 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6 max-w-5xl">
+    <div className="space-y-6 max-w-5xl">
+      {/* 访问统计 — 仅管理员可见 */}
+      {isAdmin && <UsageStatsCard data={usageStats.data} />}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-6">
       {/* ========== 左列 ========== */}
       <div className="space-y-6">
         {/* 行情状态 — 开关 + 间隔 (开关/间隔为管理员写操作, 普通用户只读状态) */}
@@ -750,13 +763,57 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
           </div>
         </Card>
       </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ===== 访问统计卡片 (仅管理员) =====
+
+function UsageStatsCard({ data }: { data?: UsageStatsSummary }) {
+  const days = data?.days ?? []
+  return (
+    <Card icon={Users} title="访问统计">
+      <div className="flex items-baseline gap-6">
+        <Stat label="今日访客" value={data?.today.visitors} />
+        <Stat label="今日浏览" value={data?.today.page_views} />
+        <Stat label="累计浏览" value={data?.total_page_views} />
+        {data?.since && (
+          <span className="ml-auto text-[10px] text-muted shrink-0">自 {data.since} 起</span>
+        )}
+      </div>
+      {days.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-border">
+          <div className="text-[10px] uppercase tracking-widest text-muted mb-2">
+            最近 {days.length} 天
+          </div>
+          <div className="space-y-1">
+            {[...days].reverse().map(d => (
+              <div key={d.date} className="flex items-center gap-3 text-[11px]">
+                <span className="font-mono text-secondary tabular-nums">{d.date}</span>
+                <span className="ml-auto text-muted">访客 <b className="font-mono text-foreground tabular-nums">{d.visitors}</b></span>
+                <span className="text-muted">浏览 <b className="font-mono text-foreground tabular-nums">{d.page_views}</b></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function Stat({ label, value }: { label: string; value?: number }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] text-muted">{label}</div>
+      <div className="text-lg font-mono text-foreground tabular-nums">{value ?? '—'}</div>
     </div>
   )
 }
 
 
 // ===== ToggleRow =====
-
 function ToggleRow({
   label,
   desc,

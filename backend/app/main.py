@@ -486,6 +486,29 @@ async def security_headers_middleware(request: Request, call_next):
 
 
 @app.middleware("http")
+async def usage_stats_middleware(request: Request, call_next):
+    """按日分桶统计页面浏览 / API 调用 / 独立访客。任何异常不得影响请求。"""
+    try:
+        from app.services.usage_stats import get_usage_stats
+
+        path = request.url.path
+        method = request.method
+        is_api = path.startswith("/api/")
+        # 静态资源 (带扩展名的文件) 不计页面浏览
+        is_page = method == "GET" and not is_api and not Path(path).suffix
+        if is_api or is_page:
+            ip = (
+                request.headers.get("x-real-ip")
+                or (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+                or (request.client.host if request.client else "")
+            )
+            get_usage_stats().record(ip or "unknown", is_page=is_page, is_api=is_api)
+    except Exception as e:
+        logger.debug("usage stats record failed: %s", e)
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def request_trace_middleware(request: Request, call_next):
     """Attach a non-sensitive request id to every response for operations logs."""
     supplied = request.headers.get("x-request-id", "")

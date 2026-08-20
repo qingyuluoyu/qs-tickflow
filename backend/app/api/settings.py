@@ -1066,6 +1066,13 @@ def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
     }
 
 
+@router.get("/preferences/usage-stats", dependencies=[Depends(require_admin)])
+def get_usage_stats_summary() -> dict:
+    """访问统计汇总 (仅管理员): 今日访客/浏览、最近 14 天分日、累计浏览量。"""
+    from app.services.usage_stats import get_usage_stats
+    return get_usage_stats().summary(14)
+
+
 @router.get("/preferences/quote-interval")
 def get_quote_interval(request: Request) -> dict:
     """获取当前行情轮询间隔和档位限制。"""

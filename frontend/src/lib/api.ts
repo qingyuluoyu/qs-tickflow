@@ -1316,6 +1316,21 @@ export interface StrategyAlertEvent {
 }
 
 // ===== API surface =====
+
+/** 访问统计 (管理员): 按日分桶的浏览量 / API 调用 / 独立访客数 */
+export interface UsageStatsDay {
+  date: string
+  page_views: number
+  api_calls: number
+  visitors: number
+}
+export interface UsageStatsSummary {
+  since: string | null
+  today: UsageStatsDay
+  days: UsageStatsDay[]
+  total_page_views: number
+}
+
 export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
@@ -1507,6 +1522,8 @@ export const api = {
     request<{ interval: number; min_interval: number; max_interval: number }>(
       '/api/settings/preferences/quote-interval',
     ),
+  usageStats: () =>
+    request<UsageStatsSummary>('/api/settings/preferences/usage-stats'),
   updateQuoteInterval: (interval: number) =>
     request<{ interval: number; min_interval: number; max_interval: number }>(
       '/api/settings/preferences/quote-interval',
