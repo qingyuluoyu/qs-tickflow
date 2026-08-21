@@ -146,6 +146,38 @@ def _persist_last_fetch(fetched_at_ms: float, provider: str) -> None:
             logger.debug("last_fetch_ms 持久化失败 (不影响行情): %s", e)
 
 
+def _snapshot_frame_to_records(frame: pl.DataFrame) -> list[dict]:
+    """看板快照 DataFrame (sina 覆盖层) → 全市场行情 records。
+
+    快照列: symbol/name/open/high/low/close/prev_close/volume/amount/change_pct。
+    close 即最新价; change_pct 已是小数制, 缺失时由 (close-prev_close) 推导。
+    """
+    records: list[dict] = []
+    for row in frame.iter_rows(named=True):
+        close = row.get("close")
+        prev_close = row.get("prev_close")
+        change_pct = row.get("change_pct")
+        change_amount = None
+        if close is not None and prev_close not in (None, 0):
+            change_amount = float(close) - float(prev_close)
+            if change_pct is None:
+                change_pct = change_amount / float(prev_close)
+        records.append({
+            "symbol": row.get("symbol"),
+            "name": row.get("name"),
+            "last_price": close,
+            "prev_close": prev_close,
+            "open": row.get("open"),
+            "high": row.get("high"),
+            "low": row.get("low"),
+            "volume": row.get("volume"),
+            "amount": row.get("amount"),
+            "change_pct": change_pct,
+            "change_amount": change_amount,
+        })
+    return records
+
+
 class QuoteService:
     """全局实时行情服务 — 单例。"""
 
@@ -676,10 +708,12 @@ class QuoteService:
             except Exception as e:  # noqa: BLE001
                 self._record_fetch_status("error", error=type(e).__name__)
                 logger.warning("自定义实时行情拉取失败: %s", e)
+                self._fetch_sina_overlay_fallback()
                 return
             if not records:
                 self._record_fetch_status("empty")
-                logger.warning("自定义实时行情数据为空: provider=%s", provider_name)
+                if not self._fetch_sina_overlay_fallback():
+                    logger.warning("自定义实时行情数据为空: provider=%s", provider_name)
                 return
             try:
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
@@ -774,7 +808,47 @@ class QuoteService:
 
         self._process_full_market_records(records, t0=t0, now_ts=now_ts)
 
-    def _process_full_market_records(self, records: list[dict], *, t0: float, now_ts: float) -> None:
+    def _fetch_sina_overlay_fallback(self) -> bool:
+        """主实时源为空/失败时, 复用看板预加载器的新浪全市场快照喂入缓存。
+
+        预加载器盘中每 30s 已拉一轮新浪全市场行情(看板覆盖层), 此处直接消费
+        该快照, 不重复请求新浪。快照未刷新时跳过处理, 避免 6s 轮询对同一批
+        数据重复写盘/重算 enriched。返回 True 表示缓存有当日实时数据在流动
+        (本轮新消费或此前已消费过同一快照), 调用方据此决定是否告警。
+        """
+        preloader = getattr(self._app_state, "market_overview_preloader", None)
+        snapshot = preloader.snapshot() if preloader is not None else None
+        if snapshot is None or getattr(snapshot, "status", None) != "success":
+            return False
+        if not str(getattr(snapshot, "kind", "") or "").endswith(".realtime"):
+            return False
+        if getattr(snapshot, "snapshot_date", None) != cn_today():
+            return False
+        fetched_at_ms = getattr(snapshot, "fetched_at_ms", None)
+        if not fetched_at_ms:
+            return False
+        frame = getattr(snapshot, "frame", None)
+        if frame is None or frame.is_empty():
+            return False
+        with self._lock:
+            if fetched_at_ms <= getattr(self, "_sina_fallback_consumed_ms", 0):
+                return True
+            self._sina_fallback_consumed_ms = fetched_at_ms
+        records = _snapshot_frame_to_records(frame)
+        index_frame = getattr(snapshot, "index_frame", None)
+        if index_frame is not None and not index_frame.is_empty():
+            records.extend(_snapshot_frame_to_records(index_frame))
+        if not records:
+            return False
+        now_ts = time.perf_counter()
+        self._process_full_market_records(
+            records, t0=now_ts, now_ts=now_ts, provider_label="sina"
+        )
+        self._record_fetch_status("success", rows=len(records))
+        logger.info("主实时源不可用, 已用新浪看板快照兜底: %d 条", len(records))
+        return True
+
+    def _process_full_market_records(self, records: list[dict], *, t0: float, now_ts: float, provider_label: str | None = None) -> None:
         """把全市场 records 写盘并增量计算 enriched。"""
         from app.services import preferences
         all_index_symbols = set(self._repo.get_index_symbol_set()) if self._repo else set()
@@ -810,7 +884,7 @@ class QuoteService:
             self._etf_symbol_count = len(etf_records)
             self._index_quotes_cache = self._build_index_quotes(index_records)
 
-        _persist_last_fetch(fetched_at, preferences.get_realtime_data_provider())
+        _persist_last_fetch(fetched_at, provider_label or preferences.get_realtime_data_provider())
         logger.info("行情刷新: %d 只股票, %d 只ETF, %d 只指数, 耗时 %.0fms", len(stock_records), len(etf_records), len(index_records), fetch_ms)
 
         # ---- 写 kline_daily (不复权原始价格, 只有 OHLCV) ----
