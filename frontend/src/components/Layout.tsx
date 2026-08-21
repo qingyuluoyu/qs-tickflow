@@ -50,7 +50,10 @@ import {
   PieChart,
   ChevronLeft,
   ChevronRight,
+  Swords,
 } from 'lucide-react'
+import { AskAiHost } from '@/components/ask-ai/AskAiHost'
+import { AskAiBubble } from '@/components/ask-ai/AskAiBubble'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { toggleTheme, useTheme } from '@/lib/theme'
@@ -76,6 +79,7 @@ const nav = [
   { to: '/review',      label: '复盘',   icon: BookOpenCheck, tone: 'purple' },
   { to: '/indices', label: '指数', icon: BarChart3, tone: 'orange' },
   { to: '/asset-allocation', label: '资产配置', icon: PieChart, tone: 'purple' },
+  { to: '/debate', label: '多空辩论', icon: Swords, tone: 'purple' },
   { to: '/data',       label: '数据',   icon: Database, tone: 'blue' },
 ] as const
 
@@ -532,6 +536,8 @@ export function Layout() {
       <AiReportBubble />
       <StockAnalysisHost />
       <StockAnalysisBubble />
+      <AskAiHost />
+      <AskAiBubble />
     </AppShell>
   )
 }
