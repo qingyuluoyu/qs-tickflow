@@ -2,23 +2,20 @@ import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ActionIcon, Button } from '@mantine/core'
-import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, BellRing, Coins, Database, Flame, Info, Layers, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer, TrendingUp, Zap } from 'lucide-react'
+import { Button } from '@mantine/core'
+import { Activity, ArrowDownRight, ArrowUpRight, BarChart3, Coins, Database, Flame, Info, Layers, LineChart, Loader2, Play, RefreshCw, Sparkles, Target, Timer, TrendingUp, Zap } from 'lucide-react'
 import { DatePicker } from '@/components/DatePicker'
 import { PageHeader } from '@/components/PageHeader'
 import { PageContainer } from '@/components/PageContainer'
 import { api, type MarketSnapshotRow, type OverviewDimensionRankItem, type OverviewMarket, type AlertEvent } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { fmtBigNum, fmtPct } from '@/lib/format'
+import { fmtBigNum } from '@/lib/format'
 import { useDataStatus, useCapabilities, useSettings } from '@/lib/useSharedQueries'
 import { SealedBadge } from '@/components/SealedBadge'
 import { StockPreviewDialog } from '@/components/StockPreviewDialog'
 import { DimensionMembersDialog, type DimensionMembersTarget, type DimensionKind } from '@/components/DimensionMembersDialog'
 import { SettingsModal } from '@/components/data/SettingsModal'
 import { STAGE_LABELS } from '@/components/data/ActiveJobCard'
-import { cn } from '@/lib/cn'
-import { cnSignal } from '@/lib/signals'
-import { strategyEventMeta, strategyName } from '@/lib/strategyMonitorEvents'
 import { boardTag } from '@/components/stock-table/primitives'
 import { accountSessionStorage } from '@/lib/storage'
 import { useIsAdmin } from '@/lib/auth'
@@ -95,147 +92,6 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; titl
       </div>
       {hint && <span className="font-mono text-[10px] text-muted">{hint}</span>}
     </div>
-  )
-}
-
-// 看板监控中心小组件 — 显示前 10 条触发记录 + 更多按钮
-const _SOURCE_BADGE: Record<string, string> = {
-  strategy: 'bg-amber-400/10 text-amber-400',
-  signal: 'bg-accent/10 text-accent',
-  price: 'bg-emerald-400/10 text-emerald-400',
-  market: 'bg-purple-500/10 text-purple-400',
-  sector: 'bg-cyan-500/10 text-cyan-700 dark:text-cyan-300',
-}
-const _SOURCE_LABEL: Record<string, string> = {
-  strategy: '策略', signal: '信号', price: '价格', market: '异动', sector: '板块',
-}
-const _SEVERITY_BAR: Record<string, string> = {
-  info: 'bg-accent/40', warn: 'bg-warning', critical: 'bg-danger',
-}
-
-function MonitorWidget({ onStockClick }: { onStockClick: (event: AlertEvent) => void }) {
-  const navigate = useNavigate()
-  const alerts = useQuery({
-    queryKey: ['alerts', ''],
-    queryFn: () => api.alertsList({ days: 7, limit: 10 }),
-    refetchInterval: 10000,
-    refetchIntervalInBackground: true,
-  })
-  const events: AlertEvent[] = alerts.data?.alerts ?? []
-
-  if (events.length === 0) {
-    return (
-      <div className="mt-1 py-6 text-center text-[11px] text-muted">暂无触发记录</div>
-    )
-  }
-
-  return (
-    <>
-      <div className="mt-1 space-y-1.5">
-        {events.map((ev, i) => {
-          const sev = _SEVERITY_BAR[ev.severity ?? 'info'] ?? _SEVERITY_BAR.info
-          const pct = ev.change_pct ?? 0
-          const isStrategy = ev.source === 'strategy'
-          const isSector = ev.source === 'sector'
-          const sname = isStrategy ? strategyName(ev.message ?? '') : ''
-          const eventMeta = strategyEventMeta(ev.type)
-          return (
-            <motion.div
-              key={`${ev.ts}-${i}`}
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.3, delay: Math.min(i * 0.03, 0.3) }}
-              className="relative overflow-hidden rounded-md border border-white/8 bg-surface/50 pl-3 pr-2 py-1.5 backdrop-blur-sm transition-colors hover:border-accent/25 hover:bg-surface/80"
-            >
-              <div className={cn('absolute left-0 top-0 h-full w-1 shadow-[0_0_8px_currentColor]', sev)} />
-              {/* 第一行: 代码 + 名称 + 价格 + 涨跌幅 (点击代码/名称弹日K) */}
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => isSector ? navigate('/monitor') : ev.symbol && onStockClick(ev)}
-                  title={isSector ? '在监控中心查看板块告警' : ev.symbol ? `查看 ${ev.symbol} 日K` : undefined}
-                  className={`inline-flex items-center gap-1 min-w-0 shrink-0 rounded hover:bg-elevated/60 transition-colors -mx-0.5 px-0.5 ${isSector || ev.symbol ? 'cursor-pointer' : 'cursor-default'}`}
-                >
-                  <span className="font-mono text-[10px] font-medium text-foreground/80 hover:text-accent">{ev.symbol?.replace(/\.(SH|SZ|BJ)$/, '')}</span>
-                  {ev.symbol && (() => {
-                    const board = boardTag(ev.symbol)
-                    return board && (
-                      <span className={`inline-flex items-center justify-center h-3 w-3 rounded text-[7px] font-bold leading-none border ${board.color}`}>
-                        {board.label}
-                      </span>
-                    )
-                  })()}
-                  {ev.name && <span className="text-[10px] text-secondary truncate max-w-[5rem] hover:text-foreground">{ev.name}</span>}
-                </button>
-                <span className="flex-1" />
-                {ev.price != null && (
-                  <span className="text-[10px] font-mono text-foreground/60 shrink-0">{fmtPrice(ev.price)}</span>
-                )}
-                {ev.change_pct != null && (
-                  <span className={cn('text-[10px] font-mono font-medium shrink-0 w-12 text-right', pct >= 0 ? 'text-bull' : 'text-bear')}>
-                    {fmtPct(pct)}
-                  </span>
-                )}
-              </div>
-              {/* 第二行: 策略类型走新格式, 其他走旧格式 */}
-              {isStrategy ? (
-                <>
-                  {ev.symbol ? (
-                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-                      <span className={cn('shrink-0 text-[9px] font-medium', eventMeta.className)}>
-                        {eventMeta.action}
-                      </span>
-                      {sname
-                        ? <span className="truncate text-[9px] font-medium text-amber-400">「{sname}」</span>
-                        : ev.message && <span className="truncate text-[9px] text-muted">{ev.message}</span>}
-                      <span className="flex-1" />
-                      <span className="text-[8px] text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
-                      <span className="truncate text-[9px] text-muted">{ev.message}</span>
-                      <span className="flex-1" />
-                      <span className="text-[8px] text-muted/50 shrink-0 font-mono">
-                        {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
-                      </span>
-                    </div>
-                  )}
-                  {ev.signals && ev.signals.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {ev.signals.map(signal => (
-                        <span key={signal} className="rounded bg-accent/8 px-1 py-px text-[8px] text-accent/80">{cnSignal(signal)}</span>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <span className={cn('shrink-0 rounded px-1 py-px text-[8px] font-medium', _SOURCE_BADGE[ev.source] ?? 'bg-elevated text-muted')}>
-                      {_SOURCE_LABEL[ev.source] ?? ev.source}
-                    </span>
-                    {ev.message && (
-                      <span className="text-[9px] text-muted truncate flex-1">{ev.message}</span>
-                    )}
-                    <span className="text-[8px] text-muted/50 shrink-0 font-mono">
-                      {ev.ts ? new Date(ev.ts).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
-                    </span>
-                  </div>
-                  {ev.signals && ev.signals.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {ev.signals.map((s, j) => (
-                        <span key={j} className="rounded bg-accent/8 px-1 py-px text-[8px] text-accent/80">{cnSignal(s)}</span>
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </motion.div>
-          )
-        })}
-      </div>
-    </>
   )
 }
 
@@ -408,48 +264,6 @@ function EmotionRadar({ radar, score }: { radar: OverviewMarket['radar']; score:
           <text key={`${p.key}-label`} x={p.lx} y={p.ly + 4} textAnchor="middle" className="fill-secondary text-[10px] font-medium">{p.label}</text>
         ))}
       </svg>
-    </div>
-  )
-}
-
-function LadderMini({ limit }: { limit: OverviewMarket['limit'] }) {
-  const tiers = limit.tiers.filter(t => t.boards >= 2).slice(0, 6)
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between rounded-md border border-border/50 bg-surface/50 px-2 py-1.5 text-[11px] backdrop-blur-sm">
-        <span className="text-muted">封板率</span>
-        <span className="font-mono font-semibold text-accent text-glow">{(limit.seal_rate ?? 0).toFixed(0)}%</span>
-      </div>
-      {tiers.length === 0 && <div className="rounded border border-dashed border-border py-5 text-center text-xs text-muted">暂无 2 板以上</div>}
-      {tiers.map(t => {
-        const stocks = t.stocks ?? []
-        const showStocks = stocks.length > 0 && stocks.length <= 3
-        const boardCls = t.boards >= 5
-          ? 'bg-gradient-to-r from-bull to-orange-400 bg-clip-text text-transparent'
-          : t.boards >= 3
-            ? 'bg-gradient-to-r from-accent to-purple-400 bg-clip-text text-transparent'
-            : 'text-secondary'
-        return (
-          <div key={t.boards} className="rounded-md border border-border/40 bg-surface/45 px-2 py-1.5 backdrop-blur-sm transition-colors hover:border-accent/25">
-            <div className="grid grid-cols-[42px_1fr_auto] items-center gap-2">
-              <span className={`font-mono text-sm font-bold ${boardCls}`}>{t.boards}板</span>
-              <div className="h-1.5 overflow-hidden rounded-full bg-base/80 shadow-inner">
-                <div className="h-full rounded-full bg-gradient-to-r from-bull/60 to-bull shadow-[0_0_8px_hsl(var(--bull)/0.5)]" style={{ width: `${Math.min(100, t.count * 12)}%` }} />
-              </div>
-              <span className="font-mono text-xs font-semibold text-foreground">{t.count}</span>
-            </div>
-            {showStocks && (
-              <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 pl-[50px]">
-                {stocks.map(s => (
-                  <span key={s.symbol} className="inline-flex items-center gap-0.5 text-[9px] text-secondary">
-                    {s.name || s.symbol}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
     </div>
   )
 }
@@ -912,7 +726,7 @@ export function Dashboard() {
         <KpiCell icon={Activity} label="换手 / 量比" value={`${fmtPrice(data.activity.avg_turnover, 1)}% / ${fmtPrice(data.activity.vol_ratio, 2)}`} sub={`高换手 ${data.activity.high_turnover} · 放量占比 ${fmtPrice(data.activity.high_vol_ratio, 1)}%`} tone="accent" />
       </div>
 
-      <div className="grid grid-cols-1 gap-1.5 xl:grid-cols-[minmax(0,1fr)_minmax(16rem,20rem)]">
+      <div className="grid grid-cols-1 gap-1.5">
         <main className="min-w-0 space-y-1.5">
           <div className="grid grid-cols-1 gap-1.5 lg:grid-cols-3">
             <section className="glass-card rounded-card p-1.5">
@@ -993,28 +807,6 @@ export function Dashboard() {
             <StockList title="活跃换手" rows={data.active_leaders} mode="active" onStockClick={(symbol, name) => setPreviewStock({symbol, name})} />
           </div>
         </main>
-
-        <aside className="min-w-0 space-y-1.5">
-          <section className="glass-card rounded-card p-1.5">
-            <SectionTitle icon={Flame} title="涨停梯队" hint={<span className="inline-flex items-center gap-1">{`涨停 ${data.limit.limit_up}`}{isSealedDegrade && <span className="text-[9px] px-1 rounded bg-warning/10 text-warning">{hasDepth ? '未修正' : '降级'}</span>}</span>} />
-            <LadderMini limit={data.limit} />
-          </section>
-          <section className="glass-card rounded-card p-1.5">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <BellRing className="h-3.5 w-3.5 text-accent" />
-                <h2 className="text-xs font-semibold text-foreground">监控中心</h2>
-                <span className="font-mono text-[10px] text-muted">实时信号</span>
-              </div>
-              <ActionIcon component={Link} to="/monitor" variant="subtle" color="gray" size="sm" title="进入监控中心" aria-label="进入监控中心">
-                <ArrowUpRight className="h-3.5 w-3.5" />
-              </ActionIcon>
-            </div>
-            <MonitorWidget onStockClick={(event) => {
-              if (event.symbol) setPreviewStock({ symbol: event.symbol, name: event.name ?? undefined, alert: event })
-            }} />
-          </section>
-        </aside>
       </div>
 
       <DimensionMembersDialog
