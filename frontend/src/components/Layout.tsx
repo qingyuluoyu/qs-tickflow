@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { AppShell, Box, Burger, Group } from '@mantine/core'
@@ -51,9 +51,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Swords,
+  Sparkles,
 } from 'lucide-react'
 import { AskAiHost } from '@/components/ask-ai/AskAiHost'
 import { AskAiBubble } from '@/components/ask-ai/AskAiBubble'
+import { openAskAi } from '@/lib/askAiStore'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import { toggleTheme, useTheme } from '@/lib/theme'
@@ -120,6 +122,27 @@ function MonitorBadge({ active }: { active: boolean }) {
     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white animate-pulse">
       {unread > 99 ? '99+' : unread}
     </span>
+  )
+}
+
+/** 常驻问 AI 入口：右下角悬浮按钮，每个页面一个持久会话。 */
+function AskAiEntry() {
+  const { pathname } = useLocation()
+  return (
+    <button
+      type="button"
+      onClick={() =>
+        openAskAi(`${pathname}#general`, '', '', '用户在青树量化工作台发起的通用提问，请结合可获取的行情与数据客观回答。', [
+          '今天大盘怎么样？',
+          '当前市场有哪些值得关注的方向？',
+        ])
+      }
+      className="fixed bottom-4 right-4 z-[65] flex h-11 items-center gap-1.5 rounded-full border border-accent/40 bg-accent px-4 text-xs font-medium text-white shadow-xl transition hover:scale-105"
+      title="问 AI"
+    >
+      <Sparkles className="h-4 w-4" />
+      问 AI
+    </button>
   )
 }
 
@@ -538,6 +561,7 @@ export function Layout() {
       <StockAnalysisBubble />
       <AskAiHost />
       <AskAiBubble />
+      <AskAiEntry />
     </AppShell>
   )
 }
