@@ -2091,7 +2091,12 @@ class KlineRepository:
                         f"SELECT * FROM read_parquet('{path}', union_by_name=true)"
                     )
             except Exception as e:  # noqa: BLE001
-                logger.warning("rebuild view %s failed: %s", name, e)
+                # 数据集未同步 (目录无 parquet) 是正常状态, 降级为 debug;
+                # 其他错误 (文件损坏/SQL 异常) 仍按 warning 上报。
+                if "No files found" in str(e):
+                    logger.debug("rebuild view %s skipped (dataset not synced): %s", name, e)
+                else:
+                    logger.warning("rebuild view %s failed: %s", name, e)
         with self._lock:
             self.store._register_unified_views()
 

@@ -215,6 +215,7 @@ class QuoteService:
         # 拉取元信息 (给 SSE / status 用)
         self._fetch_time: float = 0.0       # perf_counter (用于计算 quote_age_ms)
         self._fetch_ms: float = 0.0         # 拉取耗时 (毫秒)
+        self._custom_fail_count = 0         # 自定义实时源连续失败次数 (退避日志用)
         # _fetched_at 持久化到 preferences: 进程重启后仍能显示"最后获取"时间,
         # 不因关闭开关/重启而归零 (数据页卡片常驻显示, 方便判断上次拉取时刻)。
         try:
@@ -707,7 +708,13 @@ class QuoteService:
                 records = custom_sources.get_provider(provider_name).get_realtime()
             except Exception as e:  # noqa: BLE001
                 self._record_fetch_status("error", error=type(e).__name__)
-                logger.warning("自定义实时行情拉取失败: %s", e)
+                self._custom_fail_count += 1
+                # 不稳定源 (如 teajoin 间歇 502) 每轮都失败时降日志级别防刷屏;
+                # 新浪兜底每轮照常执行, 数据新鲜度不受影响。每 50 次汇总一条 warning。
+                if self._custom_fail_count <= 3 or self._custom_fail_count % 50 == 0:
+                    logger.warning("自定义实时行情拉取失败(连续%d次): %s", self._custom_fail_count, e)
+                else:
+                    logger.debug("自定义实时行情拉取失败(连续%d次): %s", self._custom_fail_count, e)
                 self._fetch_sina_overlay_fallback()
                 return
             if not records:
@@ -721,6 +728,7 @@ class QuoteService:
                 self._record_fetch_status("error", error=type(e).__name__)
                 logger.warning("自定义全市场行情处理失败: %s", e)
                 return
+            self._custom_fail_count = 0
             self._record_fetch_status("success", rows=len(records))
             return
 

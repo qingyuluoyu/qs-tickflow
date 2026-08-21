@@ -21,6 +21,14 @@ from app.market_time import MarketSession, cn_today, resolve_market_as_of
 
 logger = logging.getLogger(__name__)
 
+# daily 兜底连续失败计数 — 不稳定源退避日志用
+_daily_fallback_fail_count = 0
+
+
+def _reset_daily_fallback_fail_count() -> None:
+    global _daily_fallback_fail_count
+    _daily_fallback_fail_count = 0
+
 _CORE_INDEX_SYMBOLS = ("000001.SH", "399001.SZ", "399006.SZ", "000680.SH")
 
 
@@ -463,6 +471,7 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                     latest = frame.get_column("date").drop_nulls().max()
                     if latest is not None:
                         now_ms = time.time() * 1000
+                        _reset_daily_fallback_fail_count()
                         last_daily = DashboardSnapshot(
                             provider=daily_provider,
                             kind=f"{daily_provider}.daily",
@@ -486,7 +495,13 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                         )
                         return last_daily
             except Exception as exc:
-                logger.warning("dashboard daily fallback unavailable: %s", type(exc).__name__)
+                global _daily_fallback_fail_count
+                _daily_fallback_fail_count += 1
+                # 不稳定源持续失败时降级为 debug 防刷屏, 每 50 次汇总一条 warning
+                if _daily_fallback_fail_count <= 3 or _daily_fallback_fail_count % 50 == 0:
+                    logger.warning("dashboard daily fallback unavailable(连续%d次): %s", _daily_fallback_fail_count, type(exc).__name__)
+                else:
+                    logger.debug("dashboard daily fallback unavailable(连续%d次): %s", _daily_fallback_fail_count, type(exc).__name__)
                 realtime_error = realtime_error or type(exc).__name__
 
         return DashboardSnapshot.empty(daily_provider, realtime_status, realtime_error)
