@@ -634,6 +634,8 @@ export interface RpsRotationData {
   dates: string[]
   columns: Record<string, [string, number][]>
   concept_count: number
+  /** 盘中存在时: 该日期列来自实时行情(未收盘, 非定版数据) */
+  intraday_date?: string | null
 }
 
 // ===== 市场环境(Regime) =====

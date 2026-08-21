@@ -33,7 +33,10 @@ def get_rotation(
         columns: {日期: [[成员名, 涨幅小数], ...]} 每列各自降序
         concept_count: 去重维度成员总数
     """
-    return rps_rotation.build_rps_rotation(request.app.state.repo, days, kind, level)
+    return rps_rotation.build_rps_rotation(
+        request.app.state.repo, days, kind, level,
+        quote_service=getattr(request.app.state, "quote_service", None),
+    )
 
 
 class AnalyzeRequest(BaseModel):

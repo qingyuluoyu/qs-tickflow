@@ -119,12 +119,14 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
   const { data, isLoading, error } = useQuery({
     queryKey: [...QK.rpsRotation(days), kind, lvParam],
     queryFn: () => api.rpsRotation(days, kind, lvParam),
-    staleTime: 5 * 60 * 1000,
+    // 盘中最左列是实时数据, 缩短缓存保证盘中刷新
+    staleTime: 60 * 1000,
   })
 
   const dates = data?.dates ?? []
   const columns = data?.columns ?? {}
   const conceptCount = data?.concept_count ?? 0
+  const intradayDate = data?.intraday_date ?? null
 
   // 行数 = 最长那列的长度(理论上每天概念数应一致, 取最大兜底)
   const rowCount = useMemo(
@@ -406,9 +408,12 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
                         <th
                           key={d}
                           className="px-2 py-1.5 text-[10px] font-normal text-muted border-b border-border/40 whitespace-nowrap text-center"
-                          title={d}
+                          title={d === intradayDate ? `${d} · 实时行情(未收盘)` : d}
                         >
                           {shortDate(d)}
+                          {d === intradayDate && (
+                            <span className="ml-1 rounded-sm bg-accent/15 px-1 py-px text-[9px] text-accent">实时</span>
+                          )}
                         </th>
                       ))}
                     </tr>

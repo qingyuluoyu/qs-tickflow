@@ -31,7 +31,7 @@ async def _fake_ai_stream(*_args, **_kwargs):
 
 @pytest.mark.asyncio
 async def test_analyze_rotation_stream_emits_meta_delta_and_done(monkeypatch):
-    monkeypatch.setattr(rps_rotation, "build_rps_rotation", lambda *_args: ROTATION)
+    monkeypatch.setattr(rps_rotation, "build_rps_rotation", lambda *_args, **_kwargs: ROTATION)
     monkeypatch.setattr(market_overview_builder, "build_market_overview", lambda *_args: {})
     monkeypatch.setattr(ai_provider, "ai_configured", lambda: True)
     monkeypatch.setattr(ai_provider, "stream_ai_text", _fake_ai_stream)
@@ -47,7 +47,7 @@ async def test_analyze_rotation_stream_emits_meta_delta_and_done(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_analyze_rotation_stream_continues_when_market_overview_fails(monkeypatch):
-    monkeypatch.setattr(rps_rotation, "build_rps_rotation", lambda *_args: ROTATION)
+    monkeypatch.setattr(rps_rotation, "build_rps_rotation", lambda *_args, **_kwargs: ROTATION)
 
     def _raise_overview(*_args):
         raise RuntimeError("overview unavailable")

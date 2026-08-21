@@ -20,6 +20,8 @@ from datetime import date, timedelta
 
 import polars as pl
 
+from app.market_time import cn_today
+
 from app.services.market_overview_builder import (
     _dimension_field,
     _dimension_values,
@@ -106,7 +108,7 @@ _map_cache: dict[str, tuple[pl.DataFrame, int]] = {}
 _map_ts: dict[str, float] = {}
 
 
-def build_rps_rotation(repo, days: int = 12, kind: str = "concept", level: int | None = None) -> dict:
+def build_rps_rotation(repo, days: int = 12, kind: str = "concept", level: int | None = None, quote_service=None) -> dict:
     """构建维度涨幅轮动矩阵(概念或行业)。
 
     Args:
@@ -128,6 +130,16 @@ def build_rps_rotation(repo, days: int = 12, kind: str = "concept", level: int |
     """
     days = max(7, min(30, days))
 
+    # 盘中实时列数据源: quote_service 的当日 enriched (含实时 change_pct)。
+    live_df = None
+    if quote_service is not None:
+        try:
+            live_df, live_date = quote_service.get_enriched_today()
+            if live_date != cn_today():
+                live_df = None
+        except Exception:  # noqa: BLE001
+            live_df = None
+
     # 结果缓存: 同 (kind, level, latest) 的请求在 TTL 内直接返回。
     latest = _latest_enriched_date(repo)
     if latest is None:
@@ -137,7 +149,10 @@ def build_rps_rotation(repo, days: int = 12, kind: str = "concept", level: int |
     now = time.time()
     cached = _cache.get(cache_key)
     if cached and (now - _cache_ts.get(cache_key, 0)) < _CACHE_TTL:
-        return _slice_cached(cached, days)
+        map_df, _ = _load_concept_map_df(repo, kind)
+        return _overlay_live_column(
+            _slice_cached(cached, days), live_df, map_df, kind, level, days
+        )
 
     # 1. 维度映射(symbol → 维度成员), 已按 kind 缓存为 polars DataFrame
     map_df, member_count = _load_concept_map_df(repo, kind)
@@ -203,7 +218,54 @@ def build_rps_rotation(repo, days: int = 12, kind: str = "concept", level: int |
     _cache[cache_key] = full
     _cache_ts[cache_key] = now
 
-    return _slice_cached(full, days)
+    return _overlay_live_column(_slice_cached(full, days), live_df, map_df, kind, level, days)
+
+
+def _overlay_live_column(
+    result: dict,
+    live_df: pl.DataFrame | None,
+    map_df: pl.DataFrame,
+    kind: str,
+    level: int | None,
+    days: int,
+) -> dict:
+    """盘中把今天(实时价)聚合为一列, 叠加到矩阵最左侧。
+
+    历史缓存(_enriched_history_cache)盘后才含当天数据, 盘中不叠加的话矩阵
+    右端停在上一交易日。live_df 为 quote_service 的当日 enriched (实时
+    change_pct)。仅在 live_df 日期为今天且维度映射非空时叠加, 并标记
+    intraday_date 供前端标注"实时"。口径(均值聚合 + 行业层级)与历史列一致。
+    """
+    if live_df is None or live_df.is_empty() or map_df.is_empty():
+        return result
+    if "change_pct" not in live_df.columns or "symbol" not in live_df.columns:
+        return result
+    today_str = cn_today().isoformat()
+    df = live_df.select(["symbol", "change_pct"]).with_columns(
+        pl.col("symbol").str.to_uppercase().alias("_sym_up")
+    )
+    joined = df.join(map_df, on="_sym_up", how="inner").drop("_sym_up")
+    if joined.is_empty():
+        return result
+    if kind == "industry" and level is not None:
+        parts = pl.col(kind).str.split("-")
+        idx = pl.min_horizontal(pl.lit(level - 1), pl.col(kind).str.count_matches("-"))
+        joined = joined.with_columns(parts.list.get(idx).alias(kind))
+    agg = joined.group_by(kind).agg(pl.col("change_pct").mean().alias("avg_pct"))
+    agg = agg.filter(pl.col("avg_pct").is_not_null() & pl.col("avg_pct").is_not_nan())
+    agg = agg.sort("avg_pct", descending=True)
+    live_col = list(zip(agg[kind].to_list(), agg["avg_pct"].to_list()))
+    if not live_col:
+        return result
+    dates = [today_str] + [d for d in result["dates"] if d != today_str]
+    dates = dates[:days]
+    columns = {d: (live_col if d == today_str else result["columns"][d]) for d in dates}
+    return {
+        "dates": dates,
+        "columns": columns,
+        "concept_count": result["concept_count"],
+        "intraday_date": today_str,
+    }
 
 
 def _slice_cached(full: dict, days: int) -> dict:

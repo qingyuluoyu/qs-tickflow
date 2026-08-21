@@ -336,7 +336,7 @@ async def analyze_rotation_stream(
     # 1. 取轮动矩阵。矩阵构建失败时也必须保持 NDJSON 协议完整, 不能让
     #    异常在第一个事件前逃出 StreamingResponse, 导致前端只能看到网络失败。
     try:
-        rotation = build_rps_rotation(repo, days, kind, level)
+        rotation = build_rps_rotation(repo, days, kind, level, quote_service=quote_service)
     except Exception:
         logger.exception("%s rotation matrix build failed", kind)
         yield json.dumps({
