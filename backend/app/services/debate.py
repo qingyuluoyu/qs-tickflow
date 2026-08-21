@@ -273,7 +273,7 @@ async def run_debate_stream(repo, data_dir: Path, code: str, rounds: int = 1, qu
             yield emit({"type": "stage", "stage": stage, "label": label})
             buf: list[str] = []
             try:
-                async for chunk in stream_ai_text(_build_messages(stage, facts, transcript), temperature=0.5, max_tokens=4000, timeout=180.0):
+                async for chunk in stream_ai_text(_build_messages(stage, facts, transcript), temperature=0.5, max_tokens=4000, timeout=180.0, disable_thinking=True):
                     if chunk:
                         buf.append(chunk)
                         yield emit({"type": "delta", "stage": stage, "text": chunk})

@@ -327,6 +327,7 @@ async def recap_market_stream(
             temperature=0.5,
             max_tokens=6000,
             max_continuations=2,
+            disable_thinking=True,
         ):
             yield json.dumps(event, ensure_ascii=False)
 

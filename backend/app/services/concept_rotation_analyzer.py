@@ -391,6 +391,7 @@ async def analyze_rotation_stream(
             ],
             temperature=0.5,
             max_tokens=4000,
+            disable_thinking=True,
         ):
             yield json.dumps({"type": "delta", "content": delta}, ensure_ascii=False)
 

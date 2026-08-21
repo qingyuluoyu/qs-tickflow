@@ -224,6 +224,7 @@ async def stream_ai_text(
     timeout: float = 180.0,
     first_event_timeout: float | None = None,
     inactivity_timeout: float | None = None,
+    disable_thinking: bool = False,
 ) -> AsyncIterator[str]:
     """Yield text deltas from the configured provider.
 
@@ -241,6 +242,7 @@ async def stream_ai_text(
         timeout=timeout,
         first_event_timeout=first_event_timeout,
         inactivity_timeout=inactivity_timeout,
+        disable_thinking=disable_thinking,
     ):
         yield chunk
 
@@ -463,6 +465,7 @@ async def _stream_openai(
     timeout: float,
     first_event_timeout: float | None = None,
     inactivity_timeout: float | None = None,
+    disable_thinking: bool = False,
 ) -> AsyncIterator[str]:
     profile = resolve_current_profile()
     if not profile.api_key:
@@ -480,6 +483,10 @@ async def _stream_openai(
         **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
         "stream": True,
     }
+    if disable_thinking:
+        # 推理模型思考会吃光 max_tokens 导致正文为空 (财务/轮动分析实测如此);
+        # 只保留最终文本的调用方必须关思考。不支持的供应商 400 时降级重试。
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     try:
         stream = await _await_stream_operation(
             client.chat.completions.create(**kwargs),
@@ -490,6 +497,13 @@ async def _stream_openai(
         # 流尚未开始 yield, 可安全重建: 去掉 temperature 后重开 stream。
         if temperature is not None and _is_temperature_rejected(exc):
             kwargs.pop("temperature", None)
+            stream = await _await_stream_operation(
+                client.chat.completions.create(**kwargs),
+                first_timeout,
+                "first_event",
+            )
+        elif "extra_body" in kwargs and _is_bad_request(exc):
+            kwargs.pop("extra_body", None)
             stream = await _await_stream_operation(
                 client.chat.completions.create(**kwargs),
                 first_timeout,

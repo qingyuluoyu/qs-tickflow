@@ -187,6 +187,7 @@ async def analyze_financials_stream(
             ],
             temperature=0.4,
             max_tokens=4000,
+            disable_thinking=True,
         ):
             yield json.dumps({"type": "delta", "content": delta}, ensure_ascii=False)
 

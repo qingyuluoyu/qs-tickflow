@@ -345,6 +345,7 @@ async def run_debate_stream(
                 temperature=0.3,
                 max_tokens=_MAX_AI_TOKENS,
                 timeout=180.0,
+                disable_thinking=True,
             ):
                 if ai_event.get("type") == "delta":
                     text = str(ai_event.get("content") or "")
