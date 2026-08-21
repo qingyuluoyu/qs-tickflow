@@ -1795,7 +1795,7 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     # 通用页面预热: 启动 4 分钟后 + 工作日 9:05/16:05 各跑一次。
     # 9:05 覆盖盘中实时列场景; 16:05 在盘后管道(默认15:30)落盘后重建当日缓存键,
     # 保证次日开盘前 RPS 矩阵已是新数据。幂等, 命中缓存时秒回。
-    def _page_prewarm_job() -> None:
+    def _page_prewarm_job(on_progress=None) -> None:
         app_state = _get_app_state()
         repo_live = getattr(app_state, "repo", None) if app_state else None
         qs = getattr(app_state, "quote_service", None) if app_state else None
