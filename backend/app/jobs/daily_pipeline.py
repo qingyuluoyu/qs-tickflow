@@ -1792,6 +1792,34 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     if review_job_count:
         logger.info("restored %d owner-scoped scheduled review jobs", review_job_count)
 
+    # 通用页面预热: 启动 4 分钟后 + 工作日 9:05/16:05 各跑一次。
+    # 9:05 覆盖盘中实时列场景; 16:05 在盘后管道(默认15:30)落盘后重建当日缓存键,
+    # 保证次日开盘前 RPS 矩阵已是新数据。幂等, 命中缓存时秒回。
+    def _page_prewarm_job() -> None:
+        app_state = _get_app_state()
+        repo_live = getattr(app_state, "repo", None) if app_state else None
+        qs = getattr(app_state, "quote_service", None) if app_state else None
+        from app.services.page_prewarm import prewarm_common_pages
+        prewarm_common_pages(repo_live or repo, qs)
+
+    scheduler.add_job(
+        lambda: _run_tracked(_page_prewarm_job, "page_prewarm_boot"),
+        trigger=DateTrigger(
+            run_date=_datetime.now(BEIJING_TZ) + _timedelta(minutes=4),
+        ),
+        id="page_prewarm_boot",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        lambda: _run_tracked(_page_prewarm_job, "page_prewarm"),
+        trigger=CronTrigger(day_of_week="mon-fri",
+                            hour="9,16", minute=5,
+                            timezone="Asia/Shanghai"),
+        id="page_prewarm",
+        misfire_grace_time=1800,
+        replace_existing=True,
+    )
+
     scheduler.start()
     logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
