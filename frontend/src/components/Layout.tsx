@@ -50,7 +50,6 @@ import {
   PieChart,
   ChevronLeft,
   ChevronRight,
-  Swords,
   Sparkles,
 } from 'lucide-react'
 import { AskAiHost } from '@/components/ask-ai/AskAiHost'
@@ -81,7 +80,6 @@ const nav = [
   { to: '/review',      label: '复盘',   icon: BookOpenCheck, tone: 'purple' },
   { to: '/indices', label: '指数', icon: BarChart3, tone: 'orange' },
   { to: '/asset-allocation', label: '资产配置', icon: PieChart, tone: 'purple' },
-  { to: '/debate', label: '多空辩论', icon: Swords, tone: 'purple' },
   { to: '/data',       label: '数据',   icon: Database, tone: 'blue' },
 ] as const
 
@@ -128,15 +126,24 @@ function MonitorBadge({ active }: { active: boolean }) {
 /** 常驻问 AI 入口：右下角悬浮按钮，每个页面一个持久会话。 */
 function AskAiEntry() {
   const { pathname } = useLocation()
+  const open = () => {
+    // 抓取当前页面可见文本作为上下文,让 AI 直接"阅读"本页内容
+    const pageText = (document.querySelector('main')?.innerText ?? '')
+      .replace(/\n{2,}/g, '\n')
+      .trim()
+      .slice(0, 1500)
+    openAskAi(
+      `${pathname}#general`,
+      '',
+      '',
+      `用户正在浏览页面「${pathname}」。以下是该页面当前展示的内容快照：\n${pageText || '（页面内容为空）'}`,
+      ['这页数据说明了什么？', '有哪些值得关注的变化？'],
+    )
+  }
   return (
     <button
       type="button"
-      onClick={() =>
-        openAskAi(`${pathname}#general`, '', '', '用户在青树量化工作台发起的通用提问，请结合可获取的行情与数据客观回答。', [
-          '今天大盘怎么样？',
-          '当前市场有哪些值得关注的方向？',
-        ])
-      }
+      onClick={open}
       className="fixed bottom-4 right-4 z-[65] flex h-11 items-center gap-1.5 rounded-full border border-accent/40 bg-accent px-4 text-xs font-medium text-white shadow-xl transition hover:scale-105"
       title="问 AI"
     >

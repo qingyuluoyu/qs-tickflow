@@ -2425,44 +2425,6 @@ export const api = {
     }
   },
 
-  // ===== 多空辩论(独立页) / 问 AI =====
-  async *debateStream(code: string, rounds = 1, signal?: AbortSignal): AsyncGenerator<{
-    type: 'status' | 'dossier_progress' | 'dossier' | 'stage' | 'delta' | 'stage_done' | 'done' | 'error'
-    message?: string
-    code?: string
-    symbol?: string
-    title?: string
-    ok?: boolean
-    loaded?: number
-    total?: number
-    sections?: Array<{ title: string; tool: string }>
-    missing?: string[]
-    stage?: string
-    label?: string
-    text?: string
-    content?: string
-    failed?: boolean
-    stages?: Array<{ stage: string; content: string }>
-  }> {
-    const res = await fetch('/api/debate/stream', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, rounds }),
-      signal,
-    })
-    if (!res.ok) {
-      let detail = ''
-      try { const j = JSON.parse(await res.text()); detail = j.detail ?? j.message ?? '' } catch { /* ignore */ }
-      const msg = detail || `${res.status} ${res.statusText}`
-      toast(msg, 'error')
-      throw new Error(msg)
-    }
-    if (!res.body) throw new Error('响应无 body')
-    for await (const event of readNdjsonStream(res)) {
-      yield event as any
-    }
-  },
-
   /** 问 AI — 数据注入 / 函数调用共用 NDJSON 流。 */
   async *chatStream(body: {
     messages: Array<{ role: 'user' | 'assistant'; content: string }>
