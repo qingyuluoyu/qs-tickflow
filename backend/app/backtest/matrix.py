@@ -3589,7 +3589,11 @@ def build_matrix_score(
     *,
     fallback: np.ndarray,
 ) -> np.ndarray:
-    weights = {name: float(weight) for name, weight in scoring.items() if float(weight) != 0.0}
+    weights = {
+        name: float(weight)
+        for name, weight in scoring.items()
+        if float(weight) != 0.0 and matrix_feature_available(market, name)
+    }
     total_weight = sum(weights.values())
     if weights and total_weight > 0:
         score = np.zeros(market.shape, dtype=np.float32)
@@ -3645,7 +3649,7 @@ def build_matrix_score(
         score[~universe | ~all_finite] = 0.0
         return score
 
-    if order_by and order_by != "score":
+    if order_by and order_by != "score" and matrix_feature_available(market, order_by):
         values = matrix_feature(market, order_by)
         result = np.zeros(market.shape, dtype=np.float32)
         direction = np.float32(1.0 if descending else -1.0)
@@ -3665,34 +3669,44 @@ def build_matrix_score(
     return result
 
 
+def matrix_feature_available(market: MarketDataMatrix, name: str) -> bool:
+    """判断某特征在该市场矩阵上是否可用 (如 ETF 无 turnover_rate)。"""
+    if name in {"open", "high", "low", "close", "volume"} or name in market.fields:
+        return True
+    if name == "vol_ratio_5d":
+        return True
+    if name in {
+        "prev_close",
+        "change_pct",
+        "change_amount",
+        "amplitude",
+        "boll_upper",
+        "boll_lower",
+        "high_60d",
+        "low_60d",
+        "annual_vol_20d",
+        "ma20_bias",
+    }:
+        return True
+    if name.startswith("ma") and name[2:].isdigit():
+        return True
+    if name.startswith("rsi_") and name[4:].isdigit():
+        return True
+    if name.startswith("momentum_") and name.endswith("d"):
+        try:
+            int(name.removeprefix("momentum_").removesuffix("d"))
+        except ValueError:
+            return False
+        return True
+    return False
+
+
 def matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
     if name in {"open", "high", "low", "close", "volume"} or name in market.fields:
         return market.field(name)
-    close_feature = (
-        name in {
-            "prev_close",
-            "change_pct",
-            "change_amount",
-            "amplitude",
-            "boll_upper",
-            "boll_lower",
-            "high_60d",
-            "low_60d",
-            "annual_vol_20d",
-            "ma20_bias",
-        }
-        or (name.startswith("ma") and name[2:].isdigit())
-        or (name.startswith("rsi_") and name[4:].isdigit())
-        or (
-            name.startswith("momentum_") and name.endswith("d")
-        )
-    )
-    if close_feature:
-        source = market.close
-    elif name == "vol_ratio_5d":
-        source = market.volume
-    else:
+    if not matrix_feature_available(market, name):
         raise ValueError(f"unsupported matrix feature: {name}")
+    source = market.volume if name == "vol_ratio_5d" else market.close
     with _activate_valid_bar_index(market.valid_bars):
         return _cached_matrix_operation(
             "matrix_feature",
