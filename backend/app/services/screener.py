@@ -328,7 +328,9 @@ class ScreenerService:
         )
 
         warmup = 60
-        start = target_date - timedelta(days=min((lookback_days + warmup) * 2, 180))
+        # 上限 400 日历天 (~275 交易日): 需容纳清数一号等 lookback=130 的策略,
+        # 再大则在低配服务器上有内存风险。
+        start = target_date - timedelta(days=min((lookback_days + warmup) * 2, 400))
 
         enriched_dir = self.repo.store.data_dir / self._enriched_dirname
         read_cols = ["symbol", "date", "open", "high", "low", "close", "volume",

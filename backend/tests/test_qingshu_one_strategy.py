@@ -22,8 +22,8 @@ def test_qingshu_one_is_pinned_first_of_nineteen_builtin_strategies():
     assert strategy.meta["name"] == "清数一号"
     assert strategy.source == "builtin"
     assert strategy.execution_backend == "python_history_legacy"
-    assert strategy.lookback_days >= 380
-    assert engine.required_history_bars(["qingshu_one"]) == 380
+    assert strategy.lookback_days >= 130
+    assert engine.required_history_bars(["qingshu_one"]) == 130
     assert {param["id"] for param in strategy.meta["params"]}.isdisjoint({
         "roe_min_pct", "required_annual_roe_years", "institution_holder_min_count",
     })
@@ -72,7 +72,7 @@ def test_qingshu_one_uses_six_selected_rules_and_accepts_four_matches():
     engine = StrategyEngine(strategy_dirs=[BUILTIN_DIR])
     strategy = engine.get("qingshu_one")
     params = {param["id"]: param for param in strategy.meta["params"]}
-    assert "annual_limit_up_min_count" not in params
+    assert params["recent_limit_up_min_count"]["default"] == 3
     assert params["min_rule_matches"]["default"] == 4
     assert params["min_rule_matches"]["max"] == 6
     as_of = date(2026, 8, 17)
