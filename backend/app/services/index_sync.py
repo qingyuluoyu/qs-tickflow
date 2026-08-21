@@ -321,7 +321,17 @@ def sync_and_persist_etf_daily(
     on_chunk_done(current, total) 每个批次完成后回调。
     """
     if not capset.has(Cap.KLINE_DAILY_BATCH):
-        return 0
+        # tickflow 免费档无批量日K权限; 但自定义源 (如 teajoin fund_daily)
+        # 自带 ETF 日K, 不受该能力门禁限制。
+        provider_name = preferences.get_daily_data_provider()
+        if provider_name == "tickflow":
+            return 0
+        from app.data_providers import custom as custom_sources
+        try:
+            if not custom_sources.provider_has_dataset(provider_name, "daily"):
+                return 0
+        except Exception:  # noqa: BLE001
+            return 0
 
     if symbols_override:
         symbols = sorted(set(s for s in symbols_override if s))

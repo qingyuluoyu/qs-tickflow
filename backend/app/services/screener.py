@@ -131,14 +131,18 @@ class ScreenerService:
                 return df
             df = df.join(latest, on="symbol", how="left")
 
-        return df.with_columns(
-            pl.coalesce(
-                [pl.col("total_shares"), pl.col("_share_total_shares")]
-            ).alias("total_shares"),
-            pl.coalesce(
-                [pl.col("float_shares"), pl.col("_share_float_shares")]
-            ).alias("float_shares"),
-        ).drop(["_share_total_shares", "_share_float_shares"])
+        # ETF 等资产可能没有股本列 (instruments 无 total_shares/float_shares,
+        # 历史股本表也无匹配), coalesce 只能引用真实存在的列, 否则 ColumnNotFoundError。
+        for target, fallback in (("total_shares", "_share_total_shares"), ("float_shares", "_share_float_shares")):
+            sources = [c for c in (target, fallback) if c in df.columns]
+            if not sources:
+                continue
+            df = df.with_columns(
+                pl.coalesce([pl.col(c) for c in sources]).alias(target)
+            )
+            if fallback in df.columns:
+                df = df.drop(fallback)
+        return df
 
     @staticmethod
     def clear_history_cache() -> None:

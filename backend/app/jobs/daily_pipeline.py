@@ -988,7 +988,19 @@ def run_now(
     pull_index = _prefs.get_pipeline_pull_index()
     pull_etf = _prefs.get_pipeline_pull_etf()
 
-    if capset.has(Cap.KLINE_DAILY_BATCH) and (pull_index or pull_etf):
+    # tickflow 免费档无批量日K能力时, ETF 日K仍可走自定义源 (如 teajoin fund_daily);
+    # 指数日K维持原能力门禁不变。
+    etf_via_custom = False
+    if pull_etf and not capset.has(Cap.KLINE_DAILY_BATCH):
+        _daily_provider = _prefs.get_daily_data_provider()
+        if _daily_provider != "tickflow":
+            from app.data_providers import custom as custom_sources
+            try:
+                etf_via_custom = custom_sources.provider_has_dataset(_daily_provider, "daily")
+            except Exception:  # noqa: BLE001
+                etf_via_custom = False
+
+    if (capset.has(Cap.KLINE_DAILY_BATCH) and (pull_index or pull_etf)) or (pull_etf and etf_via_custom):
         _types = []
         if pull_index:
             _types.append("指数")
@@ -997,7 +1009,7 @@ def run_now(
         emit("sync_index", 88, f"同步{'+'.join(_types)}日K…")
         # 子阶段进度分配: 88.0(开始) → 89.0(完成), 指数占前半, ETF 占后半
         try:
-            if pull_index:
+            if pull_index and capset.has(Cap.KLINE_DAILY_BATCH):
                 emit("sync_index", 88, "同步指数维表…")
                 index_count = index_sync.sync_index_instruments(repo, pull_index=True, pull_etf=False)
                 emit("sync_index", 88, f"指数维表完成,{index_count} 只")
