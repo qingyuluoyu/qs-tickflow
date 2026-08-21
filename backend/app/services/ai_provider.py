@@ -254,6 +254,7 @@ async def stream_ai_events(
     max_continuations: int = 2,
     first_event_timeout: float | None = None,
     inactivity_timeout: float | None = None,
+    disable_thinking: bool = False,
 ) -> AsyncIterator[AiStreamEvent]:
     """Yield structured reasoning/answer events with bounded continuation.
 
@@ -298,6 +299,7 @@ async def stream_ai_events(
             timeout=timeout,
             first_event_timeout=first_event_timeout,
             inactivity_timeout=inactivity_timeout,
+            disable_thinking=disable_thinking,
         ):
             event_type = event.get("type")
             if event_type == "reasoning_delta":
@@ -538,6 +540,7 @@ async def _stream_openai_events(
     timeout: float,
     first_event_timeout: float | None = None,
     inactivity_timeout: float | None = None,
+    disable_thinking: bool = False,
 ) -> AsyncIterator[AiStreamEvent]:
     """Read one provider stream while retaining reasoning and finish metadata."""
     profile = resolve_current_profile()
@@ -557,6 +560,11 @@ async def _stream_openai_events(
         **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
         "stream": True,
     }
+    if disable_thinking:
+        # 推理模型的隐藏思考会吃光 max_tokens 预算 (实测 10k 字符思考只挤出
+        # 133 字符回答)。支持该参数的供应商 (deepseek/豆包系) 直接关思考,
+        # 不支持的供应商在下方 400 时自动降级重试。
+        kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
     first_timeout = _resolve_stream_timeout(first_event_timeout, _STREAM_FIRST_EVENT_TIMEOUT)
     inactivity = _resolve_stream_timeout(inactivity_timeout, _STREAM_INACTIVITY_TIMEOUT)
     try:
@@ -568,6 +576,14 @@ async def _stream_openai_events(
     except Exception as exc:
         if temperature is not None and _is_temperature_rejected(exc):
             kwargs.pop("temperature", None)
+            stream = await _await_stream_operation(
+                _open_stream(**kwargs),
+                first_timeout,
+                "first_event",
+            )
+        elif "extra_body" in kwargs and _is_bad_request(exc):
+            # 供应商不认识 thinking 参数 → 去掉后重试一次
+            kwargs.pop("extra_body", None)
             stream = await _await_stream_operation(
                 _open_stream(**kwargs),
                 first_timeout,
@@ -673,6 +689,11 @@ def _is_temperature_rejected(exc: Exception) -> bool:
         return False
     text = _openai_error_detail(exc) or str(exc)
     return any(h in text.lower() for h in _TEMP_REJECT_HINTS)
+
+
+def _is_bad_request(exc: Exception) -> bool:
+    """True for any upstream 400 — used to retry without optional params."""
+    return getattr(exc, "status_code", None) == 400
 
 
 def _openai_kwargs(*, temperature: float | None, max_tokens: int) -> dict:

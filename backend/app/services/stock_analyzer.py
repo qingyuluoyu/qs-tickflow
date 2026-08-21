@@ -28,7 +28,8 @@ from app.services.financial_sync import get_financial_df
 logger = logging.getLogger(__name__)
 
 # 注入最近多少根日 K(技术面分析样本)
-_KLINE_WINDOW = 90
+# 60 根 ≈ 3 个月, 足以覆盖 ma60 口径; 更长的窗口只会拖慢 LLM prefill。
+_KLINE_WINDOW = 60
 # 注入财务表的最近期数
 _MAX_PERIODS = 4
 
@@ -139,6 +140,7 @@ _SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术�
 ## 输出规范
 
 用 **Markdown** 格式输出,严格遵循以下结构。不要输出任何 JSON 或代码块,直接输出 Markdown 正文。
+**全文控制在 1500-2000 字以内**, 每节简明扼要、直接给结论和证据数值, 不要铺陈过程。
 
 ### 1. 🎯 一句话定调(1-2 句)
 用一句话概括该股当前的**技术状态**,并直接给出互证依据(如"价格在 60 日均线上方运行但 MACD 红柱收缩,趋势未破、动能减弱")。结尾用【当前状态:企稳 / 反弹 / 震荡 / 调整 / 走弱】客观描述技术形态,**不评价好坏、不下操作结论**。
@@ -343,8 +345,12 @@ async def analyze_stock_stream(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.5,
-            max_tokens=6000,
-            max_continuations=2,
+            # 服务器场景限速优先: 3500 tokens 一轮 + 至多 1 次续写,
+            # 最坏 7000 tokens, 比原 3×6000 节省一半以上等待时间。
+            max_tokens=3500,
+            max_continuations=1,
+            # 推理模型的思考草稿会吃光输出预算, 关掉后回答立即开始
+            disable_thinking=True,
         ):
             yield json.dumps(event, ensure_ascii=False)
 

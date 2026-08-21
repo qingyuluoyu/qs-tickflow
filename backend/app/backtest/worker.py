@@ -249,6 +249,11 @@ def _worker_entry(task: dict[str, Any], event_queue, cancel_event) -> None:
         if store is not None:
             with suppress(Exception):
                 store.db.close()
+        # 关键: 进程退出前强制冲刷事件队列管道。put() 只是把消息交给 feeder
+        # 线程, 立即退出可能丢消息 (父进程读到"exitcode=0 但无结果")。
+        with suppress(Exception):
+            event_queue.close()
+            event_queue.join_thread()
 
 
 def run_worker_task(
@@ -301,6 +306,18 @@ def run_worker_task(
             process.terminate()
             process.join(timeout=5.0)
             raise BacktestWorkerError("backtest worker returned but did not exit within 10 seconds")
+        # 收尾排空: 子进程退出前 put 的 result/error 可能还滞留在管道里,
+        # 主循环因 "not process.is_alive()" 提前 break 时会漏读。
+        while result is None and failure is None:
+            try:
+                message = events.get(timeout=0.5)
+            except queue.Empty:
+                break
+            message_type = message.get("type")
+            if message_type == "result":
+                result = message["payload"]
+            elif message_type == "error":
+                failure = message
         if failure is not None:
             raise BacktestWorkerError(
                 f"{failure.get('message', 'worker failed')}\n{failure.get('traceback', '')}".rstrip()
