@@ -305,6 +305,13 @@ class AccountStore:
         with self._lock, self._connection() as conn:
             return conn.execute("SELECT 1 FROM users LIMIT 1").fetchone() is not None
 
+    def phone_registered(self, phone: str) -> bool:
+        """Return True when an account already exists under ``phone``."""
+        if not phone:
+            return False
+        with self._lock, self._connection() as conn:
+            return conn.execute("SELECT 1 FROM users WHERE phone = ?", (phone,)).fetchone() is not None
+
     def list_users(self, *, offset: int = 0, limit: int = 100) -> tuple[int, list[AccountRecord]]:
         """Return bounded, non-secret account metadata for an operator cache/API."""
         if offset < 0:

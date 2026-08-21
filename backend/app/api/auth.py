@@ -177,7 +177,11 @@ def account_entry(req: AccountEntryIn, request: Request, response: Response) -> 
             pass
     ip = _client_ip(request)
     store = _accounts()
-    _check_login_rate_limit(store, ip)
+    # 登录失败锁定只拦登录尝试; 注册走独立的频率限制, 避免用户
+    # 被登录锁定后连注册也一起 429。注册模式下若电话已存在(实际
+    # 是登录已有账户), 仍按登录锁定处理, 防止借注册表单绕过爆破锁定。
+    if not req.name or store.phone_registered(req.phone):
+        _check_login_rate_limit(store, ip)
     try:
         result = store.enter(
             req.name,
