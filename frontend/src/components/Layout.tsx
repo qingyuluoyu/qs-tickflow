@@ -144,10 +144,10 @@ function AskAiEntry() {
     <button
       type="button"
       onClick={open}
-      className="fixed bottom-4 right-4 z-[65] flex h-11 items-center gap-1.5 rounded-full border border-accent/40 bg-accent px-4 text-xs font-medium text-white shadow-xl transition hover:scale-105"
+      className="ml-auto flex items-center gap-1.5 rounded-full border border-accent/40 bg-accent px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:opacity-90"
       title="问 AI"
     >
-      <Sparkles className="h-4 w-4" />
+      <Sparkles className="h-3.5 w-3.5" />
       问 AI
     </button>
   )
@@ -326,8 +326,10 @@ export function Layout() {
             />
             <img src="/brand-icon.png" alt="清数智算" className="h-7 w-7 object-contain" />
           </Group>
+          {/* 问 AI 入口 — 右上角 */}
+          <AskAiEntry />
           {/* 用户胶囊 — 固定在 Header 右侧, 不再悬浮遮挡页面内容 */}
-          <div className="ml-auto flex items-center gap-2 rounded-full border border-border bg-elevated px-2.5 py-1.5 text-xs">
+          <div className="ml-2 flex items-center gap-2 rounded-full border border-border bg-elevated px-2.5 py-1.5 text-xs">
             <UserRound className="h-3.5 w-3.5 text-accent" />
             <span className="max-w-32 truncate text-foreground" title={user.name}>{user.name}</span>
             <button
@@ -568,7 +570,6 @@ export function Layout() {
       <StockAnalysisBubble />
       <AskAiHost />
       <AskAiBubble />
-      <AskAiEntry />
     </AppShell>
   )
 }
