@@ -1,0 +1,1 @@
+import{by as n}from"./index-CmrT1p9W.js";function r({w:e="w-full",h:s="h-3.5",rounded:t="rounded-sm",className:a=""}){return n.jsx("div",{className:`${e} ${s} ${t} bg-elevated/60 animate-pulse ${a}`})}export{r as S};

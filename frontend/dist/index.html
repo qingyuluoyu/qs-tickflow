@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // 预渲染主题脚本: 首屏前设置 html.dark, 避免亮暗闪烁 (FOUC)。
+      // 默认亮色; 用户切过暗色后 (localStorage qs-theme=dark) 保持暗色。
+      (function () {
+        try {
+          if (localStorage.getItem('qs-theme') === 'dark') {
+            document.documentElement.classList.add('dark')
+          }
+        } catch (e) {}
+      })()
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/brand-icon.png" />
+    <meta name="theme-color" content="#3B82F6" />
+    <title>清数智算 · 智能投研工作台</title>
+    <link rel="preconnect" href="https://rsms.me/" />
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script type="module" crossorigin src="/assets/index-CmrT1p9W.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C_IcuDPZ.css">
+  </head>
+  <body class="bg-base text-foreground">
+    <div id="root"></div>
+  </body>
+</html>

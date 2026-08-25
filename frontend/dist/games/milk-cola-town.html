@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>牛奶可乐小镇 · 七堂课学会像经济学家一样思考</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { height:100%; }
+body {
+  font-family:-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  background:#efe3cf;
+  color:#5a4632;
+  line-height:1.6;
+}
+#app {
+  max-width:720px;
+  margin:0 auto;
+  min-height:100vh;
+  background:#fdf8f0;
+  box-shadow:0 0 30px rgba(120,90,50,.18);
+  position:relative;
+  overflow-x:hidden;
+}
+.wrap { padding:20px 18px 40px; }
+
+/* ===== 通用按钮 ===== */
+.btn {
+  display:inline-block;
+  border:none;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:17px;
+  font-weight:bold;
+  color:#fff;
+  background:linear-gradient(180deg,#ffb07c,#ff9f68);
+  border-radius:16px;
+  padding:13px 30px;
+  box-shadow:0 4px 0 #e08a52, 0 6px 14px rgba(224,138,82,.35);
+  transition:transform .08s, box-shadow .08s;
+}
+.btn:hover { transform:translateY(-2px); box-shadow:0 6px 0 #e08a52, 0 10px 18px rgba(224,138,82,.4); }
+.btn:active { transform:translateY(2px) scale(.97); box-shadow:0 1px 0 #e08a52; }
+.btn.green { background:linear-gradient(180deg,#8fd8b8,#5ba88a); box-shadow:0 4px 0 #4a8f73, 0 6px 14px rgba(91,168,138,.35); }
+.btn.green:hover { box-shadow:0 6px 0 #4a8f73, 0 10px 18px rgba(91,168,138,.4); }
+.btn.green:active { box-shadow:0 1px 0 #4a8f73; }
+.btn.small { font-size:13px; padding:7px 14px; border-radius:12px; }
+.btn.ghost { background:#fff; color:#a9744f; box-shadow:0 3px 0 #e5d6bd, 0 4px 10px rgba(120,90,50,.12); }
+.btn.ghost:active { box-shadow:0 1px 0 #e5d6bd; }
+.center { text-align:center; }
+.muted { color:#a08b6f; font-size:13px; }
+
+/* ===== 标题页 ===== */
+.title-hero { text-align:center; padding:70px 20px 30px; }
+.title-hero .big { font-size:64px; animation:bob 2.4s ease-in-out infinite; display:inline-block; }
+@keyframes bob { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-10px);} }
+.title-hero h1 { font-size:32px; color:#8b5e3c; margin:14px 0 8px; letter-spacing:2px; }
+.title-hero .sub { color:#a08b6f; font-size:15px; margin-bottom:34px; }
+
+/* ===== HUD ===== */
+.hud {
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  background:#fff8ec; border:2px solid #f0e2c8; border-radius:16px;
+  padding:10px 14px; margin-bottom:14px;
+}
+.hud .stars { font-weight:bold; color:#8b5e3c; white-space:nowrap; }
+.hud .bar { flex:1; min-width:90px; height:12px; background:#efe3cf; border-radius:8px; overflow:hidden; }
+.hud .bar i { display:block; height:100%; background:linear-gradient(90deg,#8fd8b8,#5ba88a); border-radius:8px; transition:width .5s; }
+
+/* ===== 地图 ===== */
+.map {
+  position:relative;
+  height:440px;
+  border-radius:20px;
+  overflow:hidden;
+  background:linear-gradient(180deg,#bfe3f2 0%,#d9eef7 42%,#b7e0b0 43%,#9ed696 100%);
+  border:3px solid #fff;
+  box-shadow:inset 0 0 0 2px #f0e2c8, 0 6px 16px rgba(120,90,50,.15);
+}
+.cloud { position:absolute; font-size:34px; opacity:.92; animation:drift linear infinite; pointer-events:none; }
+@keyframes drift { from{left:-70px;} to{left:105%;} }
+.sun { position:absolute; top:10px; right:14px; font-size:38px; animation:spin 24s linear infinite; pointer-events:none; }
+@keyframes spin { to{transform:rotate(360deg);} }
+.road {
+  position:absolute; left:0; right:0; top:46%; height:15%;
+  background:#d9c39a; border-top:4px solid #c9ae7e; border-bottom:4px solid #c9ae7e;
+}
+.road::after {
+  content:''; position:absolute; left:0; right:0; top:50%; margin-top:-2px; height:4px;
+  background:repeating-linear-gradient(90deg,#fff 0 22px,transparent 22px 44px);
+  opacity:.85;
+}
+.bld {
+  position:absolute; transform:translateX(-50%);
+  cursor:pointer; text-align:center; user-select:none;
+  transition:transform .12s;
+}
+.bld:hover { transform:translateX(-50%) scale(1.08); }
+.bld:active { transform:translateX(-50%) scale(.94); }
+.bld .em { font-size:40px; display:block; filter:drop-shadow(0 3px 3px rgba(90,60,30,.25)); }
+.bld .plate {
+  display:inline-block; margin-top:2px; font-size:12px; font-weight:bold; color:#7a5a38;
+  background:#fff8ec; border:2px solid #e5d6bd; border-radius:10px; padding:2px 8px;
+  box-shadow:0 2px 5px rgba(120,90,50,.15); white-space:nowrap;
+}
+.bld .badge {
+  position:absolute; top:-12px; right:-6px; font-size:20px;
+  filter:drop-shadow(0 2px 2px rgba(0,0,0,.2));
+}
+.bld .badge.pop { animation:pop .7s cubic-bezier(.2,2.2,.4,1); }
+@keyframes pop { 0%{transform:scale(0) rotate(-40deg);} 70%{transform:scale(1.5) rotate(10deg);} 100%{transform:scale(1) rotate(0);} }
+.bld.locked { filter:grayscale(.9); opacity:.75; }
+.bld.locked .em { filter:grayscale(.9) drop-shadow(0 3px 3px rgba(90,60,30,.2)); }
+.bld.gate .em { font-size:44px; }
+.bld.shake { animation:shake .45s; }
+@keyframes shake { 0%,100%{transform:translateX(-50%);} 20%{transform:translateX(calc(-50% - 6px));} 40%{transform:translateX(calc(-50% + 6px));} 60%{transform:translateX(calc(-50% - 5px));} 80%{transform:translateX(calc(-50% + 5px));} }
+
+/* ===== 对话气泡 ===== */
+.chat { padding:6px 0 14px; }
+.bubble-row { display:flex; align-items:flex-end; margin:14px 0; gap:10px; }
+.bubble-row.right { flex-direction:row-reverse; }
+.avatar {
+  width:46px; height:46px; flex:0 0 46px; border-radius:50%;
+  background:#fff; border:2px solid #f0e2c8; display:flex; align-items:center; justify-content:center;
+  font-size:26px; box-shadow:0 3px 6px rgba(120,90,50,.15);
+}
+.bubble {
+  max-width:76%; background:#fff; border-radius:16px; padding:11px 14px;
+  border:2px solid #f0e2c8; position:relative; font-size:15px;
+  box-shadow:0 3px 8px rgba(120,90,50,.1);
+  animation:fadeUp .3s;
+}
+.bubble-row.right .bubble { background:#e8f6ef; border-color:#cdeadb; }
+.bubble .who { display:block; font-size:12px; font-weight:bold; color:#b08c5a; margin-bottom:2px; }
+@keyframes fadeUp { from{opacity:0; transform:translateY(8px);} to{opacity:1; transform:none;} }
+.chapter-head { text-align:center; margin-bottom:6px; }
+.chapter-head .tag {
+  display:inline-block; background:#ff9f68; color:#fff; font-size:13px; font-weight:bold;
+  border-radius:20px; padding:4px 14px; margin-bottom:6px;
+}
+.chapter-head h2 { color:#8b5e3c; font-size:24px; }
+.chapter-head .concept { color:#a08b6f; font-size:14px; margin-top:2px; }
+
+/* ===== 决策 ===== */
+.qcard {
+  background:#fff; border:2px solid #f0e2c8; border-radius:18px; padding:18px 16px;
+  box-shadow:0 4px 12px rgba(120,90,50,.1); margin-top:12px;
+}
+.qcard .q { font-size:17px; font-weight:bold; color:#6b4f30; margin-bottom:14px; }
+.opt {
+  display:block; width:100%; text-align:left; margin:9px 0; padding:12px 14px;
+  background:#fdf8f0; border:2px solid #ead9bd; border-radius:14px;
+  font-family:inherit; font-size:15px; color:#5a4632; cursor:pointer;
+  transition:transform .08s, border-color .12s, background .12s;
+}
+.opt:hover { border-color:#ff9f68; transform:translateY(-1px); }
+.opt:active { transform:scale(.98); }
+.opt.picked-good { background:#e8f6ef; border-color:#5ba88a; font-weight:bold; }
+.opt.picked-bad { background:#fdeaea; border-color:#e08a8a; }
+.opt.dim { opacity:.55; pointer-events:none; }
+.fb {
+  margin-top:14px; border-radius:14px; padding:12px 14px; font-size:14.5px;
+  animation:fadeUp .3s;
+}
+.fb.good { background:#e8f6ef; border:2px solid #b7e2cd; color:#3d7a5f; }
+.fb.bad { background:#fdeaea; border:2px solid #f2c4c4; color:#a05050; }
+.fb .verdict { font-weight:bold; display:block; margin-bottom:3px; font-size:15px; }
+.slider-row { text-align:center; padding:8px 0 4px; }
+.slider-row .val { font-size:30px; font-weight:bold; color:#ff9f68; margin:6px 0; }
+input[type=range] { width:100%; accent-color:#ff9f68; height:34px; }
+
+/* ===== 笔记本 ===== */
+.notebook {
+  background:repeating-linear-gradient(180deg,#fffdf6 0 27px,#eef3f8 27px 28px);
+  border:2px solid #ead9bd; border-radius:18px; padding:22px 20px 20px;
+  margin-top:14px; position:relative;
+  box-shadow:0 5px 14px rgba(120,90,50,.12);
+}
+.notebook::before {
+  content:''; position:absolute; top:-12px; left:50%; transform:translateX(-50%) rotate(-2deg);
+  width:110px; height:24px; background:rgba(255,200,120,.55); border-radius:3px;
+  box-shadow:0 1px 3px rgba(120,90,50,.15);
+}
+.notebook .nb-title { font-size:19px; font-weight:bold; color:#8b5e3c; margin-bottom:10px; }
+.notebook p { margin:8px 0; font-size:15px; }
+.notebook .eg {
+  background:#fff6e3; border-left:4px solid #ff9f68; border-radius:8px;
+  padding:9px 12px; font-size:14px; color:#7a5a38; margin-top:12px;
+}
+
+/* ===== 图鉴 / 徽章 ===== */
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px; margin-top:14px; }
+.dex-card {
+  background:#fff; border:2px solid #f0e2c8; border-radius:16px; padding:14px 12px;
+  text-align:center; box-shadow:0 3px 8px rgba(120,90,50,.08);
+}
+.dex-card .em { font-size:34px; }
+.dex-card .nm { font-weight:bold; color:#8b5e3c; margin:6px 0 4px; font-size:15px; }
+.dex-card .df { font-size:12.5px; color:#7a6a52; }
+.dex-card.locked { filter:grayscale(1); opacity:.6; }
+.dex-card.locked .df { color:#a99; }
+
+/* ===== 测验 / 结算 ===== */
+.quiz-progress { font-size:13px; color:#a08b6f; text-align:right; margin-top:6px; }
+.trophy { font-size:70px; text-align:center; animation:pop .8s cubic-bezier(.2,2.2,.4,1); }
+.result-title { text-align:center; font-size:26px; color:#8b5e3c; margin:8px 0 2px; }
+.result-score { text-align:center; color:#a08b6f; margin-bottom:16px; }
+.review-item {
+  background:#fff; border:2px solid #f0e2c8; border-radius:14px; padding:12px 14px; margin:10px 0;
+  font-size:14px;
+}
+.review-item .mark { font-weight:bold; }
+.review-item.ok .mark { color:#3d7a5f; }
+.review-item.no .mark { color:#a05050; }
+.review-item .exp { color:#7a6a52; margin-top:4px; font-size:13px; }
+.share-hint {
+  margin-top:18px; text-align:center; font-size:13.5px; color:#a08b6f;
+  background:#fff8ec; border:2px dashed #e5d6bd; border-radius:14px; padding:10px 14px;
+}
+
+/* ===== Toast ===== */
+#toast {
+  position:fixed; left:50%; bottom:60px; transform:translateX(-50%) translateY(20px);
+  background:rgba(90,70,50,.92); color:#fff; padding:10px 20px; border-radius:24px;
+  font-size:14px; opacity:0; pointer-events:none; transition:all .3s; z-index:99;
+  max-width:86%; text-align:center;
+}
+#toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+
+.sec-label { font-size:13px; font-weight:bold; color:#b08c5a; letter-spacing:1px; margin:16px 0 4px; }
+.topbar { display:flex; align-items:center; gap:10px; margin-bottom:10px; }
+.topbar .spacer { flex:1; }
+
+@media (max-width:480px) {
+  .map { height:400px; }
+  .bld .em { font-size:32px; }
+  .bld .plate { font-size:10.5px; padding:1px 6px; }
+  .bld.gate .em { font-size:36px; }
+  .title-hero h1 { font-size:26px; }
+  .bubble { max-width:80%; font-size:14.5px; }
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script>
+/* ============================================================
+ * 数据区：章节 / 测验 / 图鉴
+ * ============================================================ */
+var CHAPTERS = [
+{
+  id:'store', emoji:'🏪', name:'村口小卖部', concept:'成本效益原则',
+  pos:{left:8, top:7},
+  story:[
+    {who:'小美', emoji:'👧', text:'好渴！老板，来瓶可乐！多少钱？', side:'left'},
+    {who:'店主老王', emoji:'👴', text:'3 块，冰的，刚镇好。', side:'right'},
+    {who:'阿财', emoji:'🧑', text:'别买！镇另一头的超市才卖 2 块 5！走过去也就 20 分钟，省 5 毛呢！', side:'left'},
+    {who:'小美', emoji:'👧', text:'呃……为了 5 毛钱走 20 分钟？这事儿值得吗？', side:'left'}
+  ],
+  steps:[
+    {type:'choice', q:'第一关：这瓶可乐，你会怎么买？',
+     options:[
+       {t:'🚶 走 20 分钟去超市，省 5 毛', ok:true,
+        fb:'可以！20 分钟换 5 毛，你觉得值就走——这是你的成本效益计算。记住这个选择，一会儿要考。'},
+       {t:'🛋️ 就在村口买，3 元不折腾', ok:true,
+        fb:'也完全可以！你的 20 分钟比 5 毛值钱，这同样是理性的成本效益计算。记住这个选择，一会儿要考。'}
+     ]},
+    {type:'choice', q:'第二关：换个场景——你要买一个 1000 元的电饭煲，镇另一头便宜 5 毛（卖 999.5 元）。你走吗？',
+     options:[
+       {t:'🚶 走！省的同样是 5 毛钱', ok:true,
+        fb:'恭喜，你逃过了"比例偏差"！不管买 3 元的可乐还是 1000 元的电饭煲，走 20 分钟的收益都是一模一样的 5 毛。两次的决定应该一致——钱可不在乎自己是从哪件商品上省下来的。'},
+       {t:'🙅 不走，才便宜 5 毛，算了吧', ok:false,
+        fb:'这就是典型的"比例偏差"！5 毛相对于 1000 元显得微不足道，但你走 20 分钟省下的钱，和买可乐时省下的是同一个 5 毛。理性人只看绝对的成本和收益，不看它占价格的比例。'}
+     ]}
+  ],
+  note:{
+    points:[
+      '成本效益原则：当且仅当行动的额外收益大于额外成本时，这件事才值得做。',
+      '警惕"比例偏差"：省 5 毛就是省 5 毛，别因为它只占价格的 0.05% 就觉得它不值钱。',
+      '你的时间也是成本——所以"就近买"和"专程去"都可能是对的，关键是标准要前后一致。'
+    ],
+    example:'现实中：有人愿意开车 10 分钟去加便宜 3 毛/升的汽油，却懒得花同样时间比较几千元的保险报价——其实后者能省几百块。'
+  }
+},
+{
+  id:'farm', emoji:'🌾', name:'阳光农场', concept:'机会成本',
+  pos:{left:23, top:68},
+  story:[
+    {who:'农夫伯', emoji:'👨‍🌾', text:'娃啊，伯伯这块地只能种一样。种草莓，一年预计赚 800；种玉米，预计赚 500。', side:'left'},
+    {who:'你', emoji:'🙂', text:'那还犹豫啥？……等等，是不是有什么坑？', side:'right'},
+    {who:'农夫伯', emoji:'👨‍🌾', text:'坑没有，道理有一个。经济学管这个叫"机会成本"，你来帮我算算。', side:'left'}
+  ],
+  steps:[
+    {type:'choice', q:'这块地，种什么更划算？',
+     options:[
+       {t:'🍓 种草莓（赚 800 元）', ok:true, fb:'对，800 > 500，种草莓收益更高。但真正的考题在后面——'},
+       {t:'🌽 种玉米（赚 500 元）', ok:false, fb:'嗯……同样一块地，草莓能赚 800，玉米只赚 500。除非伯伯特爱吃玉米，不然还是草莓划算。'}
+     ]},
+    {type:'choice', q:'追问：选择种草莓，它的"机会成本"是多少？',
+     options:[
+       {t:'0 元——地是自己的，没花钱', ok:false, fb:'地确实没花钱，但你放弃了"种玉米赚 500"这个最好的选择。放弃的东西，也是成本。'},
+       {t:'500 元——放弃种玉米的收益', ok:true, fb:'正确！机会成本就是你为了种草莓而放弃的最好替代选择——种玉米能赚的 500 元。'},
+       {t:'800 元——草莓的收益', ok:false, fb:'800 是你得到的收益，不是放弃的东西。机会成本算的是"放弃了什么"，不是"得到了什么"。'},
+       {t:'1300 元——两个加起来', ok:false, fb:'不能加哦。机会成本只算被你放弃的那个最好的选择：500 元。'}
+     ]}
+  ],
+  note:{
+    points:[
+      '机会成本 = 为了得到某样东西，你放弃的最好替代选择的价值。',
+      '它常常看不见、摸不着，但时时刻刻都在：选了 A，就等于放弃了 B。',
+      '"免费"的东西也有机会成本——你的时间花在这儿，就花不了在那儿。'
+    ],
+    example:'现实中：一张免费的电影票并不真的免费——那 2 个小时你本可以兼职赚 60 元，或者睡一个价值无价的午觉。'
+  }
+},
+{
+  id:'lemon', emoji:'🍋', name:'柠檬茶摊', concept:'边际成本与边际收益',
+  pos:{left:38, top:7},
+  story:[
+    {who:'摊主阿酸', emoji:'🧍', text:'救命！我想搞个"第二杯半价"促销，但我媳妇说我数学是体育老师教的。', side:'left'},
+    {who:'阿酸', emoji:'🧍', text:'你听我说：第一杯柠檬茶，茶叶、杯子、人工全算上，成本 4 元。', side:'left'},
+    {who:'阿酸', emoji:'🧍', text:'但第二杯就妙了——茶已经泡好，家伙什都现成的，多一杯只要多 1 元成本！', side:'left'},
+    {who:'你', emoji:'🙂', text:'所以……第二杯卖多少钱合适？来，价格你定。', side:'right'}
+  ],
+  steps:[
+    {type:'slider', q:'滑动定价：第二杯卖多少钱？（第一杯卖 8 元，"半价"就是 4 元）',
+     min:0, max:8, def:4, unit:' 元',
+     judge:function(v){
+       if (v < 1) return {ok:false, fb:'卖 ' + v + ' 元？第二杯的边际成本是 1 元，你这是做慈善倒贴钱呀！'};
+       if (v <= 6) return {ok:true, fb:'卖 ' + v + ' 元，而多做一杯的成本只有 1 元——每多卖一杯就净赚 ' + (v - 1) + ' 元！这就是"第二杯半价"的秘密：看着像让利，其实稳赚。'};
+       return {ok:false, fb:'卖 ' + v + ' 元？都快赶上第一杯原价了，顾客又不是柠檬——才不上当。价格太高，"多一杯"的吸引力就没了。'};
+     }},
+    {type:'choice', q:'所以，"第二杯半价"的本质是什么？',
+     options:[
+       {t:'摊主的慈善行为', ok:false, fb:'阿酸听了想哭：他可不是活雷锋，人家算得精着呢。'},
+       {t:'只要第二杯的价格 > 边际成本 1 元，多卖就是赚', ok:true, fb:'对！理性的商家只看"再多做一杯"的成本和收益：边际成本 1 元，边际收益 4 元，这买卖不亏。平均成本？那是用来迷惑外行的。'},
+       {t:'清理快过期的柠檬', ok:false, fb:'柠檬表示很新鲜。关键不在库存，在于"多卖一杯"的账本。'}
+     ]}
+  ],
+  note:{
+    points:[
+      '边际分析：理性决策看"再多一单位"的边际成本和边际收益，而不是平均成本。',
+      '只要边际收益 > 边际成本，这件事就值得多做一点。',
+      '所以"第二杯半价"不是慈善，是生意——低价的那一杯成本本来就低得多。'
+    ],
+    example:'现实中：机票起飞前打折卖、面包店晚上买一送一——多一个乘客、多卖一个面包的边际成本极低，卖出去就是赚。'
+  }
+},
+{
+  id:'cinema', emoji:'🎬', name:'老电影院', concept:'沉没成本',
+  pos:{left:52, top:68},
+  story:[
+    {who:'你', emoji:'🙂', text:'45 块买的票，年度大片，冲！', side:'right'},
+    {who:'你', emoji:'🙂', text:'（20 分钟后）……这剧情，这演技，我的眼睛在报警。', side:'right'},
+    {who:'阿财', emoji:'🧑', text:'走吧走吧！广场那边免费露天音乐会，可热闹了！', side:'left'},
+    {who:'你', emoji:'🙂', text:'可是……票钱都花了 45 啊，现在走是不是亏了？', side:'right'}
+  ],
+  steps:[
+    {type:'choice', q:'烂片还剩 90 分钟，你怎么办？',
+     options:[
+       {t:'😖 坚持看完，钱都花了', ok:false, fb:'45 元已经花出去了，看完也退不了——它是"沉没成本"。你硬撑着，等于在亏掉的钱上再赔 90 分钟的难受。双倍损失，何苦呢。'},
+       {t:'🎵 立刻离场，去听音乐会', ok:true, fb:'明智！票钱已经沉没了，追不回来。现在该比较的只有一件事：剩下的 90 分钟，是坐着难受值，还是听音乐会值。过去账，翻篇！'}
+     ]}
+  ],
+  note:{
+    points:[
+      '沉没成本：已经付出且无法收回的成本，不应该影响当下的决策。',
+      '决策只看未来：接下来每种选择的收益和成本是什么。',
+      '"钱都花了"是最常见的决策陷阱——钱不会因为你的坚持而回来。'
+    ],
+    example:'现实中：排队 40 分钟买到的难吃网红餐、读了三年发现不喜欢的专业、亏损却一直舍不得放下的项目——它们共同的名字叫沉没成本。'
+  }
+},
+{
+  id:'market', emoji:'⛱️', name:'中央集市', concept:'供需关系',
+  pos:{left:65, top:7},
+  story:[
+    {who:'旁白', emoji:'🌧️', text:'哗——！晴空万里突然变成瓢泼大雨，集市瞬间乱成一团。', side:'left'},
+    {who:'伞摊老板', emoji:'🧔', text:'昨天晴天，我的伞 30 块一把都没人看一眼。今天……好家伙，队伍排到街口了！', side:'left'},
+    {who:'伞摊老板', emoji:'🧔', text:'我就剩 20 把伞了。你说，我该怎么定价？', side:'left'}
+  ],
+  steps:[
+    {type:'choice', q:'你是摊主，伞怎么定价？（原价 30 元）',
+     options:[
+       {t:'😇 维持 30 元，良心价', ok:false, fb:'30 元秒光！你收获了赞美和……没赚到的钱。而且最后来的人生着病也买不到伞——价格没上去，伞没分给最需要的人。'},
+       {t:'🤔 涨到 45 元', ok:true, fb:'骂归骂，伞还是卖完了。涨价筛出了最急需的人，也会吸引别的摊贩明天多进伞——这就是价格信号在调配资源。雨天需求暴涨而伞只有 20 把，价格上浮是市场的自然反应。'},
+       {t:'😈 涨到 80 元，狠狠赚一笔', ok:false, fb:'结果呢？大家宁可淋雨也不当冤大头，伞砸手里了。涨价不是想涨多少就涨多少——价格太高，需求会被吓跑。'}
+     ]}
+  ],
+  note:{
+    points:[
+      '供需关系：需求增加而供给不变时，价格就会上升；反之亦然。',
+      '价格不只是数字，更是信号：它告诉买家"这东西现在多紧缺"，告诉卖家"快多备点货"。',
+      '自由定价听着冷酷，却能把稀缺的东西送到最需要它的人手里。'
+    ],
+    example:'现实中：演唱会门票一开售就秒空、雨天打车加价、春运期间票价浮动——背后都是同一对看不见的手：供给与需求。'
+  }
+},
+{
+  id:'hall', emoji:'🏛️', name:'小镇市政厅', concept:'激励效应',
+  pos:{left:79, top:68},
+  story:[
+    {who:'镇长', emoji:'🤵', text:'垃圾太多了！我决定：以后扔垃圾按袋收费，一袋 2 元！垃圾肯定变少！', side:'left'},
+    {who:'秘书', emoji:'👩‍💼', text:'镇长，政策是好心，但您猜居民会怎么"配合"？', side:'right'},
+    {who:'镇长', emoji:'🤵', text:'大家都是体面人，肯定乖乖分类减量啊……对吧？', side:'left'}
+  ],
+  steps:[
+    {type:'choice', q:'政策一出，小镇居民会怎么做？',
+     options:[
+       {t:'😊 乖乖配合，垃圾变少', ok:false, fb:'愿望很美好。现实是：人们会把垃圾袋压得像压缩饼干、半夜偷偷倒进河里、把垃圾塞进邻镇的垃圾桶……该交的费一分不想交。'},
+       {t:'🕳️ 钻空子：压紧垃圾袋、偷倒河边', ok:true, fb:'很遗憾，答对了。人会对激励做出反应——"按袋收费"激励的不是"少制造垃圾"，而是"少用袋子"。政策改变行为，但未必朝着你想要的方向。'}
+     ]},
+    {type:'choice', q:'那怎样设计激励，才能真正减少垃圾？',
+     options:[
+       {t:'💰 回收返现：送来可回收物就返钱', ok:true, fb:'这才是好设计！让"做对的事"本身有甜头，人们就会抢着分类回收。好激励，比好愿望管用一百倍。'},
+       {t:'👮 罚款加十倍，抓到一个罚一个', ok:false, fb:'也许有点用，但抓人成本巨大，猫鼠游戏没完没了——而且怨气冲天。'},
+       {t:'📢 贴标语：保护环境，人人有责', ok:false, fb:'标语很热血，可惜它没有改变任何人的账本。没有激励的口号，风一吹就掉。'}
+     ]}
+  ],
+  note:{
+    points:[
+      '人们会对激励做出反应——这是经济学里最朴素也最强大的原理之一。',
+      '设计政策时，必须预判人们的行为会怎么变，而不是假设大家都会"配合"。',
+      '好激励让利己和利他同向；坏激励让聪明人都去钻空子。'
+    ],
+    example:'现实中：按代码行数考核程序员，就会收获又臭又长的代码；安全带普及后司机开车更猛——激励改变行为的例子，到处都是。'
+  }
+},
+{
+  id:'super', emoji:'🥛', name:'牛奶可乐超市', concept:'产品设计里的经济学',
+  pos:{left:90, top:7},
+  story:[
+    {who:'你', emoji:'🙂', text:'（推着购物车）等等，我发现一个宇宙级谜团——', side:'right'},
+    {who:'你', emoji:'🙂', text:'为什么牛奶都装在方盒子里，可乐却都装在圆瓶子里？！', side:'right'},
+    {who:'店长', emoji:'🧓', text:'小伙子观察力不错。这可不是巧合，是经济学。你猜猜原因？', side:'left'}
+  ],
+  steps:[
+    {type:'choice', q:'牛奶方盒、可乐圆瓶，最合理的解释是？',
+     options:[
+       {t:'🎨 纯属设计师的个人喜好', ok:false, fb:'设计师很委屈：货架上的每个形状，背后都是算盘珠子拨出来的。'},
+       {t:'🧊 牛奶要冷藏，方盒省昂贵冷柜空间；可乐拿在手里喝，圆瓶好握，常温货架又很便宜', ok:true, fb:'完全正确！冷柜空间寸土寸金，方盒严丝合缝最省地儿；可乐常温摆放，空间便宜，不如把瓶子做得握着舒服、看着顺眼。形状，是被成本和使用方式捏出来的。'},
+       {t:'🔵 圆瓶看起来比方盒高级', ok:false, fb:'好看是加分项，但不是主因。要是冷柜空间不要钱，牛奶也想住大别墅。'},
+       {t:'🥛 方盒装牛奶不容易洒', ok:false, fb:'洒不洒主要看瓶盖和盒口的设计，跟方不方关系不大。再想一层：空间成本！'}
+     ]}
+  ],
+  note:{
+    points:[
+      '产品设计是被成本和收益塑造的：储存方式、使用场景的成本差异，决定了包装的形态。',
+      '超市里每个细节都是一笔账：方盒省的是昂贵的冷藏空间，圆瓶赢的是便宜的常温货架 + 握感。',
+      '彩蛋：为什么酒吧里水很贵，花生却免费？水会止渴让你少喝酒，花生越吃越渴让你多点酒——花生和酒是"互补品"，免费花生是最划算的酒水促销。'
+    ],
+    example:'现实中：同样道理，软饮料用圆柱罐（好握、抗压、省料），而昂贵的冷藏货架上总是方方正正——下次逛超市，你就是看门道的那个人了。'
+  }
+}
+];
+
+/* 毕业测验：全部是新情景，不复述章节原题 */
+var QUIZ = [
+{
+  q:'🎤 偶像来小镇开"免费"演唱会，但要提前排队 3 小时才能入场。这张门票真正的成本是？',
+  options:['0 元，票是免费的', '排队 3 小时里你本可以做的最好的那件事', '来回的交通费', '门票的印刷成本'],
+  answer:1,
+  exp:'免费票也有机会成本——那 3 小时你本可以打工、学习或补觉，放弃的最好选择就是票价。'
+},
+{
+  q:'🍽️ 你花 128 元吃自助餐，结果菜品难以下咽。朋友说"出去吃火锅吧"。正确的想法是？',
+  options:['必须吃回本，不然 128 元白花了', '128 元已经沉没了，该比较的是"继续难受"和"去吃火锅"哪个更值', '再塞两口贵的，能回本一点是一点', '下次再也不来这家了，但今天必须吃完'],
+  answer:1,
+  exp:'128 元是沉没成本，吃多少都拿不回来。决策只看未来：接下来的时间怎么过更开心。'
+},
+{
+  q:'💻 你已经连续加班 3 小时，头昏脑涨。老板问："再加 1 小时？"理性的考虑方式是？',
+  options:['都已经加了 3 小时，不差这 1 小时', '前 3 小时的平均产出还行，所以继续', '比较"第 4 小时的额外产出"和"第 4 小时的额外疲惫与代价"', '老板说了算，想啥都没用'],
+  answer:2,
+  exp:'边际分析：只看"再多 1 小时"的边际收益与边际成本。效率暴跌时，第 4 小时很可能不划算。'
+},
+{
+  q:'⏰ 情形一：20 元的闹钟，另一家店的同款便宜 5 元。情形二：2000 元的相机，另一家店便宜 5 元。两次都是多走 10 分钟。理性做法是？',
+  options:['闹钟去买便宜的，相机懒得跑——5 元对 2000 元不值一提', '两种情况要么都去，要么都不去——省下的都是同样的 5 元', '都去，蚊子腿也是肉', '都不去，5 元不值得任何奔波'],
+  answer:1,
+  exp:'比例偏差的经典陷阱：10 分钟换 5 元，这笔账和商品总价无关。两次决策标准应该一致。'
+},
+{
+  q:'🚕 暴雨天深夜，打车软件价格翻倍，乘客骂声一片但还是有人叫到车了。这主要说明？',
+  options:['平台趁机发国难财，与经济学无关', '需求暴涨而车辆供给不变，价格自然上浮，并把车分给了最急需的人', '司机故意少接单制造涨价', '雨天车会变少，所以是成本上升'],
+  answer:1,
+  exp:'供需原理：暴雨让打车需求暴增、供给不变，价格上浮既是信号，也把稀缺的车匹配给最急需的人。'
+},
+{
+  q:'🧑‍💻 某公司宣布"按代码行数给程序员发奖金"。最可能发生的结果是？',
+  options:['程序员写出更优雅简洁的代码', '程序员写出又长又啰嗦的代码，bug 反而变多', '程序员工作量不变，积极性提高', '公司软件质量大幅提升'],
+  answer:1,
+  exp:'人们会对激励做出反应：奖励行数，得到的就是行数。设计激励要预判行为会朝哪儿变。'
+}
+];
+
+/* 概念图鉴 */
+function buildDex(){
+  var out = [];
+  for (var i = 0; i < CHAPTERS.length; i++) {
+    var c = CHAPTERS[i];
+    out.push({emoji:c.emoji, name:c.concept, def:c.note.points[0]});
+  }
+  return out;
+}
+/* ============================================================
+ * 逻辑区：存档 / 状态机 / 渲染 / 事件委托
+ * ============================================================ */
+var SAVE_KEY = 'milkcola_town_v1';
+var app = document.getElementById('app');
+var toastEl = document.getElementById('toast');
+
+function loadSave(){
+  try {
+    var s = JSON.parse(localStorage.getItem(SAVE_KEY));
+    if (s && s.stars) return s;
+  } catch(e){}
+  return {stars:{}, quiz:null};
+}
+function persist(){ localStorage.setItem(SAVE_KEY, JSON.stringify(save)); }
+
+var save = loadSave();
+var view = {screen:'title'};
+var run = null;   // 章节进行状态 {ci, story, step, right, fb:{ok,text}|null, slider}
+var qz = null;    // 测验进行状态 {i, score, answers:[], fb:null|{ok,text}}
+var lastEarned = null; // 刚获得的星星章节 id（用于弹跳动画）
+var toastTimer = null;
+
+function starCount(){
+  var n = 0;
+  for (var i = 0; i < CHAPTERS.length; i++) if (save.stars[CHAPTERS[i].id]) n++;
+  return n;
+}
+function quizUnlocked(){ return starCount() >= CHAPTERS.length; }
+
+function toast(msg){
+  toastEl.textContent = msg;
+  toastEl.className = 'show';
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function(){ toastEl.className = ''; }, 2200);
+}
+
+function go(screen){ view = {screen:screen}; render(); window.scrollTo(0,0); }
+
+/* ---------- 渲染 ---------- */
+function render(){
+  var s = view.screen;
+  if (s === 'title') app.innerHTML = htmlTitle();
+  else if (s === 'map') app.innerHTML = htmlMap();
+  else if (s === 'chapter') app.innerHTML = htmlChapter();
+  else if (s === 'quiz') app.innerHTML = htmlQuiz();
+  else if (s === 'result') app.innerHTML = htmlResult();
+  else if (s === 'dex') app.innerHTML = htmlDex();
+}
+
+function htmlTitle(){
+  return '<div class="wrap">' +
+    '<div class="title-hero">' +
+      '<span class="big">🥛🥤</span>' +
+      '<h1>牛奶可乐小镇</h1>' +
+      '<div class="sub">一座小镇，七堂课，学会像经济学家一样思考</div>' +
+      '<button class="btn" data-act="start">开始游戏 ▶</button>' +
+      (starCount() > 0 || save.quiz ?
+        '<div style="margin-top:14px"><button class="btn ghost small" data-act="start">继续进度（⭐ ' + starCount() + '/7）</button></div>' : '') +
+      '<div class="muted" style="margin-top:26px">改编自罗伯特·弗兰克《牛奶可乐经济学》的七个核心概念</div>' +
+    '</div>' +
+  '</div>';
+}
+
+function htmlMap(){
+  var n = starCount();
+  var pct = Math.round(n / CHAPTERS.length * 100);
+  var clouds =
+    '<div class="cloud" style="top:6%; animation-duration:36s;">☁️</div>' +
+    '<div class="cloud" style="top:16%; animation-duration:52s; animation-delay:-14s; font-size:26px;">☁️</div>' +
+    '<div class="cloud" style="top:2%; animation-duration:44s; animation-delay:-30s; font-size:30px;">⛅</div>';
+  var blds = '';
+  for (var i = 0; i < CHAPTERS.length; i++) {
+    var c = CHAPTERS[i];
+    var has = !!save.stars[c.id];
+    blds += '<div class="bld" style="left:' + c.pos.left + '%; top:' + c.pos.top + '%;" data-act="openCh" data-ci="' + i + '">' +
+      '<span class="em">' + c.emoji + '</span>' +
+      '<span class="plate">' + c.name + '</span>' +
+      (has ? '<span class="badge' + (lastEarned === c.id ? ' pop' : '') + '">⭐</span>' : '') +
+    '</div>';
+  }
+  // 毕业测验大门
+  var unlocked = quizUnlocked();
+  var gateCls = 'bld gate' + (unlocked ? '' : ' locked');
+  var gateBadge = save.quiz ? '<span class="badge">🎖️</span>' : (unlocked ? '<span class="badge">❗</span>' : '<span class="badge">🔒</span>');
+  blds += '<div id="gate" class="' + gateCls + '" style="left:47%; top:70%;" data-act="gate">' +
+    '<span class="em">🎓</span>' +
+    '<span class="plate">镇中心广场·毕业测验</span>' + gateBadge +
+  '</div>';
+  lastEarned = null;
+
+  return '<div class="wrap">' +
+    '<div class="topbar">' +
+      '<button class="btn ghost small" data-act="title">🏠 封面</button>' +
+      '<div class="spacer"></div>' +
+      '<span style="font-weight:bold;color:#8b5e3c">🗺️ 牛奶可乐小镇</span>' +
+    '</div>' +
+    '<div class="hud">' +
+      '<span class="stars">⭐ ' + n + '/7</span>' +
+      '<span class="bar"><i style="width:' + pct + '%"></i></span>' +
+      '<button class="btn green small" data-act="dex">📖 概念图鉴</button>' +
+      '<button class="btn ghost small" data-act="reset">🗑️ 重置进度</button>' +
+    '</div>' +
+    '<div class="map">' +
+      '<div class="sun">🌞</div>' + clouds +
+      '<div class="road"></div>' + blds +
+    '</div>' +
+    '<div class="muted center" style="margin-top:12px">点一栋建筑开始上课 · 集齐 7 颗星星解锁毕业测验 🎓</div>' +
+  '</div>';
+}
+
+function chapterHead(c, phase){
+  return '<div class="chapter-head">' +
+    '<span class="tag">' + phase + '</span>' +
+    '<h2>' + c.emoji + ' ' + c.name + '</h2>' +
+    '<div class="concept">本堂概念：' + c.concept + '</div>' +
+  '</div>';
+}
+
+function htmlChapter(){
+  var c = CHAPTERS[run.ci];
+  var back = '<div class="topbar"><button class="btn ghost small" data-act="map">← 返回地图</button></div>';
+  // 阶段一：情景故事
+  if (run.phase === 'story') {
+    var bubbles = '<div class="chat">';
+    for (var i = 0; i <= run.story; i++) {
+      var s = c.story[i];
+      bubbles += '<div class="bubble-row' + (s.side === 'right' ? ' right' : '') + '">' +
+        '<div class="avatar">' + s.emoji + '</div>' +
+        '<div class="bubble"><span class="who">' + s.who + '</span>' + s.text + '</div>' +
+      '</div>';
+    }
+    bubbles += '</div>';
+    var last = run.story >= c.story.length - 1;
+    return '<div class="wrap">' + back + chapterHead(c, '📖 情景故事') + bubbles +
+      '<div class="center"><button class="btn" data-act="storyNext">' + (last ? '轮到你了 👉' : '继续 ▶') + '</button></div>' +
+    '</div>';
+  }
+  // 阶段二：互动决策
+  if (run.phase === 'decide') {
+    var step = c.steps[run.step];
+    var h = '<div class="qcard"><div class="q">' + step.q + '</div>';
+    if (step.type === 'slider') {
+      h += '<div class="slider-row">' +
+        '<input type="range" id="priceSlider" min="' + step.min + '" max="' + step.max + '" step="0.5" value="' + run.slider + '">' +
+        '<div class="val"><span id="sliderVal">' + run.slider + '</span>' + step.unit + '</div>' +
+      '</div>';
+      if (run.fb) {
+        h += '<div class="fb ' + (run.fb.ok ? 'good' : 'bad') + '"><span class="verdict">' + (run.fb.ok ? '✅ 判断正确！' : '❌ 再想想~') + '</span>' + run.fb.text + '</div>' +
+          '<div class="center" style="margin-top:14px"><button class="btn green" data-act="fbNext">继续 ▶</button></div>';
+      } else {
+        h += '<div class="center" style="margin-top:10px"><button class="btn" data-act="sliderGo">就定这个价！</button></div>';
+      }
+    } else {
+      for (var j = 0; j < step.options.length; j++) {
+        var cls = 'opt';
+        if (run.fb) {
+          if (j === run.picked) cls += step.options[j].ok ? ' picked-good' : ' picked-bad';
+          else cls += ' dim';
+        }
+        h += '<button class="' + cls + '" data-act="opt" data-oi="' + j + '">' + step.options[j].t + '</button>';
+      }
+      if (run.fb) {
+        h += '<div class="fb ' + (run.fb.ok ? 'good' : 'bad') + '"><span class="verdict">' + (run.fb.ok ? '✅ 漂亮！' : '❌ 踩坑了，但这坑值钱') + '</span>' + run.fb.text + '</div>' +
+          '<div class="center" style="margin-top:14px"><button class="btn green" data-act="fbNext">继续 ▶</button></div>';
+      }
+    }
+    h += '</div>';
+    return '<div class="wrap">' + back + chapterHead(c, '🎯 互动决策 ' + (run.step + 1) + '/' + c.steps.length) + h + '</div>';
+  }
+  // 阶段三：弗兰克笔记
+  var nb = '<div class="notebook"><div class="nb-title">📓 弗兰克笔记 · ' + c.concept + '</div>';
+  for (var k = 0; k < c.note.points.length; k++) nb += '<p>· ' + c.note.points[k] + '</p>';
+  nb += '<div class="eg">💡 ' + c.note.example + '</div></div>';
+  return '<div class="wrap">' + back + chapterHead(c, '📓 弗兰克笔记') +
+    '<div class="center" style="margin-top:10px">本堂互动得分：<b style="color:#ff9f68">' + run.right + ' / ' + c.steps.length + '</b></div>' +
+    nb +
+    '<div class="center" style="margin-top:20px"><button class="btn green" data-act="takeStar">收下这颗星 ⭐</button></div>' +
+  '</div>';
+}
+
+function htmlQuiz(){
+  var q = QUIZ[qz.i];
+  var pct = Math.round(qz.i / QUIZ.length * 100);
+  var h = '<div class="hud"><span class="stars">🎓 毕业测验</span><span class="bar"><i style="width:' + pct + '%"></i></span><span class="muted">得分 ' + qz.score + '</span></div>';
+  h += '<div class="qcard"><div class="q">第 ' + (qz.i + 1) + ' / ' + QUIZ.length + ' 题<br>' + q.q + '</div>';
+  for (var j = 0; j < q.options.length; j++) {
+    var cls = 'opt';
+    if (qz.fb) {
+      if (j === q.answer) cls += ' picked-good';
+      else if (j === qz.picked) cls += ' picked-bad';
+      else cls += ' dim';
+    }
+    h += '<button class="' + cls + '" data-act="qopt" data-oi="' + j + '">' + q.options[j] + '</button>';
+  }
+  if (qz.fb) {
+    h += '<div class="fb ' + (qz.fb.ok ? 'good' : 'bad') + '"><span class="verdict">' + (qz.fb.ok ? '✅ 答对！' : '❌ 答错了') + '</span>' + q.exp + '</div>' +
+      '<div class="center" style="margin-top:14px"><button class="btn green" data-act="qnext">' + (qz.i >= QUIZ.length - 1 ? '查看成绩 🏁' : '下一题 ▶') + '</button></div>';
+  }
+  h += '</div>';
+  return '<div class="wrap">' + h + '</div>';
+}
+
+function htmlResult(){
+  var score = save.quiz ? save.quiz.score : 0;
+  var trophy, title, comment;
+  if (score >= 5) { trophy = '🏆'; title = '牛奶可乐经济学大师'; comment = '七堂课没白上，你已经开始用成本、边际和激励的眼睛看世界了。弗兰克会为你骄傲。'; }
+  else if (score >= 3) { trophy = '🎓'; title = '小镇明白人'; comment = '大部分坑你都能绕开，偶尔还是会为沉没的 5 毛钱纠结——这就是人性，继续修炼！'; }
+  else { trophy = '🌱'; title = '经济学小学生'; comment = '别灰心，经济学就是反直觉的艺术。回小镇再逛一圈，星星和脑子都会变亮。'; }
+  var h = '<div class="wrap">' +
+    '<div class="trophy">' + trophy + '</div>' +
+    '<div class="result-title">' + title + '</div>' +
+    '<div class="result-score">毕业测验得分：' + score + ' / ' + QUIZ.length + '</div>' +
+    '<p class="center" style="color:#7a6a52">' + comment + '</p>';
+
+  h += '<div class="sec-label">🏅 概念徽章墙</div><div class="grid">';
+  for (var i = 0; i < CHAPTERS.length; i++) {
+    var c = CHAPTERS[i];
+    h += '<div class="dex-card"><div class="em">' + c.emoji + '</div><div class="nm">' + c.concept + '</div><div class="df">' + c.name + '</div></div>';
+  }
+  h += '</div>';
+
+  if (save.quiz && save.quiz.answers) {
+    h += '<div class="sec-label">📝 测验复盘</div>';
+    for (var j = 0; j < QUIZ.length; j++) {
+      var ok = save.quiz.answers[j];
+      h += '<div class="review-item ' + (ok ? 'ok' : 'no') + '"><span class="mark">' + (ok ? '✅' : '❌') + ' 第 ' + (j + 1) + ' 题</span> ' + QUIZ[j].q +
+        '<div class="exp">' + QUIZ[j].exp + '</div></div>';
+    }
+  }
+
+  h += '<div class="center" style="margin-top:22px">' +
+      '<button class="btn" data-act="restart">🔄 重新开始</button> ' +
+      '<button class="btn ghost" data-act="map">🗺️ 回小镇逛逛</button>' +
+    '</div>' +
+    '<div class="share-hint">💌 这是一个完全离线的单文件游戏——把这个 .html 文件发给朋友，TA 也能玩！</div>' +
+  '</div>';
+  return h;
+}
+
+function htmlDex(){
+  var dex = buildDex();
+  var h = '<div class="wrap">' +
+    '<div class="topbar"><button class="btn ghost small" data-act="map">← 返回地图</button><div class="spacer"></div><span style="font-weight:bold;color:#8b5e3c">📖 概念图鉴</span></div>';
+  h += '<div class="grid">';
+  for (var i = 0; i < dex.length; i++) {
+    var unlocked = !!save.stars[CHAPTERS[i].id];
+    h += '<div class="dex-card' + (unlocked ? '' : ' locked') + '">' +
+      '<div class="em">' + (unlocked ? dex[i].emoji : '🔒') + '</div>' +
+      '<div class="nm">' + (unlocked ? dex[i].name : '？？？') + '</div>' +
+      '<div class="df">' + (unlocked ? dex[i].def : '去 ' + CHAPTERS[i].name + ' 上课解锁') + '</div>' +
+    '</div>';
+  }
+  h += '</div><div class="muted center" style="margin-top:16px">每完成一章，点亮一张概念卡 ⭐</div></div>';
+  return h;
+}
+
+/* ---------- 章节流程 ---------- */
+function startChapter(ci){
+  run = {ci:ci, phase:'story', story:0, step:0, right:0, fb:null, picked:-1, slider:4};
+  var c = CHAPTERS[ci];
+  if (c.steps[0].type === 'slider') run.slider = c.steps[0].def;
+  go('chapter');
+}
+
+/* ---------- 测验流程 ---------- */
+function startQuiz(){
+  qz = {i:0, score:0, answers:[], fb:null, picked:-1};
+  go('quiz');
+}
+function finishQuiz(){
+  save.quiz = {score:qz.score, answers:qz.answers};
+  persist();
+  qz = null;
+  go('result');
+}
+
+/* ---------- 事件委托 ---------- */
+app.addEventListener('input', function(e){
+  if (e.target.id === 'priceSlider') {
+    run.slider = parseFloat(e.target.value);
+    var v = document.getElementById('sliderVal');
+    if (v) v.textContent = e.target.value;
+  }
+});
+
+app.addEventListener('click', function(e){
+  var t = e.target.closest('[data-act]');
+  if (!t) return;
+  var act = t.getAttribute('data-act');
+
+  if (act === 'start') { go('map'); return; }
+  if (act === 'title') { go('title'); return; }
+  if (act === 'map') { go('map'); return; }
+  if (act === 'dex') { go('dex'); return; }
+
+  if (act === 'reset') {
+    if (confirm('确定要清空所有星星和测验成绩吗？小镇会从头再来。')) {
+      localStorage.removeItem(SAVE_KEY);
+      save = loadSave();
+      toast('进度已重置');
+      go('map');
+    }
+    return;
+  }
+  if (act === 'restart') {
+    localStorage.removeItem(SAVE_KEY);
+    save = loadSave();
+    go('title');
+    return;
+  }
+
+  if (act === 'openCh') { startChapter(parseInt(t.getAttribute('data-ci'), 10)); return; }
+
+  if (act === 'gate') {
+    if (quizUnlocked()) startQuiz();
+    else {
+      t.classList.remove('shake');
+      void t.offsetWidth;
+      t.classList.add('shake');
+      toast('先集齐 7 颗星星 ⭐ 再来挑战毕业测验吧！');
+    }
+    return;
+  }
+
+  /* --- 章节内 --- */
+  if (act === 'storyNext') {
+    var c = CHAPTERS[run.ci];
+    if (run.story < c.story.length - 1) { run.story++; render(); window.scrollTo(0,0); }
+    else { run.phase = 'decide'; render(); window.scrollTo(0,0); }
+    return;
+  }
+  if (act === 'opt') {
+    if (run.fb) return;
+    var c2 = CHAPTERS[run.ci];
+    var oi = parseInt(t.getAttribute('data-oi'), 10);
+    var opt = c2.steps[run.step].options[oi];
+    run.picked = oi;
+    run.fb = {ok:opt.ok, text:opt.fb};
+    if (opt.ok) run.right++;
+    render();
+    return;
+  }
+  if (act === 'sliderGo') {
+    if (run.fb) return;
+    var c3 = CHAPTERS[run.ci];
+    var r = c3.steps[run.step].judge(run.slider);
+    run.fb = {ok:r.ok, text:r.fb};
+    if (r.ok) run.right++;
+    render();
+    return;
+  }
+  if (act === 'fbNext') {
+    var c4 = CHAPTERS[run.ci];
+    run.fb = null; run.picked = -1;
+    if (run.step < c4.steps.length - 1) {
+      run.step++;
+      var ns = c4.steps[run.step];
+      if (ns.type === 'slider') run.slider = ns.def;
+    } else {
+      run.phase = 'note';
+    }
+    render(); window.scrollTo(0,0);
+    return;
+  }
+  if (act === 'takeStar') {
+    var c5 = CHAPTERS[run.ci];
+    if (!save.stars[c5.id]) { save.stars[c5.id] = true; persist(); lastEarned = c5.id; }
+    var done = starCount();
+    toast(done >= 7 ? '🎉 七颗星星集齐！毕业测验解锁啦！' : '⭐ 获得星星！（' + done + '/7）');
+    run = null;
+    go('map');
+    return;
+  }
+
+  /* --- 测验 --- */
+  if (act === 'qopt') {
+    if (qz.fb) return;
+    var qi = parseInt(t.getAttribute('data-oi'), 10);
+    var q = QUIZ[qz.i];
+    var ok = qi === q.answer;
+    qz.picked = qi;
+    qz.answers[qz.i] = ok;
+    if (ok) qz.score++;
+    qz.fb = {ok:ok};
+    render();
+    return;
+  }
+  if (act === 'qnext') {
+    if (qz.i < QUIZ.length - 1) { qz.i++; qz.fb = null; qz.picked = -1; render(); window.scrollTo(0,0); }
+    else finishQuiz();
+    return;
+  }
+});
+
+/* 启动 */
+render();
+</script>
+</body>
+</html>
