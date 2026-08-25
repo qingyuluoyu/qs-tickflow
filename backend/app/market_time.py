@@ -6,10 +6,12 @@
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from datetime import time as dt_time
 from enum import StrEnum
+from threading import RLock
 
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -19,6 +21,12 @@ _MORNING_START = dt_time(9, 30)
 _MORNING_END = dt_time(11, 30)
 _AFTERNOON_START = dt_time(13, 0)
 _AFTERNOON_END = dt_time(15, 0)
+
+_calendar_lock = RLock()
+_trading_calendar: frozenset[date] | None = None
+_trading_calendar_source = "weekday_fallback"
+_trading_calendar_start: date | None = None
+_trading_calendar_end: date | None = None
 
 
 class MarketSession(StrEnum):
@@ -64,11 +72,72 @@ def _as_cn_datetime(value: datetime | None) -> datetime:
     return current.astimezone(CN_TZ)
 
 
-def _previous_weekday(value: date) -> date:
+def set_trading_calendar(
+    days: Iterable[date],
+    *,
+    source: str = "provider",
+    coverage_start: date | None = None,
+    coverage_end: date | None = None,
+) -> None:
+    """Install a validated exchange calendar for all cutoff calculations.
+
+    The provider adapter owns fetching and normalising the calendar.  Keeping
+    only the open-date set here makes the hot path deterministic and avoids a
+    network request while resolving a request's market session.
+    """
+    valid = frozenset(day for day in days if isinstance(day, date))
+    if not valid:
+        raise ValueError("trading calendar must contain at least one date")
+    range_start = coverage_start or min(valid)
+    range_end = coverage_end or max(valid)
+    if range_start > range_end:
+        raise ValueError("trading calendar coverage is inverted")
+    with _calendar_lock:
+        global _trading_calendar, _trading_calendar_end, _trading_calendar_source, _trading_calendar_start
+        _trading_calendar = valid
+        _trading_calendar_source = str(source or "provider")
+        _trading_calendar_start = range_start
+        _trading_calendar_end = range_end
+
+
+def clear_trading_calendar() -> None:
+    """Clear the provider calendar and return to the safe weekday fallback."""
+    with _calendar_lock:
+        global _trading_calendar, _trading_calendar_end, _trading_calendar_source, _trading_calendar_start
+        _trading_calendar = None
+        _trading_calendar_source = "weekday_fallback"
+        _trading_calendar_start = None
+        _trading_calendar_end = None
+
+
+def trading_calendar_source() -> str:
+    with _calendar_lock:
+        return _trading_calendar_source
+
+
+def is_exchange_trading_day(value: date) -> bool:
+    with _calendar_lock:
+        calendar = _trading_calendar
+        calendar_start = _trading_calendar_start
+        calendar_end = _trading_calendar_end
+    if calendar is None or (
+        calendar_start is not None
+        and calendar_end is not None
+        and (value < calendar_start or value > calendar_end)
+    ):
+        return value.weekday() < 5
+    return value in calendar
+
+
+def _previous_trading_day(value: date) -> date:
     result = value - timedelta(days=1)
-    while result.weekday() >= 5:
+    # A-share calendars are finite but may include long closures.  The bound
+    # prevents a malformed provider calendar from creating an infinite loop.
+    for _ in range(370):
+        if is_exchange_trading_day(result):
+            return result
         result -= timedelta(days=1)
-    return result
+    return value - timedelta(days=1)
 
 
 def resolve_market_as_of(
@@ -85,12 +154,12 @@ def resolve_market_as_of(
     """
     observed = _as_cn_datetime(now)
     current_date = observed.date()
-    weekday_open = current_date.weekday() < 5
+    weekday_open = is_exchange_trading_day(current_date)
     trading_day = weekday_open if is_trading_day is None else bool(is_trading_day)
     if not trading_day:
         return MarketAsOf(
             current_date=current_date,
-            daily_date=_previous_weekday(current_date),
+            daily_date=_previous_trading_day(current_date),
             intraday_date=None,
             session=MarketSession.CLOSED,
             cutoff_time="00:00:00",
@@ -102,7 +171,7 @@ def resolve_market_as_of(
     if current_time < _MORNING_START:
         return MarketAsOf(
             current_date=current_date,
-            daily_date=_previous_weekday(current_date),
+            daily_date=_previous_trading_day(current_date),
             intraday_date=None,
             session=MarketSession.PREOPEN,
             cutoff_time=_MORNING_START.isoformat(),
@@ -129,7 +198,7 @@ def resolve_market_as_of(
     cutoff = current_time.replace(microsecond=0).isoformat()
     return MarketAsOf(
         current_date=current_date,
-        daily_date=_previous_weekday(current_date),
+        daily_date=_previous_trading_day(current_date),
         intraday_date=current_date,
         session=session,
         cutoff_time=cutoff,
@@ -149,11 +218,13 @@ def cn_today() -> date:
 
 
 def latest_weekday(value: date) -> date:
-    """Return the latest Monday-Friday date on or before ``value``."""
+    """Return the latest exchange trading date on or before ``value``."""
     result = value
-    while result.weekday() >= 5:
+    for _ in range(370):
+        if is_exchange_trading_day(result):
+            return result
         result -= timedelta(days=1)
-    return result
+    return value
 
 
 def is_market_snapshot_stale(snapshot_date: date | None, current_date: date) -> bool:

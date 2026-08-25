@@ -72,6 +72,7 @@ def test_index_snapshot_gap_fill_does_not_require_batch_capability(tmp_path, mon
     raw.mkdir(parents=True)
     pl.DataFrame([_index_row(date(2026, 8, 17), 3010.0)]).write_parquet(raw / "part.parquet")
     monkeypatch.setattr(daily_pipeline, "_invalidate", lambda *_args: None)
+    monkeypatch.setattr(daily_pipeline._prefs, "get_daily_data_provider", lambda: "tickflow")
     monkeypatch.setattr(
         repo,
         "get_index_instruments",
@@ -79,7 +80,7 @@ def test_index_snapshot_gap_fill_does_not_require_batch_capability(tmp_path, mon
     )
     monkeypatch.setattr(repo, "refresh_index_views", lambda: None)
     written: list[pl.DataFrame] = []
-    monkeypatch.setattr(repo, "flush_live_daily_asset", lambda _asset, frame: written.append(frame))
+    monkeypatch.setattr(repo, "merge_live_daily_asset", lambda _asset, frame: written.append(frame))
 
     from app.services import sina_snapshot
 
@@ -103,3 +104,58 @@ def test_index_snapshot_gap_fill_does_not_require_batch_capability(tmp_path, mon
     assert count == 1
     assert len(written) == 1
     assert written[0].get_column("date").to_list() == [date(2026, 8, 18)]
+
+
+def test_index_gap_fill_fetches_only_missing_symbols_from_custom_provider(tmp_path, monkeypatch):
+    target = date(2026, 8, 24)
+    raw = tmp_path / "kline_index_daily" / "date=2026-08-24"
+    raw.mkdir(parents=True)
+    current = {**_index_row(target, 3400.0), "symbol": "000001.SH"}
+    pl.DataFrame([current]).write_parquet(raw / "part.parquet")
+    repo = KlineRepository(DataStore(tmp_path))
+    monkeypatch.setattr(daily_pipeline, "_invalidate", lambda *_args: None)
+    monkeypatch.setattr(
+        daily_pipeline._prefs,
+        "get_pipeline_index_symbols",
+        lambda: "000001.SH 399001.SZ",
+    )
+    monkeypatch.setattr(daily_pipeline._prefs, "get_realtime_index_symbols", lambda: [])
+    monkeypatch.setattr(daily_pipeline._prefs, "get_daily_data_provider", lambda: "teajoin")
+    monkeypatch.setattr(repo, "refresh_index_views", lambda: None)
+    captured: dict[str, object] = {}
+
+    class Provider:
+        def get_daily(self, symbols, start_time, end_time, asset_type="stock"):
+            captured.update({
+                "symbols": symbols,
+                "start_time": start_time,
+                "end_time": end_time,
+                "asset_type": asset_type,
+            })
+            return pl.DataFrame([{
+                **_index_row(target, 10800.0),
+                "symbol": "399001.SZ",
+            }])
+
+    monkeypatch.setattr(
+        "app.data_providers.custom.provider_has_dataset",
+        lambda name, dataset: name == "teajoin" and dataset == "daily",
+    )
+    monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: Provider())
+    written: list[pl.DataFrame] = []
+    monkeypatch.setattr(repo, "merge_live_daily_asset", lambda _asset, frame: written.append(frame))
+
+    count = daily_pipeline._gap_fill_index_snapshot(
+        repo,
+        target,
+        datetime(2026, 8, 24, 15, 30, tzinfo=daily_pipeline.BEIJING_TZ),
+        pull_index=True,
+        emit=lambda *_args, **_kwargs: None,
+        stage_errors=[],
+    )
+
+    assert count == 1
+    assert captured["symbols"] == ["399001.SZ"]
+    assert captured["asset_type"] == "index"
+    assert len(written) == 1
+    assert written[0].get_column("symbol").to_list() == ["399001.SZ"]

@@ -213,6 +213,7 @@ def _build_user_prompt(
     symbol: str,
     focus: str,
     asset_type: str = "stock",
+    previous_content: str = "",
 ) -> str:
     """构建用户消息:标的 + 价位摘要 + 技术指标 JSON + 财务摘要 + 关注点。
 
@@ -252,10 +253,10 @@ def _build_user_prompt(
             "请按系统提示词第 4 节的说明,在基本面/财务面维度给出\"接入中\"的友好提示,不要编造数据。)",
         ])
 
-    from app.services.ai_provider import sanitize_focus
-    safe_focus = sanitize_focus(focus)
-    if safe_focus:
-        parts.extend(["", f"本次分析请特别关注: {safe_focus}"])
+    from app.services.ai_provider import build_analysis_focus_block
+    focus_block = build_analysis_focus_block(focus, previous_content)
+    if focus_block:
+        parts.extend(["", focus_block])
     return "\n".join(parts)
 
 
@@ -288,6 +289,7 @@ async def analyze_stock_stream(
     data_dir: Path,
     symbol: str,
     focus: str = "",
+    previous_content: str = "",
 ) -> AsyncIterator[str]:
     """流式个股分析:yield 出每个 NDJSON 事件。
 
@@ -337,8 +339,16 @@ async def analyze_stock_stream(
         from app.services.ai_provider import stream_ai_events
 
         kline_tail = _clean_rows(df, _KLINE_KEEP_COLS)
-        user_prompt = _build_user_prompt(kline_tail, fins, levels, close, symbol, focus,
-                                         asset_type=repo.resolve_asset_type(symbol))
+        user_prompt = _build_user_prompt(
+            kline_tail,
+            fins,
+            levels,
+            close,
+            symbol,
+            focus,
+            asset_type=repo.resolve_asset_type(symbol),
+            previous_content=previous_content,
+        )
         async for event in stream_ai_events(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},

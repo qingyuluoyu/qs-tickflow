@@ -79,12 +79,14 @@ export function isReviewGenerating(): boolean {
  * @param focus 用户追加的复盘关注点
  * @param onDone 完成回调(供调用方做自动归档)
  * @param sections 可选:纳入提示词的数据板块键;缺省由后端按全部处理
+ * @param previousContent 可选:上一轮报告正文;有新关注点时用于继续追问
  */
 export async function startReviewGeneration(
   asOf: string | undefined,
   focus: string,
   onDone?: (fullContent: string, meta: ReviewMeta | null, reasoning: string) => void,
   sections?: string[],
+  previousContent = '',
 ): Promise<void> {
   // 已在生成中,不重复启动
   if (isReviewGenerating()) return
@@ -99,7 +101,7 @@ export async function startReviewGeneration(
   let doneMeta: ReviewMeta | null = null
 
   try {
-    for await (const evt of api.reviewStream(asOf, focus, sections)) {
+    for await (const evt of api.reviewStream(asOf, focus, sections, previousContent)) {
       if (abortCtrl.signal.aborted) break
       if (evt.type === 'meta') {
         doneMeta = evt

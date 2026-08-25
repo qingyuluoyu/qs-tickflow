@@ -66,8 +66,14 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
   const handleStartNew = useCallback(async () => {
     if (!task) return
     const name = 'name' in task ? task.name : ''
-    await startAnalysis(task.symbol, name, focus.trim())
-  }, [task, focus])
+    const nextFocus = focus.trim()
+    const originalFocus = 'focus' in task ? task.focus.trim() : ''
+    const previousContent = nextFocus && nextFocus !== originalFocus ? content : ''
+    await startAnalysis(task.symbol, name, nextFocus, previousContent)
+  }, [task, focus, content])
+
+  const originalFocus = task && 'focus' in task ? task.focus.trim() : ''
+  const isFollowUp = !!content && !!focus.trim() && focus.trim() !== originalFocus
 
   const handleCopy = async () => {
     if (!content) return
@@ -235,26 +241,27 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
                 <button
                   onClick={handleStartNew}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500/20 to-fuchsia-500/15 border border-purple-400/30 text-xs font-medium text-purple-300 hover:from-purple-500/30 hover:to-fuchsia-500/20 transition-all shrink-0"
-                  title="以此关注点重新生成新报告"
+                  title={isFollowUp ? '根据上一轮回答继续追问' : '重新生成新报告'}
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />重新生成
+                  {isFollowUp ? <Send className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  {isFollowUp ? '继续追问' : '重新生成'}
                 </button>
               ) : (
                 <button
                   onClick={handleStartNew}
                   disabled={isWorking}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-gradient-to-r from-purple-500/20 to-fuchsia-500/15 border border-purple-400/30 text-xs font-medium text-purple-300 hover:from-purple-500/30 hover:to-fuchsia-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all shrink-0"
-                  title={focus.trim() ? '按关注重点重新分析' : '重新分析'}
+                  title={isFollowUp ? '根据上一轮回答继续追问' : (focus.trim() ? '按关注重点重新分析' : '重新分析')}
                 >
                   {isWorking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : phase === 'done' ? <RefreshCw className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
-                  {phase === 'done' ? '重新分析' : '分析'}
+                  {isFollowUp ? '继续追问' : phase === 'done' ? '重新分析' : '分析'}
                 </button>
               )}
             </div>
             <p className="mt-1.5 text-[10px] text-muted/50 leading-relaxed">
               {isHistory
-                ? '历史报告为静态记录;修改关注重点后将作为新任务重新生成。报告仅供参考,不构成投资建议。'
-                : '报告由项目已配置的 AI 模型基于本地财务数据生成;可在输入框追加关注点后重新生成。报告仅供参考,不构成投资建议。'}
+                ? '输入与上一轮不同的问题后可继续追问;不修改则重新生成。报告仅供参考,不构成投资建议。'
+                : '完成后输入新的问题会结合上一轮回答继续追问。报告仅供参考,不构成投资建议。'}
             </p>
           </div>
     </MantineModal>

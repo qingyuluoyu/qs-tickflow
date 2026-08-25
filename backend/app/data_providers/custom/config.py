@@ -7,7 +7,7 @@ from typing import Any, Literal
 
 import yaml
 
-DatasetName = Literal["instruments", "daily", "adj_factor", "realtime", "minute", "financial"]
+DatasetName = Literal["instruments", "daily", "calendar", "adj_factor", "realtime", "minute", "financial"]
 DEFAULT_TIMEOUT = 30.0
 MAX_TIMEOUT = 300.0
 
@@ -165,7 +165,7 @@ def config_from_dict(raw: dict[str, Any], path: Path | None = None) -> CustomSou
     datasets = {
         name: _dataset_from_dict(cfg)
         for name, cfg in (raw.get("datasets") or {}).items()
-        if name in {"instruments", "daily", "adj_factor", "realtime", "minute", "financial"} and isinstance(cfg, dict)
+        if name in {"instruments", "daily", "calendar", "adj_factor", "realtime", "minute", "financial"} and isinstance(cfg, dict)
     }
     default_name = path.stem if path else "preview"
     name = str(raw.get("name", default_name) or default_name).lower()

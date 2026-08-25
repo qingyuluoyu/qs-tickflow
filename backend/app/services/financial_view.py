@@ -102,6 +102,55 @@ def normalize_financial_frame(table: str, frame: pl.DataFrame) -> pl.DataFrame:
     return out
 
 
+def prepare_financial_prompt_frame(table: str, frame: pl.DataFrame) -> pl.DataFrame:
+    """Return an AI-safe financial view with explicit canonical units.
+
+    Raw daily-basic names such as ``total_mv`` (万元), ``total_share``
+    (万股) and ``turnover_rate`` (百分比) are removed after canonical aliases
+    are materialized, preventing unit ambiguity inside the prompt.
+    """
+    out = normalize_financial_frame(table, frame)
+    if out.is_empty() or table != "metrics":
+        return out
+    expressions = []
+    if "market_cap" in out.columns:
+        expressions.append(pl.col("market_cap").cast(pl.Float64, strict=False).alias("market_cap_cny"))
+    elif "total_mv" in out.columns:
+        expressions.append(
+            (pl.col("total_mv").cast(pl.Float64, strict=False) * 10_000.0).alias("market_cap_cny")
+        )
+    if "float_market_cap" in out.columns:
+        expressions.append(
+            pl.col("float_market_cap").cast(pl.Float64, strict=False).alias("float_market_cap_cny")
+        )
+    elif "circ_mv" in out.columns:
+        expressions.append(
+            (pl.col("circ_mv").cast(pl.Float64, strict=False) * 10_000.0).alias("float_market_cap_cny")
+        )
+    if "total_share" in out.columns:
+        expressions.append(
+            (pl.col("total_share").cast(pl.Float64, strict=False) * 10_000.0).alias("total_shares")
+        )
+    if "float_share" in out.columns:
+        expressions.append(
+            (pl.col("float_share").cast(pl.Float64, strict=False) * 10_000.0).alias("float_shares")
+        )
+    if "turnover_rate" in out.columns:
+        expressions.append(
+            pl.col("turnover_rate").cast(pl.Float64, strict=False).alias("turnover_rate_pct")
+        )
+    if expressions:
+        out = out.with_columns(expressions)
+    drop = [
+        column for column in (
+            "total_mv", "circ_mv", "total_share", "float_share", "turnover_rate",
+            "market_cap", "float_market_cap",
+        )
+        if column in out.columns
+    ]
+    return out.drop(drop) if drop else out
+
+
 def _custom_financial_provider() -> Any | None:
     provider_name = preferences.get_financial_provider()
     if not custom_sources.is_custom_provider(provider_name):
@@ -116,6 +165,7 @@ def load_financial_frame(
     table: str,
     symbol: str,
     *,
+    latest_only: bool = True,
     provider_factory: Callable[[], Any | None] | None = None,
 ) -> pl.DataFrame:
     """Load one symbol, using TeaJoin only when the local table misses it."""
@@ -131,7 +181,7 @@ def load_financial_frame(
         provider = (provider_factory or _custom_financial_provider)()
         if provider is None:
             return normalize_financial_frame(table, local)
-        fetched = provider.get_financials(table, [normalized_symbol], latest_only=True)
+        fetched = provider.get_financials(table, [normalized_symbol], latest_only=latest_only)
         return normalize_financial_frame(table, fetched)
     except Exception as exc:
         logger.warning("financial read fallback failed for %s/%s: %s", table, normalized_symbol, exc)

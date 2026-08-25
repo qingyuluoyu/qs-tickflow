@@ -66,6 +66,19 @@ def _chunk(*, content="", reasoning="", finish_reason=None):
     return SimpleNamespace(choices=[choice])
 
 
+def _tool_chunk(*, reasoning_content=None, call_id=None, name=None, arguments=None, finish_reason=None):
+    function = SimpleNamespace(name=name, arguments=arguments)
+    tool_call = SimpleNamespace(index=0, id=call_id, function=function)
+    delta = SimpleNamespace(
+        content="",
+        reasoning=None,
+        reasoning_content=reasoning_content,
+        tool_calls=[tool_call] if any(value is not None for value in (call_id, name, arguments)) else [],
+    )
+    choice = SimpleNamespace(delta=delta, finish_reason=finish_reason)
+    return SimpleNamespace(choices=[choice])
+
+
 class _FakeCompletions:
     def __init__(self, streams):
         self.streams = list(streams)
@@ -79,6 +92,80 @@ class _FakeCompletions:
 def _fake_client(streams):
     completions = _FakeCompletions(streams)
     return SimpleNamespace(chat=SimpleNamespace(completions=completions)), completions
+
+
+@pytest.mark.asyncio
+async def test_tool_stream_preserves_reasoning_content_for_follow_up_round(monkeypatch):
+    client, _ = _fake_client([
+        [
+            _tool_chunk(reasoning_content="需要先查询行情"),
+            _tool_chunk(call_id="call_1", name="query_quote"),
+            _tool_chunk(arguments='{"code":"600519.SH"}', finish_reason="tool_calls"),
+        ],
+    ])
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    events = [event async for event in ai_provider.stream_ai_text_with_tools(
+        [{"role": "user", "content": "查行情"}], [{"type": "function"}], max_tokens=100,
+    )]
+
+    assert events[-1]["type"] == "round_done"
+    assert events[-1]["reasoning_content"] == "需要先查询行情"
+
+
+@pytest.mark.asyncio
+async def test_chat_tool_round_replays_reasoning_content(monkeypatch, tmp_path):
+    from app.services import chat
+
+    calls = []
+
+    async def fake_tool_stream(working, _tools, **_kwargs):
+        calls.append(working)
+        if len(calls) == 1:
+            yield {
+                "type": "round_done",
+                "reasoning_content": "需要先查询行情",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "name": "query_quote",
+                    "arguments": '{"code":"600519.SH"}',
+                }],
+            }
+            return
+        yield {"type": "delta", "text": "已完成"}
+        yield {"type": "round_done", "tool_calls": []}
+
+    monkeypatch.setattr(chat, "stream_ai_text_with_tools", fake_tool_stream)
+    monkeypatch.setattr(chat, "exec_tool", lambda *_args, **_kwargs: {"symbol": "600519.SH"})
+
+    events = [event async for event in chat.run_chat_tools_stream(
+        None, tmp_path, [{"role": "user", "content": "查行情"}],
+    )]
+
+    assert events[-1]["type"] == "done"
+    assistant = next(item for item in calls[1] if item.get("role") == "assistant")
+    assert assistant["reasoning_content"] == "需要先查询行情"
+
+
+def test_chat_history_is_bounded_before_provider_request():
+    from app.services import chat
+
+    messages = []
+    for index in range(8):
+        messages.extend([
+            {"role": "user", "content": f"问题{index}" + ("u" * 7_990)},
+            {"role": "assistant", "content": f"回答{index}" + ("a" * 7_990)},
+        ])
+
+    safe = chat._safe_messages(messages)
+
+    assert sum(len(item["content"]) for item in safe) <= chat.MAX_MODEL_HISTORY_CHARS
+    assert safe[-1]["content"].startswith("回答7")
 
 
 def test_report_save_contract_keeps_answer_and_reasoning_fields_optional():

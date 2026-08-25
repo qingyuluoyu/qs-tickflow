@@ -1137,7 +1137,7 @@ def _cleanup_restored_strategy_state(request: Request, deleted_ids: set[str]) ->
 
 @router.post("/restore-defaults")
 def restore_default_strategies(req: RestoreDefaultsRequest, request: Request):
-    """恢复当前用户的策略层到打包的 19 个内置策略。"""
+    """恢复当前用户的策略层到打包的全部内置策略。"""
     if not req.confirm:
         raise HTTPException(status_code=400, detail="恢复初始策略前必须明确确认")
 
@@ -1202,9 +1202,10 @@ def restore_default_strategies(req: RestoreDefaultsRequest, request: Request):
             engine.unregister(strategy_id)
         raise HTTPException(status_code=409, detail=f"恢复后策略重载失败: {exc}") from exc
 
-    builtins = [meta["id"] for meta in engine.list_strategies() if meta.get("source") == "builtin"]
-    if len(builtins) != 19 or len(engine.list_strategies()) != 19:
-        raise HTTPException(status_code=409, detail="内置策略版本异常, 未能恢复为原先 19 个策略")
+    all_strategies = engine.list_strategies()
+    builtins = [meta["id"] for meta in all_strategies if meta.get("source") == "builtin"]
+    if set(builtins) != builtin_ids_before or len(all_strategies) != len(builtin_ids_before):
+        raise HTTPException(status_code=409, detail="内置策略版本异常, 未能恢复为完整内置策略集合")
 
     warnings = _cleanup_restored_strategy_state(request, deleted_ids)
     return {

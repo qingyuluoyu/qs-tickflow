@@ -195,7 +195,8 @@ ALL_SECTIONS = ("indices", "breadth", "emotion", "concept", "industry", "news")
 
 
 def _build_user_prompt(overview: dict, news: list[dict], focus: str,
-                       sections: list[str] | None = None) -> str:
+                       sections: list[str] | None = None,
+                       previous_content: str = "") -> str:
     """构建用户消息:复盘日期 + 市场数据精简切片 + 新闻 + 关注点。
 
     sections: 要纳入提示词的数据板块键(见 ALL_SECTIONS);None/空 表示全部。
@@ -236,10 +237,10 @@ def _build_user_prompt(overview: dict, news: list[dict], focus: str,
                 "消息催化一节请直接从量价异动给出可能的催化逻辑结论,不要编造具体消息,也不要复述本说明。)",
             ])
 
-    from app.services.ai_provider import sanitize_focus
-    safe_focus = sanitize_focus(focus)
-    if safe_focus:
-        parts.extend(["", f"本次复盘请特别关注: {safe_focus}"])
+    from app.services.ai_provider import build_analysis_focus_block
+    focus_block = build_analysis_focus_block(focus, previous_content)
+    if focus_block:
+        parts.extend(["", focus_block])
 
     return "\n".join(parts)
 
@@ -281,6 +282,7 @@ async def recap_market_stream(
     focus: str = "",
     news: list[dict] | None = None,
     sections: list[str] | None = None,
+    previous_content: str = "",
 ) -> AsyncIterator[str]:
     """流式大盘复盘:yield 出每个 NDJSON 事件。
 
@@ -291,6 +293,7 @@ async def recap_market_stream(
         focus: 用户追加的复盘关注点。
         news: 预检索的新闻列表(P1 不传,留 None 走降级说明;P3 由 news_search 注入)。
         sections: 可选,纳入提示词的数据板块键(见 ALL_SECTIONS);None 表示全部。
+        previous_content: 可选,上一轮复盘回答;与 focus 同时提供时按追问处理。
     """
     # 1. 装配市场总览
     overview = build_market_overview(repo, quote_service, depth_service, as_of)
@@ -318,7 +321,13 @@ async def recap_market_stream(
     try:
         from app.services.ai_provider import stream_ai_events
 
-        user_prompt = _build_user_prompt(overview, news or [], focus, sections)
+        user_prompt = _build_user_prompt(
+            overview,
+            news or [],
+            focus,
+            sections,
+            previous_content,
+        )
         async for event in stream_ai_events(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},

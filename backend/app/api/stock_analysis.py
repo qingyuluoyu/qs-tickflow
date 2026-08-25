@@ -20,7 +20,7 @@ from datetime import date, timedelta
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.indicators.levels import compute_levels, summarize_levels
 from app.services import stock_debate, stock_reports
@@ -152,6 +152,7 @@ class AnalyzeRequest(BaseModel):
     """AI 个股分析请求。"""
     symbol: str
     focus: str = ""  # 可选:用户追加的分析关注点
+    previous_content: str = Field(default="", max_length=50_000)
 
 
 @router.post("/analyze")
@@ -168,7 +169,13 @@ async def analyze_stock(request: Request, req: AnalyzeRequest):
     data_dir = repo.store.data_dir
 
     async def stream_gen():
-        async for chunk in analyze_stock_stream(repo, data_dir, req.symbol, req.focus):
+        async for chunk in analyze_stock_stream(
+            repo,
+            data_dir,
+            req.symbol,
+            req.focus,
+            req.previous_content,
+        ):
             yield chunk + "\n"
 
     return StreamingResponse(

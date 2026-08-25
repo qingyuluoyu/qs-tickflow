@@ -414,7 +414,21 @@ def run_regime_batch(repo, start: date, end: date) -> pl.DataFrame:
     index_pct_map = _load_index_pct(repo, start, end)
 
     # enriched 多日数据(优先缓存)
-    df = repo.get_enriched_range(start, end)
+    df = repo.get_enriched_range(
+        start,
+        end,
+        columns=[
+            "date",
+            "change_pct",
+            "signal_limit_up",
+            "signal_limit_down",
+            "signal_broken_limit_up",
+            "consecutive_limit_ups",
+            "amount",
+            "close",
+            "ma20",
+        ],
+    )
     if df is None or df.is_empty():
         logger.info("regime batch: enriched cache miss [%s~%s], fallback to scan", start, end)
         df = _scan_enriched_fallback(repo, start, end)

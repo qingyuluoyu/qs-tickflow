@@ -88,7 +88,10 @@ export function Review() {
   // 数据板块勾选:默认全选,生成时提示词只截取选中的板块
   const [sections, setSections] = useState<string[]>(REVIEW_SECTIONS.map(s => s.key))
   // 生成状态走全局 store:切走页面流不中断,回来可恢复
-  const { phase, content, reasoning, error, meta, complete, truncated, continuing } = useReviewState()
+  const {
+    phase, content, reasoning, error, meta, complete, truncated, continuing,
+    focus: generatedFocus,
+  } = useReviewState()
   const [viewing, setViewing] = useState<AiReviewReport | null>(null)  // 查看历史报告
   const reportEndRef = useRef<HTMLDivElement>(null)
 
@@ -191,6 +194,13 @@ export function Review() {
     } catch { /* 静默 */ }
   }, [focus, asOf, marketQuery.data, qc])
 
+  // 新关注点基于当前可见报告继续追问;关注点未变化时仍是一次全新重生成。
+  const displayContent = viewing?.content ?? content
+  const nextFocus = focus.trim()
+  const originalFocus = (viewing?.focus ?? generatedFocus).trim()
+  const previousContent = nextFocus && nextFocus !== originalFocus ? displayContent : ''
+  const isFollowUp = Boolean(previousContent)
+
   // 主流程:生成复盘(委托给全局 store,流在后台独立运行)
   const generate = useCallback(() => {
     if (isReviewGenerating()) return
@@ -200,10 +210,10 @@ export function Review() {
     }
     setViewing(null)
     resetReview()
-    startReviewGeneration(asOf, focus, (full, doneMeta, doneReasoning) => {
+    startReviewGeneration(asOf, nextFocus, (full, doneMeta, doneReasoning) => {
       onGenerationDone(full, doneMeta, doneReasoning).catch(() => { /* 静默 */ })
-    }, sections)
-  }, [asOf, focus, sections, onGenerationDone])
+    }, sections, previousContent)
+  }, [asOf, nextFocus, sections, previousContent, onGenerationDone])
 
   // 复制全文到剪贴板(viewing 优先,与主区域显示一致)
   const copyContent = useCallback(async () => {
@@ -240,10 +250,6 @@ export function Review() {
   const isGenerating = phase === 'loading' || phase === 'streaming'
   const displayDate = viewing?.as_of ?? meta?.as_of ?? marketQuery.data?.as_of ?? asOf ?? '最新'
   const data = marketQuery.data
-  // 主区域显示的内容:viewing(查看历史)优先于 store 的生成 content,
-  // 这样点历史报告不会覆盖后台生成中的流。
-  const displayContent = viewing?.content ?? content
-
   return (
     <>
       <PageHeader
@@ -288,7 +294,7 @@ export function Review() {
               leftSection={isGenerating ? undefined : <Sparkles className="h-3.5 w-3.5" />}
               className="shadow-sm shadow-accent/25"
             >
-              {isGenerating ? '生成中…' : '生成复盘'}
+              {isGenerating ? '生成中…' : isFollowUp ? '继续追问' : '生成复盘'}
             </Button>
           </div>
         }

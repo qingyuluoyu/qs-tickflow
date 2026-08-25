@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import polars as pl
 
@@ -468,16 +468,35 @@ class FinancialScheduler:
             self._task = None
         logger.info("FinancialScheduler stopped")
 
+    def _metrics_sync_due(self, now: datetime | None = None) -> bool:
+        """Return whether the persisted metrics snapshot has reached its interval."""
+        last_sync = self._last_sync.get("metrics")
+        if not last_sync:
+            return True
+        try:
+            last = datetime.fromisoformat(last_sync)
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError):
+            logger.warning("invalid persisted metrics sync time: %r", last_sync)
+            return True
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=timezone.utc)
+        return current >= last + timedelta(days=self._schedule_interval_days)
+
     async def _run_loop(self) -> None:
         """每周执行一次 metrics 同步。"""
         try:
             while self._running:
-                # 首次启动等 60s, 之后每 7 天执行一次
+                # 每分钟检查持久化时间。服务重启不会让尚未到期的全市场
+                # metrics 同步重新执行，也不会阻塞 Uvicorn 事件循环。
                 await asyncio.sleep(60)
                 if not self._running:
                     break
+                if not self._metrics_sync_due():
+                    continue
 
-                # 每周: 只同步 metrics
                 try:
                     # Provider calls and Parquet writes are synchronous and can
                     # take minutes for a full market. Keep them off Uvicorn's
@@ -492,12 +511,6 @@ class FinancialScheduler:
                     logger.info("FinancialScheduler: metrics synced, %d rows", rows)
                 except Exception as e:
                     logger.warning("FinancialScheduler: metrics sync failed: %s", e)
-
-                # 等待下一次 (7天)
-                for _ in range(self._schedule_interval_days * 24 * 60):  # 每分钟检查一次 _running
-                    if not self._running:
-                        break
-                    await asyncio.sleep(60)
 
         except asyncio.CancelledError:
             pass

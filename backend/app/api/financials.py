@@ -9,7 +9,7 @@ from fastapi import Depends, APIRouter, HTTPException, Query, Request
 
 from app.api.deps import require_admin
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services import ai_reports
 from app.services import server_preferences
@@ -198,6 +198,7 @@ class AnalyzeRequest(BaseModel):
     """AI 财务分析请求。"""
     symbol: str
     focus: str = ""  # 可选:用户追加的分析关注点
+    previous_content: str = Field(default="", max_length=50_000)
 
 
 @router.post("/analyze")
@@ -218,7 +219,12 @@ async def analyze_financials(request: Request, req: AnalyzeRequest):
 
     async def stream_gen():
         try:
-            async for chunk in analyze_financials_stream(data_dir, req.symbol, req.focus):
+            async for chunk in analyze_financials_stream(
+                data_dir,
+                req.symbol,
+                req.focus,
+                req.previous_content,
+            ):
                 yield chunk + "\n"
         except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免静默断流
             logger.exception("financial analysis stream failed for %s: %s", req.symbol, exc)

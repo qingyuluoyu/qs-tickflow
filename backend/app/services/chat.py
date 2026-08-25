@@ -30,6 +30,11 @@ from app.services.stock_analyzer import _KLINE_KEEP_COLS, _load_kline
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 80
+# Keep enough recent turns for continuity while leaving room for the injected
+# page data, tool definitions and the model's output budget.  The API accepts
+# larger browser histories, but sending all of them can exceed provider context
+# windows and produce opaque 400 responses from thinking-mode models.
+MAX_MODEL_HISTORY_CHARS = 24_000
 MAX_ROUNDS = 6
 MAX_TOTAL_TOOL_CALLS = 12
 MAX_TOOL_CALLS_PER_ROUND = 4
@@ -124,7 +129,16 @@ def _safe_messages(messages: Iterable[dict[str, Any]]) -> list[Message]:
                 content = safe
         if content:
             result.append({"role": role, "content": content})
-    return result[-MAX_HISTORY_MESSAGES:]
+    recent = result[-MAX_HISTORY_MESSAGES:]
+    bounded: list[Message] = []
+    total_chars = 0
+    for message in reversed(recent):
+        content_length = len(message["content"])
+        if bounded and total_chars + content_length > MAX_MODEL_HISTORY_CHARS:
+            break
+        bounded.append(message)
+        total_chars += content_length
+    return list(reversed(bounded))
 
 
 def _safe_json(value: Any, limit: int | None = None) -> str:
@@ -242,6 +256,7 @@ async def run_chat_tools_stream(
 
     for round_no in range(1, MAX_ROUNDS + 1):
         round_text: list[str] = []
+        round_reasoning_content = ""
         try:
             tool_calls: list[dict[str, str]] = []
             async for event in stream_ai_text_with_tools(working, TOOLS, temperature=0.5, max_tokens=4000, timeout=180.0):
@@ -253,6 +268,7 @@ async def run_chat_tools_stream(
                         yield {"type": "delta", "text": text}
                 elif event.get("type") == "round_done":
                     tool_calls = [call for call in event.get("tool_calls", []) if isinstance(call, dict)]
+                    round_reasoning_content = str(event.get("reasoning_content") or "")
         except Exception as exc:  # noqa: BLE001
             yield {"type": "error", "message": str(exc)}
             return
@@ -319,7 +335,16 @@ async def run_chat_tools_stream(
             yield {"type": "tool_failed", "call_id": "round", "tool_name": "multiple", "label": "工具调用", "error_code": "round_limit"}
         # OpenAI requires the assistant tool-call message immediately before the
         # corresponding tool messages; keep this invariant on every round.
-        working.append({"role": "assistant", "content": "".join(round_text), "tool_calls": assistant_tool_calls})
+        assistant_message: dict[str, Any] = {
+            "role": "assistant",
+            "content": "".join(round_text),
+            "tool_calls": assistant_tool_calls,
+        }
+        if round_reasoning_content:
+            # DeepSeek-compatible thinking endpoints require the hidden
+            # reasoning text to be replayed with the assistant tool call.
+            assistant_message["reasoning_content"] = round_reasoning_content
+        working.append(assistant_message)
         for call_id, result, _tool_name, _label in round_results:
             working.append({"role": "tool", "tool_call_id": call_id, "content": _safe_json(result, MAX_TOOL_RESULT_CHARS)})
 

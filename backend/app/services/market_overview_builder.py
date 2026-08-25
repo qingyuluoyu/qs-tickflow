@@ -18,7 +18,13 @@ from typing import Any
 
 import polars as pl
 
-from app.market_time import MarketSession, cn_today, is_market_snapshot_stale, resolve_market_as_of
+from app.market_time import (
+    MarketSession,
+    cn_today,
+    is_market_snapshot_stale,
+    resolve_market_as_of,
+    trading_calendar_source,
+)
 from app.services.ext_data import ExtConfig, ExtConfigStore
 from app.services.screener import ScreenerService
 
@@ -102,7 +108,6 @@ def _dashboard_daily_snapshot(repo) -> tuple[date | None, pl.DataFrame | None]:
     market snapshot so a stale local partition cannot masquerade as current.
     """
     from app.services import preferences
-
     provider_name = preferences.get_daily_data_provider()
     if provider_name == "tickflow":
         return None, None
@@ -516,7 +521,7 @@ def _data_freshness(
         "snapshot_date": snapshot_date,
         "current_date": current_date.isoformat(),
         "is_stale": is_stale,
-        "calendar_basis": "provider_snapshot" if provider_confirmed else "weekday_fallback",
+        "calendar_basis": trading_calendar_source() if not provider_confirmed else "provider_snapshot",
         "realtime_provider": realtime_provider,
             "realtime_status": realtime_status,
             "realtime_rows": quote_status.get("last_fetch_rows", 0),
@@ -557,6 +562,11 @@ def _dashboard_index_quotes(provider_name: str, target_date: date) -> list[dict]
         return []
     if frame is None or frame.is_empty() or not {"symbol", "date", "close"}.issubset(frame.columns):
         return []
+    frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+    frame = frame.filter(
+        pl.col("date").is_not_null()
+        & (pl.col("date") <= pl.lit(target_date).cast(pl.Date))
+    )
 
     rows: list[dict] = []
     for symbol in CORE_INDEX_SYMBOLS:
@@ -569,6 +579,10 @@ def _dashboard_index_quotes(provider_name: str, target_date: date) -> list[dict]
         if not history:
             continue
         latest = history[0]
+        if latest.get("date") != target_date:
+            # Never relabel the last published index close as today's market
+            # state when the index endpoint is lagging behind the stock feed.
+            continue
         previous = history[1] if len(history) > 1 else None
         last_price = _finite(latest.get("close"))
         prev_close = _finite(previous.get("close")) if previous else None
@@ -600,6 +614,11 @@ def _index_quotes(
     dashboard_index_snapshot: pl.DataFrame | None = None,
 ) -> list[dict]:
     rows: list[dict] = []
+    live_dashboard = bool(
+        dashboard_provider
+        and dashboard_date
+        and dashboard_snapshot is not None
+    )
     index_snapshot = (
         dashboard_index_snapshot
         if dashboard_index_snapshot is not None and not dashboard_index_snapshot.is_empty()
@@ -654,6 +673,12 @@ def _index_quotes(
         df = quote_service.get_index_quotes(list(CORE_INDEX_SYMBOLS))
         if not df.is_empty():
             rows = df.to_dicts()
+
+    if live_dashboard:
+        # A live dashboard must not fall back to a persisted index partition
+        # from an older date after the provider returned no target-day rows.
+        # Empty cards are safer and truthful until the next preload succeeds.
+        return rows
 
     if not rows and repo:
         placeholders = ", ".join("?" for _ in CORE_INDEX_SYMBOLS)
@@ -1002,6 +1027,11 @@ def build_market_overview(
         # local enriched data is not newer.
         daily_is_closed = (
             snapshot_kind.endswith(".daily")
+            # A settled daily fetch is labelled with the current closed
+            # session (``post_close``/``closed``), while a live provider may
+            # return ``success``.  Error/empty statuses must never promote a
+            # retained frame to an authoritative snapshot.
+            and dashboard_snapshot.status in {"success", "post_close", "closed"}
             and snapshot_session in {
                 MarketSession.POST_CLOSE.value,
                 MarketSession.CLOSED.value,
@@ -1010,6 +1040,7 @@ def build_market_overview(
             and snapshot_date <= cn_today()
             and snapshot_frame is not None
             and not snapshot_frame.is_empty()
+            and snapshot_meta.get("date_verified") is True
         )
         if daily_is_closed and live_snapshot is None:
             live_date = snapshot_date

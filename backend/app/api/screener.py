@@ -16,7 +16,12 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.db_safe import is_valid_ext_ident, quote_ident
-from app.market_time import cn_today, is_market_snapshot_stale, latest_weekday
+from app.market_time import (
+    cn_today,
+    is_market_snapshot_stale,
+    latest_weekday,
+    trading_calendar_source,
+)
 from app.services import strategy_cache
 from app.services.screener import ScreenerService
 from app.strategy import config as strategy_config
@@ -789,7 +794,9 @@ def limit_ladder(
                     and not provider_confirmed
                     and is_market_snapshot_stale(as_of, cn_today())
                 ),
-                "calendar_basis": "provider_snapshot" if provider_confirmed else "weekday_fallback",
+                "calendar_basis": (
+                    "provider_snapshot" if provider_confirmed else trading_calendar_source()
+                ),
             },
             "tiers": [],
             "counts": {"up": 0, "down": 0},
@@ -1005,7 +1012,9 @@ def limit_ladder(
                 and not provider_confirmed
                 and is_market_snapshot_stale(as_of, cn_today())
             ),
-            "calendar_basis": "provider_snapshot" if provider_confirmed else "weekday_fallback",
+            "calendar_basis": (
+                "provider_snapshot" if provider_confirmed else trading_calendar_source()
+            ),
         },
         "tiers": tier_list,
         "counts": {"up": count_up, "down": count_down},

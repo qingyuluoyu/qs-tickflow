@@ -7,6 +7,26 @@ import polars as pl
 from app.api import intraday
 
 
+def test_status_includes_preloaded_snapshot_generation():
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(
+            quote_service=SimpleNamespace(status=lambda: {"enabled": True, "running": False}),
+            market_overview_preloader=SimpleNamespace(status=lambda: {
+                "snapshot_generation": 7,
+                "snapshot_date": "2026-08-24",
+                "snapshot_kind": "teajoin.daily",
+                "snapshot_status": "post_close",
+            }),
+        )),
+    )
+
+    result = intraday.status(request)
+
+    assert result["enabled"] is True
+    assert result["snapshot_generation"] == 7
+    assert result["snapshot_date"] == "2026-08-24"
+
+
 def test_index_route_prefers_selected_custom_snapshot_over_quote_cache(monkeypatch):
     monkeypatch.setattr(
         intraday,

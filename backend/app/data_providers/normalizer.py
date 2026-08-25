@@ -10,6 +10,49 @@ ADJ_FACTOR_COLS = ["symbol", "trade_date", "ex_factor"]
 INSTRUMENT_COLS = ["symbol", "name", "code", "exchange", "asset_type", "source"]
 
 
+def validate_daily_frame(
+    frame: pl.DataFrame,
+    *,
+    expected_date=None,
+) -> list[str]:
+    """Validate the canonical daily OHLCV contract before calculations.
+
+    Values are already converted by the provider boundary: prices are yuan,
+    volume is lots and amount is yuan.  This function deliberately validates
+    shape/ranges instead of guessing units from magnitude.
+    """
+    if frame is None or frame.is_empty():
+        return ["empty"]
+    required = {"symbol", "date", "open", "high", "low", "close", "volume", "amount"}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        return ["missing_fields"]
+    working = frame
+    if working.schema.get("date") != pl.Date:
+        working = working.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+    numeric = ["open", "high", "low", "close", "volume", "amount"]
+    working = working.with_columns(
+        [pl.col(column).cast(pl.Float64, strict=False).alias(column) for column in numeric]
+    )
+    if any(working.get_column(column).null_count() for column in required):
+        return ["null_fields"]
+    if expected_date is not None and working.filter(pl.col("date") != pl.lit(expected_date).cast(pl.Date)).height:
+        return ["mixed_dates"]
+    if working.height != working.select(["symbol", "date"]).unique().height:
+        return ["duplicate_rows"]
+    invalid = working.filter(
+        (pl.col("open") < 0)
+        | (pl.col("high") < 0)
+        | (pl.col("low") < 0)
+        | (pl.col("close") < 0)
+        | (pl.col("high") < pl.max_horizontal("open", "close", "low"))
+        | (pl.col("low") > pl.min_horizontal("open", "close", "high"))
+        | (pl.col("volume") < 0)
+        | (pl.col("amount") < 0)
+    )
+    return ["invalid_ohlc"] if not invalid.is_empty() else []
+
+
 def to_polars(data) -> pl.DataFrame:
     if data is None:
         return pl.DataFrame()

@@ -1,10 +1,30 @@
 import asyncio
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from app.services import financial_sync
+
+
+def test_recent_metrics_sync_is_not_due_after_restart():
+    scheduler = financial_sync.FinancialScheduler()
+    now = datetime(2026, 8, 24, 15, 0, tzinfo=timezone.utc)
+    scheduler._schedule_interval_days = 7
+    scheduler._last_sync["metrics"] = (now - timedelta(days=1)).isoformat()
+
+    assert not scheduler._metrics_sync_due(now)
+
+
+def test_missing_or_expired_metrics_sync_is_due():
+    scheduler = financial_sync.FinancialScheduler()
+    now = datetime(2026, 8, 24, 15, 0, tzinfo=timezone.utc)
+    scheduler._schedule_interval_days = 7
+
+    assert scheduler._metrics_sync_due(now)
+    scheduler._last_sync["metrics"] = (now - timedelta(days=8)).isoformat()
+    assert scheduler._metrics_sync_due(now)
 
 
 @pytest.mark.asyncio

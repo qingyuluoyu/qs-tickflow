@@ -186,7 +186,12 @@ export async function findTodayReport(symbol: string): Promise<HistoryReport | n
   return history.find(r => r.symbol === symbol && (r.created_at ?? '').slice(0, 10) === today) ?? null
 }
 
-export async function startAnalysis(symbol: string, name: string, focus = ''): Promise<{ id?: string; error?: string }> {
+export async function startAnalysis(
+  symbol: string,
+  name: string,
+  focus = '',
+  previousContent = '',
+): Promise<{ id?: string; error?: string }> {
   const existing = activeTasks.find(t => t.symbol === symbol && (t.phase === 'loading' || t.phase === 'streaming'))
   if (existing) {
     activeDialogTaskId = existing.id
@@ -213,17 +218,23 @@ export async function startAnalysis(symbol: string, name: string, focus = ''): P
   rebuildSnap()
   emit()
 
-  runStream(id, symbol, name, focus)
+  runStream(id, symbol, name, focus, previousContent)
   return { id }
 }
 
-async function runStream(id: string, symbol: string, _name: string, focus: string) {
+async function runStream(
+  id: string,
+  symbol: string,
+  _name: string,
+  focus: string,
+  previousContent: string,
+) {
   const controller = new AbortController()
   analysisControllers.set(id, controller)
   try {
     let firstDelta = true
     let sawDone = false
-    for await (const chunk of api.stockAnalyzeStream(symbol, focus, controller.signal)) {
+    for await (const chunk of api.stockAnalyzeStream(symbol, focus, controller.signal, previousContent)) {
       const cur = activeTasks.find(t => t.id === id)
       if (!cur) return
       switch (chunk.type) {

@@ -20,6 +20,7 @@ from app.market_time import (
     MarketAsOf,
     cn_today,
     resolve_market_as_of,
+    trading_calendar_source,
     trading_minutes_elapsed_from_dt,
 )
 from app.price_limits import is_risk_warning_name, price_limit_pct
@@ -44,6 +45,7 @@ def _market_asof_payload(asof: MarketAsOf) -> dict[str, object]:
         "cutoff_time": asof.cutoff_time,
         "session": asof.session.value,
         "is_partial": asof.is_partial,
+        "calendar_basis": trading_calendar_source(),
         "observed_at": asof.observed_at.isoformat(),
     }
 

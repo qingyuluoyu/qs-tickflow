@@ -81,24 +81,38 @@ export function RpsRotationDialog({ onClose, kind = 'concept' }: Props) {
     setAnalysis('')
     setAnalysisError('')
     setAnalysisMeta(null)
-    setAnalysisStatus('正在连接后端…')
+    setAnalysisStatus('正在启动轮动分析…')
     try {
       const lv = kind === 'industry' ? level : undefined
       let sawDone = false
       let sawError = false
       for await (const ev of api.rotationAnalyzeStream(daysParam, focusParam, kind, lv, controller.signal)) {
         if (ev.type === 'status') setAnalysisStatus(ev.message ?? '')
-        else if (ev.type === 'meta') setAnalysisMeta({ summary: ev.summary })
-        else if (ev.type === 'delta') setAnalysis(a => a + (ev.content ?? ''))
-        else if (ev.type === 'error') { sawError = true; setAnalysisError(ev.message ?? '未知错误') }
-        else if (ev.type === 'done') sawDone = true
+        else if (ev.type === 'meta') {
+          setAnalysisMeta({ summary: ev.summary })
+          setAnalysisStatus('')
+        } else if (ev.type === 'delta') {
+          setAnalysis(a => a + (ev.content ?? ''))
+          setAnalysisStatus('')
+        } else if (ev.type === 'error') {
+          sawError = true
+          setAnalysisStatus('')
+          setAnalysisError(ev.message ?? '未知错误')
+        } else if (ev.type === 'done') {
+          sawDone = true
+          setAnalysisStatus('')
+        }
       }
       if (!sawDone && !sawError && !controller.signal.aborted) {
+        setAnalysisStatus('')
         setAnalysisError('轮动分析连接在完成前断开，请重试')
       }
     } catch (e) {
       if (controller.signal.aborted) setAnalysisStatus('已中止')
-      else setAnalysisError(e instanceof Error ? e.message : String(e))
+      else {
+        setAnalysisStatus('')
+        setAnalysisError(e instanceof Error ? e.message : String(e))
+      }
     } finally {
       if (abortRef.current === controller) {
         abortRef.current = null

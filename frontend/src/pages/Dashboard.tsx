@@ -443,6 +443,7 @@ export function Dashboard() {
   const [dimensionTarget, setDimensionTarget] = useState<DimensionMembersTarget | null>(null)
   // 首次使用(无数据 + 未完成引导)自动弹窗: 同一会话只弹一次
   const [showWelcomeModal, setShowWelcomeModal] = useState(false)
+  const lastSnapshotGenerationRef = useRef<number | null>(null)
   const dataStatus = useDataStatus({ staleTime: 60_000 })
   const overview = useQuery({
     queryKey: QK.overviewMarket(selectedDate),
@@ -458,14 +459,21 @@ export function Dashboard() {
     queryFn: api.quoteStatus,
     enabled: selectedDate == null,
     staleTime: 0,
-    refetchInterval: 30_000,
+    refetchInterval: (query) => {
+      return query.state.data?.is_polling_window ? 30_000 : 300_000
+    },
     refetchIntervalInBackground: true,
     retry: false,
   })
   useEffect(() => {
-    if (realtimeRefresh.dataUpdatedAt === 0 && realtimeRefresh.errorUpdatedAt === 0) return
-    qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) })
-  }, [realtimeRefresh.dataUpdatedAt, realtimeRefresh.errorUpdatedAt, qc])
+    const generation = realtimeRefresh.data?.snapshot_generation
+    if (generation == null) return
+    const previous = lastSnapshotGenerationRef.current
+    lastSnapshotGenerationRef.current = generation
+    if (previous != null && generation !== previous) {
+      qc.invalidateQueries({ queryKey: QK.overviewMarket(undefined) })
+    }
+  }, [realtimeRefresh.data?.snapshot_generation, qc])
   const data = overview.data
   const caps = useCapabilities()
   const settings = useSettings()

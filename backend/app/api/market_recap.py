@@ -15,7 +15,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.services import market_recap_reports
 from app.services.market_recap import recap_market_stream
@@ -30,6 +30,7 @@ class AnalyzeRequest(BaseModel):
     as_of: str | None = None          # 可选:复盘日期(YYYY-MM-DD),缺省取最新有数据日
     focus: str = ""                   # 可选:用户追加的复盘关注点
     sections: list[str] | None = None  # 可选:纳入提示词的数据板块(见 market_recap.ALL_SECTIONS),None=全部
+    previous_content: str = Field(default="", max_length=50_000)  # 可选:上一轮回答,用于继续追问
 
 
 @router.post("/analyze")
@@ -66,7 +67,15 @@ async def analyze_market(request: Request, req: AnalyzeRequest):
 
     async def stream_gen():
         try:
-            async for chunk in recap_market_stream(repo, quote_service, depth_service, as_of, req.focus, sections=sections):
+            async for chunk in recap_market_stream(
+                repo,
+                quote_service,
+                depth_service,
+                as_of,
+                req.focus,
+                sections=sections,
+                previous_content=req.previous_content,
+            ):
                 yield chunk + "\n"
         except Exception as exc:  # noqa: BLE001 - 流内报告错误，避免静默断流
             logger.exception("market recap stream failed: %s", exc)

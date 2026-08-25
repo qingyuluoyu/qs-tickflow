@@ -5,6 +5,7 @@ from datetime import date, datetime
 import polars as pl
 
 from app.market_time import MarketAsOf, MarketSession
+from app.services import market_overview_preloader as overview_preloader
 from app.services.market_overview_preloader import (
     DashboardSnapshot,
     MarketOverviewPreloader,
@@ -88,6 +89,27 @@ def test_preloader_refresh_is_single_flight():
     assert calls == 1
 
 
+def test_preloader_generation_changes_only_for_material_snapshot_changes():
+    value = {"close": 12.3}
+
+    def fetch():
+        return _snapshot("teajoin.daily", "success", value["close"])
+
+    preloader = MarketOverviewPreloader(fetch, interval_s=30)
+    preloader.refresh_once()
+    first = preloader.status()
+    preloader.refresh_once()
+    unchanged = preloader.status()
+    value["close"] = 12.4
+    preloader.refresh_once()
+    changed = preloader.status()
+
+    assert first["snapshot_generation"] == 1
+    assert unchanged["snapshot_generation"] == 1
+    assert changed["snapshot_generation"] == 2
+    assert changed["snapshot_date"] == "2026-08-17"
+
+
 def test_dashboard_failover_uses_sina_when_custom_realtime_snapshot_is_empty(monkeypatch):
     trade_date = date(2026, 8, 19)
     monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: trade_date)
@@ -115,6 +137,29 @@ def test_dashboard_failover_uses_sina_when_custom_realtime_snapshot_is_empty(mon
     result = make_dashboard_failover_fetcher(lambda: primary, lambda: fallback)()
 
     assert result is fallback
+
+
+def test_dashboard_failover_can_be_strictly_primary_source_only(monkeypatch):
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: date(2026, 8, 19))
+    primary = _snapshot("teajoin.daily", "empty", 12.3)
+    fallback = DashboardSnapshot(
+        provider="sina",
+        kind="sina.realtime",
+        status="success",
+        snapshot_date=date(2026, 8, 19),
+        frame=pl.DataFrame([{"symbol": "000001.SZ", "close": 12.5}]),
+        fetched_at_ms=2.0,
+        error=None,
+        realtime_rows=1,
+    )
+
+    result = make_dashboard_failover_fetcher(
+        lambda: primary,
+        lambda: fallback,
+        allow_cross_source_fallback=False,
+    )()
+
+    assert result is primary
 
 
 def test_dashboard_failover_preserves_primary_when_sina_is_not_current(monkeypatch):
@@ -157,6 +202,46 @@ def test_dashboard_realtime_rows_without_close_are_rejected():
     }])
 
     assert frame.is_empty()
+
+
+def test_dashboard_daily_quality_rejects_duplicate_or_partial_universe():
+    target = date(2026, 8, 24)
+    valid_row = {
+        "symbol": "000001.SZ", "date": target,
+        "open": 10.0, "high": 11.0, "low": 9.0, "close": 10.5,
+        "volume": 100.0, "amount": 1000.0,
+    }
+    duplicate = pl.DataFrame([valid_row, valid_row])
+    partial = pl.DataFrame([valid_row])
+
+    assert overview_preloader._daily_snapshot_rejection(
+        duplicate, target, {"000001.SZ"},
+    ) == "duplicate_symbols"
+    assert overview_preloader._daily_snapshot_rejection(
+        partial, target, {"000001.SZ", "000002.SZ"}, min_coverage=0.9,
+    ) == "partial_universe"
+
+
+def test_dashboard_realtime_quality_rejects_mixed_null_dates(monkeypatch):
+    target = date(2026, 8, 24)
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: target)
+
+    frame = _normalise_realtime_frame([
+        {"symbol": "000001.SZ", "date": target, "last_price": 10.0},
+        {"symbol": "000002.SZ", "date": None, "last_price": 20.0},
+    ])
+
+    assert frame.is_empty()
+
+
+def test_dashboard_index_quality_requires_every_core_symbol():
+    target = date(2026, 8, 24)
+    partial = pl.DataFrame([
+        {"symbol": symbol, "date": target, "close": 100.0}
+        for symbol in ("000001.SH", "399001.SZ", "399006.SZ")
+    ])
+
+    assert overview_preloader._complete_core_index_frame(partial, target).is_empty()
 
 
 def test_dashboard_fetcher_caches_index_snapshot_with_stock_snapshot(monkeypatch):
@@ -283,6 +368,44 @@ def test_dashboard_fetcher_passes_today_to_exact_daily_filter(monkeypatch):
 
     assert result.snapshot_date == date(2026, 8, 17)
     assert provider.as_of == datetime(2026, 8, 17)
+
+
+def test_dashboard_fetcher_drops_index_rows_older_than_stock_snapshot(monkeypatch):
+    """A current stock snapshot must not be paired with stale index rows."""
+    trade_date = date(2026, 8, 24)
+    monkeypatch.setattr("app.services.preferences.get_realtime_data_provider", lambda: "tickflow")
+    monkeypatch.setattr("app.services.preferences.get_daily_data_provider", lambda: "teajoin")
+    monkeypatch.setattr(
+        "app.data_providers.custom.provider_has_dataset",
+        lambda name, dataset: name == "teajoin" and dataset == "daily",
+    )
+    monkeypatch.setattr("app.services.market_overview_preloader.cn_today", lambda: trade_date)
+
+    class _Provider:
+        def get_latest_daily_snapshot(self, asset_type="stock", as_of=None):
+            assert asset_type == "stock"
+            assert as_of == datetime(2026, 8, 24)
+            return pl.DataFrame([{
+                "symbol": "000001.SZ",
+                "date": trade_date,
+                "close": 12.3,
+            }])
+
+        def get_daily(self, symbols, start_time, end_time, asset_type="stock"):
+            assert asset_type == "index"
+            return pl.DataFrame([{
+                "symbol": "000001.SH",
+                "date": date(2026, 8, 21),
+                "close": 3905.2,
+            }])
+
+    monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: _Provider())
+
+    result = make_dashboard_snapshot_fetcher()()
+
+    assert result.snapshot_date == trade_date
+    assert result.frame.get_column("date").unique().to_list() == [trade_date]
+    assert result.index_frame.is_empty()
 
 
 def test_sina_intraday_fetcher_returns_current_day_snapshot_without_persisting(monkeypatch):
@@ -561,6 +684,7 @@ def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
     class _Provider:
         def __init__(self):
             self.realtime_calls = 0
+            self.daily_calls = 0
 
         def get_realtime(self):
             self.realtime_calls += 1
@@ -569,6 +693,7 @@ def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
         def get_latest_daily_snapshot(self, asset_type="stock", as_of=None):
             assert asset_type == "stock"
             assert as_of == datetime(2026, 8, 18)
+            self.daily_calls += 1
             return pl.DataFrame([{
                 "symbol": "000001.SZ",
                 "date": trade_date,
@@ -586,14 +711,21 @@ def test_dashboard_fetcher_does_not_call_realtime_after_close(monkeypatch):
 
     provider = _Provider()
     monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: provider)
+    clock = {"value": 100.0}
+    monkeypatch.setattr("app.services.market_overview_preloader.time.time", lambda: clock["value"])
 
-    result = make_dashboard_snapshot_fetcher()()
+    fetch = make_dashboard_snapshot_fetcher()
+    result = fetch()
+    clock["value"] = 131.0
+    cached = fetch()
 
     assert result.kind == "teajoin.daily"
     assert result.status == "post_close"
     assert result.snapshot_date == trade_date
     assert result.market_as_of["session"] == "post_close"
+    assert cached.snapshot_date == trade_date
     assert provider.realtime_calls == 0
+    assert provider.daily_calls == 1
 
 
 def test_dashboard_fetcher_uses_completed_daily_snapshot_during_lunch(monkeypatch):

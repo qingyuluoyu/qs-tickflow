@@ -5,6 +5,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from app.data_providers.normalizer import (
     normalize_adj_factors,
     normalize_daily,
     normalize_instruments,
+    validate_daily_frame,
 )
 from app.tickflow.rate_limits import chunked, sleep_between_batches
 
@@ -85,6 +87,7 @@ def _set_nested(d: dict[str, Any], path: str, value: Any) -> None:
 _REQUIRED = {
         "instruments": {"symbol", "code", "name"},
     "daily": {"symbol", "date", "open", "high", "low", "close", "volume", "amount"},
+    "calendar": {"date", "is_open"},
     "adj_factor": {"symbol", "trade_date", "ex_factor"},
     "realtime": {"symbol", "last_price", "prev_close", "open", "high", "low", "volume"},
     "minute": {"symbol", "datetime", "open", "high", "low", "close", "volume", "amount"},
@@ -176,6 +179,11 @@ class GenericHTTPProvider:
                 )
                 df = self._mapped_frame(cfg, rows)
                 df = normalize_daily(df, source=self.name)
+                errors = validate_daily_frame(df) if self._daily_contract_is_complete(cfg) else []
+                if errors and errors != ["empty"]:
+                    raise ValueError(
+                        f"Custom data source '{self.name}' daily contract rejected: {','.join(errors)}"
+                    )
                 if not df.is_empty():
                     frames.append(df)
                 request_number += 1
@@ -233,7 +241,18 @@ class GenericHTTPProvider:
         latest = df.get_column("date").drop_nulls().max()
         if latest is None:
             return pl.DataFrame()
-        return df.filter(pl.col("date") == latest)
+        result = df.filter(pl.col("date") == latest)
+        errors = (
+            validate_daily_frame(result, expected_date=latest)
+            if self._daily_contract_is_complete(cfg)
+            and {"symbol", "date", "open", "high", "low", "close", "volume", "amount"}.issubset(result.columns)
+            else []
+        )
+        if errors and errors != ["empty"]:
+            raise ValueError(
+                f"Custom data source '{self.name}' daily snapshot rejected: {','.join(errors)}"
+            )
+        return result
 
     def get_adj_factors(
         self,
@@ -271,6 +290,31 @@ class GenericHTTPProvider:
         if cfg.adj_factor_kind == "cumulative":
             factors = _cumulative_factors_to_event_ratios(factors)
         return factors
+
+    def get_calendar(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+        *,
+        exchange: str = "SSE",
+    ) -> pl.DataFrame:
+        """Fetch and normalize open exchange dates for cutoff calculations."""
+        cfg = self._dataset("calendar")
+        rows = self._request_rows(
+            cfg,
+            start_time=start_time,
+            end_time=end_time,
+            override_params={"exchange": exchange},
+            override_body={"exchange": exchange},
+        )
+        frame = self._mapped_frame(cfg, rows)
+        if frame.is_empty() or not {"date", "is_open"}.issubset(frame.columns):
+            return pl.DataFrame()
+        frame = frame.with_columns(
+            pl.col("date").cast(pl.Date, strict=False).alias("date"),
+            pl.col("is_open").cast(pl.Int8, strict=False).alias("is_open"),
+        ).filter(pl.col("date").is_not_null())
+        return frame.select(["date", "is_open"]).unique(subset=["date"]).sort("date")
 
     def get_realtime(
         self,
@@ -459,7 +503,7 @@ class GenericHTTPProvider:
                 override_params=override or None,
                 override_body=override or None,
             )
-        elif dataset in {"daily", "adj_factor"}:
+        elif dataset in {"daily", "adj_factor", "calendar"}:
             rows = self._request_rows(
                 cfg,
                 symbols=test_symbols,
@@ -492,6 +536,11 @@ class GenericHTTPProvider:
             raise ValueError(f"Custom data source '{self.name}' does not configure dataset '{name}'")
         return cfg
 
+    @staticmethod
+    def _daily_contract_is_complete(cfg: DatasetConfig) -> bool:
+        required = {"symbol", "date", "open", "high", "low", "close", "volume", "amount"}
+        return required.issubset(set(cfg.field_map.values()))
+
     def _mapped_frame(self, cfg: DatasetConfig, rows: list[dict]) -> pl.DataFrame:
         df = map_rows(rows, cfg.field_map)
         return apply_transforms(df, cfg.transforms)
@@ -509,13 +558,18 @@ class GenericHTTPProvider:
         override_url: str | None = None,
     ) -> list[dict]:
         headers, auth_params = self._auth_parts()
-        params = dict(cfg.params)
+        # Dataset configs and provider instances are process-wide. Nested
+        # request paths (for example ``params.ts_code``) must be written into
+        # a per-call copy; a shallow copy leaks a prior symbol/date filter into
+        # later calls and is also unsafe when the preloader and pipeline run
+        # concurrently.
+        params = deepcopy(cfg.params)
         params.update(auth_params)
         if override_params:
-            params.update(override_params)
-        body = dict(cfg.body)
+            params.update(deepcopy(override_params))
+        body = deepcopy(cfg.body)
         if override_body:
-            body.update(override_body)
+            body.update(deepcopy(override_body))
         # body auth: inject token into POST JSON body
         body_auth_token = auth_params.pop("_body_auth_token", None)
         if body_auth_token and cfg.method.upper() != "GET":

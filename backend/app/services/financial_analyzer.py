@@ -14,8 +14,8 @@ from typing import AsyncIterator
 
 import polars as pl
 
-from app.services.financial_sync import FINANCIAL_TABLES, get_financial_df
-from app.services.financial_view import normalize_financial_frame
+from app.services.financial_sync import FINANCIAL_TABLES
+from app.services.financial_view import load_financial_frame, prepare_financial_prompt_frame
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +30,15 @@ def _load_stock_financials(data_dir: Path, symbol: str) -> dict[str, list[dict]]
     """
     result: dict[str, list[dict]] = {}
     for table in FINANCIAL_TABLES:
-        df = get_financial_df(data_dir, table)
+        # Read the local cache first, then request the missing symbol from the
+        # configured TeaJoin provider without collapsing the report history.
+        df = load_financial_frame(data_dir, table, symbol, latest_only=False)
         if df.is_empty():
             result[table] = []
             continue
-        df = normalize_financial_frame(table, df)
-        df = df.filter(pl.col("symbol") == symbol)
+        df = prepare_financial_prompt_frame(table, df)
+        if "symbol" in df.columns:
+            df = df.filter(pl.col("symbol") == symbol)
         if df.is_empty():
             result[table] = []
             continue
@@ -126,25 +129,27 @@ _SYSTEM_PROMPT = """你是一位拥有 15 年 A 股投研经验的资深财务�
 现在请基于下方数据进行分析。"""
 
 
-def _build_user_prompt(fins: dict[str, list[dict]], symbol: str, focus: str) -> str:
+def _build_user_prompt(
+    fins: dict[str, list[dict]],
+    symbol: str,
+    focus: str,
+    previous_content: str = "",
+) -> str:
     """构建用户消息:标的代码 + 数据 JSON + 可选关注点。"""
     data_json = json.dumps(fins, ensure_ascii=False, indent=2)
     lines = [
         f"标的标准代码: {symbol}",
         f"数据概览: {_summarize(fins)}",
         "",
-        "以下是该标的最新财务数据(JSON 格式,金额单位为元,比率类指标为百分点):",
+        "以下是该标的最新财务数据(JSON 格式)。金额字段单位为人民币元，股数字段单位为股，turnover_rate_pct 等比率字段为百分比数值；period_end 是报告期，announce_date 是公告可获得日期:",
         "```json",
         data_json,
         "```",
     ]
-    from app.services.ai_provider import sanitize_focus
-    safe_focus = sanitize_focus(focus)
-    if safe_focus:
-        lines.extend([
-            "",
-            f"本次分析请特别关注: {safe_focus}",
-        ])
+    from app.services.ai_provider import build_analysis_focus_block
+    focus_block = build_analysis_focus_block(focus, previous_content)
+    if focus_block:
+        lines.extend(["", focus_block])
     return "\n".join(lines)
 
 
@@ -152,6 +157,7 @@ async def analyze_financials_stream(
     data_dir: Path,
     symbol: str,
     focus: str = "",
+    previous_content: str = "",
 ) -> AsyncIterator[str]:
     """流式分析:yield 出每个文本 chunk。
 
@@ -179,7 +185,7 @@ async def analyze_financials_stream(
     try:
         from app.services.ai_provider import stream_ai_text
 
-        user_prompt = _build_user_prompt(fins, symbol, focus)
+        user_prompt = _build_user_prompt(fins, symbol, focus, previous_content)
         async for delta in stream_ai_text(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},

@@ -265,6 +265,35 @@ def test_dashboard_index_snapshot_derives_change_from_cached_history():
     assert rows[0]["change_pct"] == 1.0
 
 
+def test_dashboard_index_provider_does_not_relabel_stale_rows(monkeypatch):
+    class _Provider:
+        def get_daily(self, _symbols, start_time, end_time, asset_type="stock"):
+            assert asset_type == "index"
+            return pl.DataFrame([
+                {"symbol": "000001.SH", "date": date(2026, 8, 21), "close": 3900.0},
+            ])
+
+    monkeypatch.setattr(
+        "app.data_providers.custom.provider_has_dataset",
+        lambda name, dataset: name == "teajoin" and dataset == "daily",
+    )
+    monkeypatch.setattr("app.data_providers.custom.get_provider", lambda _name: _Provider())
+
+    rows = builder._index_quotes(
+        _FakeRepo("."),
+        quote_service=None,
+        dashboard_provider="teajoin",
+        dashboard_date=date(2026, 8, 24),
+        dashboard_snapshot=pl.DataFrame([{
+            "symbol": "000001.SZ",
+            "date": date(2026, 8, 24),
+            "close": 12.3,
+        }]),
+    )
+
+    assert rows == []
+
+
 def test_dashboard_derives_turnover_and_extends_live_limit_ladder(monkeypatch, tmp_path):
     class _MetricsScreener:
         def __init__(self, _repo):
@@ -435,6 +464,40 @@ def test_dashboard_does_not_report_daily_rows_as_realtime_rows(monkeypatch, tmp_
 
     assert result["data_freshness"]["realtime_status"] == "empty"
     assert result["data_freshness"]["realtime_rows"] == 0
+    assert result["data_freshness"]["snapshot_kind"] == "persisted.enriched"
+
+
+def test_dashboard_does_not_promote_failed_daily_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr(builder, "ScreenerService", _FakeScreener)
+    monkeypatch.setattr(builder, "cn_today", lambda: date(2026, 8, 17))
+    snapshot = DashboardSnapshot(
+        provider="teajoin",
+        kind="teajoin.daily",
+        status="error",
+        snapshot_date=date(2026, 8, 14),
+        frame=pl.DataFrame([{
+            "symbol": "000001.SZ",
+            "date": date(2026, 8, 14),
+            "close": 12.1,
+        }]),
+        fetched_at_ms=1.0,
+        error="TimeoutException",
+        realtime_rows=0,
+        market_as_of={
+            "session": MarketSession.CLOSED.value,
+            "date_verified": True,
+        },
+    )
+
+    result = builder.build_market_overview(
+        _FakeRepo(tmp_path),
+        quote_service=_FakeQuote(),
+        dashboard_live=True,
+        dashboard_snapshot=snapshot,
+    )
+
+    assert result["data_freshness"]["snapshot_kind"] == "persisted.enriched"
+    assert result["data_freshness"]["is_stale"] is True
 
 
 def test_overview_reports_teajoin_snapshot_freshness(monkeypatch, tmp_path):

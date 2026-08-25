@@ -618,59 +618,100 @@ def _gap_fill_index_snapshot(
     emit: ProgressCb,
     stage_errors: list[str],
 ) -> int:
-    """盘后用新浪快照补齐指数当日分区。
+    """盘后补齐缺失的核心指数当日分区。
 
     指数快照补缺不能依赖 ``KLINE_DAILY_BATCH``: 免费/无 TickFlow Key
-    的部署同样需要当天的指数看板。只在收盘边界后写入，并且仅在本地
-    没有今天分区时执行；下一次权威日 K 同步会 merge-upsert 覆盖快照。
+    的部署同样需要当天的指数看板。按标准代码检查每只指数，不能因
+    当日分区里已有一只就跳过其他缺口。配置了自定义日线源时优先通过
+    provider 契约补齐；只有 TickFlow 模式才保留新浪快照降级。
     """
     if not pull_index or today.weekday() >= 5 or now.time() < _time(15, 10):
         return 0
 
-    idx_daily_dir = repo.store.data_dir / "kline_index_daily"
-    idx_dates = sorted(
-        d.name[5:] for d in idx_daily_dir.glob("date=*")
-        if d.is_dir() and d.name.startswith("date=")
-    ) if idx_daily_dir.exists() else []
-    idx_latest = _date.fromisoformat(idx_dates[-1]) if idx_dates else None
-    if idx_latest is not None and idx_latest >= today:
-        return 0
-
     try:
-        idx_inst = repo.get_index_instruments()
+        configured = _prefs.get_pipeline_index_symbols()
         idx_symbols = (
-            sorted(set(idx_inst["symbol"].to_list()))
-            if not idx_inst.is_empty() and "symbol" in idx_inst.columns
-            else []
+            [symbol for symbol in configured.replace(",", " ").split() if symbol]
+            if isinstance(configured, str)
+            else [str(symbol) for symbol in (configured or []) if symbol]
         )
         if not idx_symbols:
-            configured = _prefs.get_pipeline_index_symbols() or _prefs.get_realtime_index_symbols()
-            idx_symbols = [symbol for symbol in configured.replace(",", " ").split() if symbol]
+            realtime_symbols = _prefs.get_realtime_index_symbols()
+            idx_symbols = (
+                [symbol for symbol in realtime_symbols.replace(",", " ").split() if symbol]
+                if isinstance(realtime_symbols, str)
+                else [str(symbol) for symbol in (realtime_symbols or []) if symbol]
+            )
+        if not idx_symbols:
+            idx_inst = repo.get_index_instruments()
+            idx_symbols = (
+                sorted(set(idx_inst["symbol"].to_list()))
+                if not idx_inst.is_empty() and "symbol" in idx_inst.columns
+                else []
+            )
         if not idx_symbols:
             logger.warning("sync_index: no index symbols available for snapshot gap-fill")
             return 0
 
-        emit("sync_index", 88, "官方源尚未发布今日指数日K,用快照行情补齐…")
-        from app.services import sina_snapshot
-
-        ispot = sina_snapshot.fetch_spot_daily(idx_symbols, asset_type="index")
-        if not ispot.is_empty():
-            ispot = ispot.filter(pl.col("date") == today.isoformat())
-            ispot = ispot.with_columns(pl.col("date").str.to_date())
-            ispot = filter_halt_days(ispot)
-        if ispot.is_empty():
-            logger.warning("sync_index: sina snapshot gap-fill 无 %s 当日指数数据", today)
+        latest_by_symbol = repo.latest_daily_dates_asset("index", idx_symbols)
+        missing_symbols = [
+            symbol
+            for symbol in idx_symbols
+            if latest_by_symbol.get(symbol) is None or latest_by_symbol[symbol] < today
+        ]
+        if not missing_symbols:
             return 0
 
-        repo.flush_live_daily_asset("index", ispot)
+        provider_name = _prefs.get_daily_data_provider()
+        emit("sync_index", 88, f"补齐 {len(missing_symbols)} 只指数当日日K…")
+        if provider_name != "tickflow":
+            from app.data_providers import custom as custom_sources
+
+            if not custom_sources.provider_has_dataset(provider_name, "daily"):
+                logger.warning("sync_index: provider %s has no daily dataset", provider_name)
+                return 0
+            provider = custom_sources.get_provider(provider_name)
+            boundary = _datetime.combine(today, _time.min)
+            ispot = provider.get_daily(
+                missing_symbols,
+                start_time=boundary,
+                end_time=boundary,
+                asset_type="index",
+            )
+        else:
+            from app.services import sina_snapshot
+
+            provider_name = "sina"
+            ispot = sina_snapshot.fetch_spot_daily(missing_symbols, asset_type="index")
+        if not ispot.is_empty():
+            if ispot.schema.get("date") == pl.String:
+                ispot = ispot.with_columns(pl.col("date").str.to_date(strict=False))
+            elif ispot.schema.get("date") != pl.Date:
+                ispot = ispot.with_columns(pl.col("date").cast(pl.Date, strict=False))
+            ispot = ispot.filter(
+                (pl.col("date") == today)
+                & pl.col("symbol").is_in(missing_symbols)
+            )
+            ispot = filter_halt_days(ispot)
+        if ispot.is_empty():
+            logger.warning("sync_index: %s returned no missing index rows for %s", provider_name, today)
+            return 0
+
+        repo.merge_live_daily_asset("index", ispot)
         repo.refresh_index_views()
         _invalidate("index_daily")
         emit("sync_index", 88, f"指数当日日K已用快照补齐,{ispot.height} 只")
-        logger.info("sync_index: sina snapshot gap-fill %d indexes for %s", ispot.height, today)
+        logger.info(
+            "sync_index: %s gap-fill %d/%d missing indexes for %s",
+            provider_name,
+            ispot.height,
+            len(missing_symbols),
+            today,
+        )
         return ispot.height
     except Exception as e:  # noqa: BLE001
-        logger.warning("sina index gap-fill failed: %s", e)
-        stage_errors.append(f"sina index gap fill: {e}")
+        logger.warning("index gap-fill failed: %s", e)
+        stage_errors.append(f"index gap fill: {e}")
         return 0
 
 

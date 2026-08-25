@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import ctypes
+import gc
 import json
 import logging
 import os
@@ -30,6 +32,43 @@ from app.config import settings
 from app.parquet import scan_enriched_parquet
 
 logger = logging.getLogger(__name__)
+
+# Keep enough completed trading sessions for the built-in history strategy
+# (lookback=130) plus a calendar-day margin, while avoiding a second large
+# in-memory copy of the full enriched feature matrix.  A cache miss remains
+# safe: callers fall back to the narrow parquet calculation path.
+_ENRICHED_HISTORY_CALENDAR_DAYS = 240
+
+
+def _release_temporary_memory() -> None:
+    """Release temporary Python/native allocations after a full cache rebuild.
+
+    Polars may return freed buffers to glibc rather than directly to the OS.  The
+    repository keeps the completed DataFrames alive, so trimming here only
+    releases allocator pages that became unused while constructing them.
+    """
+    gc.collect()
+    if not sys.platform.startswith("linux"):
+        return
+    try:
+        malloc_trim = getattr(ctypes.CDLL(None), "malloc_trim", None)
+        if malloc_trim is not None:
+            malloc_trim(0)
+    except (AttributeError, OSError):
+        logger.debug("native allocator trim unavailable", exc_info=True)
+
+
+def _project_history_cache(df: pl.DataFrame) -> pl.DataFrame:
+    """Drop only repeated metadata from the history snapshot.
+
+    The latest-day cache remains full-featured for the dashboard and screener.
+    History consumers may include user-defined signal columns, so all computed
+    indicators/signals are retained; only repeated names/share metadata and the
+    per-quote timestamp are excluded.  The main memory reduction comes from the
+    bounded 240-calendar-day history window.
+    """
+    excluded = {"quote_ts", "name", "total_shares", "float_shares"}
+    return df.select([column for column in df.columns if column not in excluded])
 
 
 def enriched_dirname(asset_type: str) -> str:
@@ -415,6 +454,7 @@ class KlineRepository:
             step = time.perf_counter()
             logger.info("cache refresh step start: enriched")
             self._refresh_enriched()
+            _release_temporary_memory()
             logger.info("cache refresh step done: enriched (%.2fs)", time.perf_counter() - step)
             self._notify_refresh_done()
 
@@ -437,6 +477,7 @@ class KlineRepository:
             try:
                 logger.info("enriched warmup thread started")
                 self._refresh_enriched()
+                _release_temporary_memory()
                 logger.info("enriched warmup thread done (%.1fs)", time.perf_counter() - t0)
                 self._notify_refresh_done()
             except Exception:  # noqa: BLE001
@@ -546,12 +587,13 @@ class KlineRepository:
                 logger.info("enriched refresh skipped: latest parquet empty (%.2fs)", time.perf_counter() - started)
                 return
 
-            # Step 2: 读近 300 天 14 列数据 → compute → filter(latest) → 缓存
-            # 300 日历天 ≈ 210 交易日, 覆盖 filter_history 最大 lookback(90) + warmup(60)
+            # Step 2: 读近 240 天 14 列数据 → compute → filter(latest) → 缓存。
+            # 240 日历天约 165 个交易日，覆盖内置 lookback=130；更长的
+            # 自定义历史策略安全走 parquet 回退，不把全量历史常驻内存。
             try:
                 from datetime import timedelta
                 from app.indicators.pipeline import compute_indicators, compute_signals, compute_limit_signals
-                start_full = latest - timedelta(days=300)
+                start_full = latest - timedelta(days=_ENRICHED_HISTORY_CALENDAR_DAYS)
                 read_cols = [c for c in ["symbol", "date", "open", "high", "low", "close",
                                          "volume", "amount", "raw_close", "raw_high", "raw_low"]
                              if c in df_latest.columns]
@@ -629,6 +671,7 @@ class KlineRepository:
                             self._enriched_history_cache = df_full
                             self._enriched_cache = repaired_today
                             df_today = repaired_today
+                        self._enriched_history_cache = _project_history_cache(df_full)
                         logger.info("enriched 缓存已计算: %d 只, 日期 %s (即时计算)", len(df_today), latest)
                         logger.info("enriched refresh done (%.2fs)", time.perf_counter() - started)
                         return
@@ -1145,20 +1188,15 @@ class KlineRepository:
             return None
         cache_max = cache["date"].max()
         cache_min = cache["date"].min()
-        from datetime import timedelta
-        # 验证缓存覆盖完整范围 (含 warmup)。lookback_days 是交易日语义, 用 ×2 日历日
-        # 放宽确保覆盖 (节假日/周末), 与 warmup 60 一起留足余量。
-        warmup_start = target_date - timedelta(days=(lookback_days + 60) * 2)
-        if cache_min > warmup_start or cache_max < target_date:
+        if cache_min > target_date or cache_max < target_date:
             return None
-        # 按交易日计数裁剪: 从数据里实际存在的交易日序列取最后 lookback_days 个交易日。
-        # 不能用 timedelta(days=N) (自然日), 否则周末/节假日会让窗口只有 ~N×5/7 个交易日,
-        # 导致 filter_history 策略的滚动窗口/行号差(_gap)漏算, 与回测结果不一致。
-        trading_dates = cache["date"].unique().sort()
-        if len(trading_dates) > lookback_days:
-            lookback_start = trading_dates[-(lookback_days + 1)]
-        else:
-            lookback_start = trading_dates[0]
+        # 按目标日期之前实际存在的交易日裁剪；不能用自然日替代交易日。
+        trading_dates = (
+            cache.filter(pl.col("date") <= target_date)["date"].unique().sort()
+        )
+        if len(trading_dates) < lookback_days:
+            return None
+        lookback_start = trading_dates[-(lookback_days + 1)] if len(trading_dates) > lookback_days else trading_dates[0]
         return cache.filter((pl.col("date") >= lookback_start) & (pl.col("date") <= target_date))
 
     def get_enriched_range(
@@ -1174,6 +1212,17 @@ class KlineRepository:
         cache = self._enriched_history_cache
         if cache is None or cache.is_empty() or "date" not in cache.columns:
             return None
+
+        if columns is None and "signal_ma_golden_5_20" not in cache.columns:
+            # The resident history snapshot is intentionally a compact
+            # projection.  Callers asking for an unprojected full panel must
+            # use the existing parquet path rather than silently receiving
+            # fewer columns.
+            return None
+        if columns:
+            requested = {column for column in columns if column not in {"symbol", "date"}}
+            if not requested <= set(cache.columns):
+                return None
 
         cache_min = cache["date"].min()
         cache_max = cache["date"].max()

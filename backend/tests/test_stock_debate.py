@@ -15,6 +15,45 @@ def test_stage_plan_is_bounded_and_matches_archive_flow():
     assert stock_debate.stage_plan(99) == stock_debate.stage_plan(2)
 
 
+def test_role_prompts_require_natural_meeting_speech_without_markdown():
+    for stage, prompt in stock_debate._ROLE_PROMPTS.items():
+        assert "投研会议" in prompt, stage
+        assert "不要输出 Markdown" in prompt, stage
+        assert "不要写成研究报告" in prompt, stage
+
+
+def test_bear_message_explicitly_responds_to_previous_speaker():
+    messages = stock_debate._build_messages(
+        "bear",
+        "客观底稿",
+        [{"stage": "bull", "content": "多方认为现金流改善。"}],
+    )
+
+    assert "多方认为现金流改善" in messages[1]["content"]
+    assert "先回应上一位发言中最关键的证据" in messages[1]["content"]
+
+
+def test_referee_synthesizes_both_sides_instead_of_rebutting_last_speaker():
+    messages = stock_debate._build_messages(
+        "referee",
+        "客观底稿",
+        [
+            {"stage": "bull", "content": "多方发言"},
+            {"stage": "bear", "content": "空方发言"},
+        ],
+    )
+
+    assert "综合整理双方" in messages[1]["content"]
+    assert "先回应上一位发言" not in messages[1]["content"]
+
+
+def test_directional_prompts_keep_bull_and_bear_stances_distinct():
+    assert "保持多方立场" in stock_debate._ROLE_PROMPTS["bull"]
+    assert "不能把风险作为核心结论" in stock_debate._ROLE_PROMPTS["bull"]
+    assert "保持空方立场" in stock_debate._ROLE_PROMPTS["bear"]
+    assert "不能把利好作为核心结论" in stock_debate._ROLE_PROMPTS["bear"]
+
+
 def test_payload_empty_ignores_metadata_but_keeps_observations():
     assert stock_debate.payload_empty({"period": "近5年", "metrics": {}})
     assert not stock_debate.payload_empty({"period": "近5年", "metrics": {"pe_ttm": 18.2}})

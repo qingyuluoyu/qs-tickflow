@@ -161,10 +161,16 @@ def _fallback_index_quotes_from_dashboard_source(
 def status(request: Request):
     """行情状态 (来自全局 QuoteService)。"""
     qs = _get_quote_service(request)
-    if qs:
-        return qs.status()
-    return {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
-            "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
+    result = (
+        qs.status()
+        if qs
+        else {"enabled": False, "running": False, "symbol_count": 0, "index_symbol_count": 0,
+              "quote_age_ms": None, "is_trading_hours": False, "last_fetch_ms": None}
+    )
+    preloader = getattr(request.app.state, "market_overview_preloader", None)
+    if preloader is not None and callable(getattr(preloader, "status", None)):
+        result = {**result, **preloader.status()}
+    return result
 
 
 @router.get("/indices")

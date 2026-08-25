@@ -1519,6 +1519,10 @@ export const api = {
       final_sync_done?: boolean
       final_sync_failed?: string | null
       last_fetch_ms: number | null
+      snapshot_generation?: number
+      snapshot_date?: string | null
+      snapshot_kind?: string | null
+      snapshot_status?: string
     }>('/api/intraday/status'),
   quoteInterval: () =>
     request<{ interval: number; min_interval: number; max_interval: number }>(
@@ -2263,7 +2267,7 @@ export const api = {
    *
    * 用 ReadableStream 解析(而非 SSE EventSource),支持 POST body 且更简单。
    */
-  async *financialAnalyzeStream(symbol: string, focus?: string): AsyncGenerator<{
+  async *financialAnalyzeStream(symbol: string, focus?: string, previousContent?: string): AsyncGenerator<{
     type: 'meta' | 'delta' | 'error' | 'done'
     symbol?: string
     summary?: string
@@ -2274,7 +2278,11 @@ export const api = {
     const res = await fetch('/api/financials/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, focus: focus ?? '' }),
+      body: JSON.stringify({
+        symbol,
+        focus: focus ?? '',
+        previous_content: previousContent ?? '',
+      }),
     })
     if (!res.ok) {
       let detail = ''
@@ -2344,7 +2352,12 @@ export const api = {
    * AI 个股四维分析 — 流式调用(NDJSON,与财务分析同协议)。
    * meta 里额外带 levels(关键价位)供图表回放。
    */
-  async *stockAnalyzeStream(symbol: string, focus?: string, signal?: AbortSignal): AsyncGenerator<{
+  async *stockAnalyzeStream(
+    symbol: string,
+    focus?: string,
+    signal?: AbortSignal,
+    previousContent?: string,
+  ): AsyncGenerator<{
     type: 'status' | 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     symbol?: string
     summary?: string
@@ -2362,7 +2375,11 @@ export const api = {
     const res = await fetch('/api/stock-analysis/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbol, focus: focus ?? '' }),
+      body: JSON.stringify({
+        symbol,
+        focus: focus ?? '',
+        previous_content: previousContent ?? '',
+      }),
       signal,
     })
     if (!res.ok) {
@@ -2484,7 +2501,7 @@ export const api = {
    * AI 大盘复盘 — 流式调用(NDJSON,与个股/财务分析同协议)。
    * meta 里带 as_of / emotion_score / emotion_label / summary,供前端先渲染信号灯。
    */
-  async *reviewStream(asOf?: string, focus?: string, sections?: string[]): AsyncGenerator<{
+  async *reviewStream(asOf?: string, focus?: string, sections?: string[], previousContent = ''): AsyncGenerator<{
     type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     as_of?: string
     emotion_score?: number
@@ -2501,7 +2518,12 @@ export const api = {
     const res = await fetch('/api/market-recap/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ as_of: asOf ?? null, focus: focus ?? '', sections: sections ?? null }),
+      body: JSON.stringify({
+        as_of: asOf ?? null,
+        focus: focus ?? '',
+        sections: sections ?? null,
+        previous_content: previousContent,
+      }),
     })
     if (!res.ok) {
       let detail = ''

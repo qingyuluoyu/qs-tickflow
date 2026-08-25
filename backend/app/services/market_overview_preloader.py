@@ -17,7 +17,12 @@ from datetime import time as clock_time
 
 import polars as pl
 
-from app.market_time import MarketSession, cn_today, resolve_market_as_of
+from app.market_time import (
+    MarketSession,
+    cn_today,
+    resolve_market_as_of,
+    trading_calendar_source,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +35,8 @@ def _reset_daily_fallback_fail_count() -> None:
     _daily_fallback_fail_count = 0
 
 _CORE_INDEX_SYMBOLS = ("000001.SH", "399001.SZ", "399006.SZ", "000680.SH")
+_SETTLED_DAILY_REFRESH_S = 15 * 60.0
+_MIN_DAILY_UNIVERSE_COVERAGE = 0.90
 
 
 @dataclass(frozen=True)
@@ -82,6 +89,8 @@ class MarketOverviewPreloader:
         self._lock = threading.RLock()
         self._refresh_lock = threading.Lock()
         self._snapshot: DashboardSnapshot | None = None
+        self._snapshot_fingerprint: tuple | None = None
+        self._snapshot_generation = 0
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -98,6 +107,48 @@ class MarketOverviewPreloader:
         with self._lock:
             return self._copy(self._snapshot)
 
+    @staticmethod
+    def _frame_fingerprint(frame: pl.DataFrame) -> tuple[int, int, int]:
+        if frame is None or frame.is_empty():
+            return (0, 0, 0)
+        row_hash = frame.select(sorted(frame.columns)).hash_rows(seed=0)
+        return (frame.height, frame.width, int(row_hash.sum() or 0))
+
+    @classmethod
+    def _fingerprint(cls, snapshot: DashboardSnapshot) -> tuple:
+        return (
+            snapshot.provider,
+            snapshot.kind,
+            snapshot.status,
+            snapshot.snapshot_date,
+            snapshot.error,
+            snapshot.realtime_rows,
+            cls._frame_fingerprint(snapshot.frame),
+            cls._frame_fingerprint(snapshot.index_frame),
+        )
+
+    def _install_locked(self, snapshot: DashboardSnapshot) -> None:
+        fingerprint = self._fingerprint(snapshot)
+        if fingerprint != self._snapshot_fingerprint:
+            self._snapshot_generation += 1
+            self._snapshot_fingerprint = fingerprint
+        self._snapshot = snapshot
+
+    def status(self) -> dict[str, object]:
+        """Return lightweight metadata without cloning the full market frame."""
+        with self._lock:
+            snapshot = self._snapshot
+            return {
+                "snapshot_generation": self._snapshot_generation,
+                "snapshot_date": (
+                    snapshot.snapshot_date.isoformat()
+                    if snapshot is not None and snapshot.snapshot_date is not None
+                    else None
+                ),
+                "snapshot_kind": snapshot.kind if snapshot is not None else None,
+                "snapshot_status": snapshot.status if snapshot is not None else "warming",
+            }
+
     def refresh_once(self) -> DashboardSnapshot | None:
         """Refresh once; concurrent callers never run duplicate provider calls."""
         if not self._refresh_lock.acquire(blocking=False):
@@ -109,11 +160,11 @@ class MarketOverviewPreloader:
             with self._lock:
                 previous = self._snapshot
                 if candidate.frame is not None and not candidate.frame.is_empty():
-                    self._snapshot = candidate
+                    self._install_locked(candidate)
                 elif previous is not None and not previous.frame.is_empty():
                     # Keep prices/rankings from the last valid snapshot, but
                     # replace status so the UI exposes the current failure.
-                    self._snapshot = replace(
+                    self._install_locked(replace(
                         previous,
                         status=candidate.status,
                         fetched_at_ms=(
@@ -123,24 +174,26 @@ class MarketOverviewPreloader:
                         ),
                         error=candidate.error,
                         realtime_rows=candidate.realtime_rows,
-                    )
+                    ))
                 else:
-                    self._snapshot = candidate
+                    self._install_locked(candidate)
                 return self._copy(self._snapshot)
         except Exception as exc:
             logger.warning("dashboard snapshot preload failed: %s", type(exc).__name__)
             with self._lock:
                 previous = self._snapshot
                 if previous is not None and not previous.frame.is_empty():
-                    self._snapshot = replace(
+                    self._install_locked(replace(
                         previous,
                         status="error",
                         fetched_at_ms=time.time() * 1000,
                         error=type(exc).__name__,
                         realtime_rows=0,
-                    )
+                    ))
                 else:
-                    self._snapshot = DashboardSnapshot.empty("unknown", "error", type(exc).__name__)
+                    self._install_locked(
+                        DashboardSnapshot.empty("unknown", "error", type(exc).__name__)
+                    )
                 return self._copy(self._snapshot)
         finally:
             self._refresh_lock.release()
@@ -185,8 +238,10 @@ def _is_current_realtime_snapshot(snapshot: DashboardSnapshot | None) -> bool:
 def make_dashboard_failover_fetcher(
     primary_fetcher: Callable[[], DashboardSnapshot],
     fallback_fetcher: Callable[[], DashboardSnapshot],
+    *,
+    allow_cross_source_fallback: bool = True,
 ) -> Callable[[], DashboardSnapshot]:
-    """Prefer a configured provider, with Sina as a current-session failover.
+    """Prefer a configured provider, optionally allowing a display-only fallback.
 
     A configured provider may remain reachable but return an empty intraday
     response.  During that failure mode the dashboard must use the existing
@@ -211,6 +266,13 @@ def make_dashboard_failover_fetcher(
         if _is_current_realtime_snapshot(primary):
             last_failure = None
             return primary
+
+        # TeaJoin is the authoritative source for production calculations.
+        # Strict mode exposes the primary failure instead of mixing vendors.
+        if not allow_cross_source_fallback:
+            return primary if primary is not None else DashboardSnapshot.empty(
+                "primary", "provider_unavailable", "primary_snapshot_unavailable"
+            )
 
         try:
             fallback = fallback_fetcher()
@@ -250,9 +312,10 @@ def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
         frame = frame.with_columns(pl.lit(cn_today()).cast(pl.Date).alias("date"))
     else:
         frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
-        if frame.get_column("date").drop_nulls().is_empty():
+        if frame.get_column("date").null_count() > 0:
             # An explicit but unparsable provider date is unsafe to infer as
-            # today; fail closed instead of producing a plausible stale quote.
+            # today. Mixed valid/null dates are equally unsafe because the
+            # undated rows would otherwise be relabelled as current.
             return pl.DataFrame()
     numeric = [
         "close", "last_price", "prev_close", "open", "high", "low", "volume",
@@ -277,7 +340,99 @@ def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
     return frame
 
 
-def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callable[[], DashboardSnapshot]:
+def _daily_snapshot_rejection(
+    frame: pl.DataFrame,
+    target_date: date,
+    expected_symbols: set[str] | None = None,
+    *,
+    min_coverage: float = _MIN_DAILY_UNIVERSE_COVERAGE,
+) -> str | None:
+    """Return a stable rejection code for an unsafe completed daily frame."""
+    if frame is None or frame.is_empty():
+        return "empty"
+    required = {"symbol", "date", "open", "high", "low", "close", "volume", "amount"}
+    if not required.issubset(frame.columns):
+        return "missing_fields"
+    working = frame
+    if working.schema.get("date") != pl.Date:
+        working = working.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+    if any(working.get_column(column).null_count() for column in required):
+        return "null_fields"
+    if working.filter(pl.col("date") != pl.lit(target_date).cast(pl.Date)).height:
+        return "mixed_dates"
+    if working.height != working.get_column("symbol").n_unique():
+        return "duplicate_symbols"
+    invalid_ohlc = working.filter(
+        (pl.col("high") < pl.max_horizontal("open", "close", "low"))
+        | (pl.col("low") > pl.min_horizontal("open", "close", "high"))
+        | (pl.col("volume") < 0)
+        | (pl.col("amount") < 0)
+    )
+    if not invalid_ohlc.is_empty():
+        return "invalid_values"
+    if expected_symbols:
+        actual = set(working.get_column("symbol").cast(pl.Utf8).to_list())
+        coverage = len(actual & expected_symbols) / len(expected_symbols)
+        if coverage < max(0.0, min(1.0, float(min_coverage))):
+            return "partial_universe"
+    return None
+
+
+def _align_index_frame_to_date(frame: pl.DataFrame, target_date: date) -> pl.DataFrame:
+    """Keep only index symbols that have a quote on ``target_date``.
+
+    Index data is fetched in a separate provider request from the stock
+    snapshot.  A provider can publish the stock partition before the index
+    partition (or return only a subset of symbols), so blindly retaining the
+    last index rows can create a mixed-date dashboard.  Fail closed for a
+    symbol without a target-day row while retaining its previous close for
+    change calculations.
+    """
+    if frame is None or frame.is_empty() or not {"symbol", "date"}.issubset(frame.columns):
+        return pl.DataFrame()
+    if frame.schema.get("date") != pl.Date:
+        frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+    frame = frame.filter(pl.col("symbol").is_not_null() & pl.col("date").is_not_null())
+    if frame.is_empty():
+        return pl.DataFrame()
+
+    aligned: list[pl.DataFrame] = []
+    for symbol in frame.get_column("symbol").unique().to_list():
+        rows = (
+            frame.filter(
+                (pl.col("symbol") == symbol)
+                & (pl.col("date") <= pl.lit(target_date).cast(pl.Date))
+            )
+            .sort("date", descending=True)
+        )
+        if rows.is_empty() or rows.get_column("date")[0] != target_date:
+            continue
+        aligned.append(rows.head(2))
+    if not aligned:
+        return pl.DataFrame()
+    return pl.concat(aligned, how="diagonal_relaxed").sort(["symbol", "date"])
+
+
+def _complete_core_index_frame(frame: pl.DataFrame, target_date: date) -> pl.DataFrame:
+    """Return a date-aligned frame only when every core index is present."""
+    aligned = _align_index_frame_to_date(frame, target_date)
+    if aligned.is_empty():
+        return aligned
+    current_symbols = set(
+        aligned.filter(pl.col("date") == pl.lit(target_date).cast(pl.Date))
+        .get_column("symbol")
+        .to_list()
+    )
+    if not set(_CORE_INDEX_SYMBOLS).issubset(current_symbols):
+        return pl.DataFrame()
+    return aligned.filter(pl.col("symbol").is_in(_CORE_INDEX_SYMBOLS))
+
+
+def make_dashboard_snapshot_fetcher(
+    *,
+    daily_refresh_s: float = 30.0,
+    expected_stock_symbols_loader: Callable[[], list[str]] | None = None,
+) -> Callable[[], DashboardSnapshot]:
     """Build the production TeaJoin snapshot fetcher.
 
     Realtime is attempted only during A-share continuous/settlement sessions.
@@ -360,33 +515,48 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
         # but this guard also protects providers that ignore date filters.
         return frame.filter(pl.col("date") == latest).filter(pl.col("date") <= target_date)
 
-    def _load_index_frame(provider_name: str, now_ms: float) -> pl.DataFrame:
+    def _load_index_frame(
+        provider_name: str,
+        now_ms: float,
+        target_date: date | None = None,
+    ) -> pl.DataFrame:
         nonlocal last_index_frame, last_index_fetched_at_ms
         from app.data_providers import custom as custom_sources
 
+        expected_date = target_date or resolve_market_as_of().daily_date
+        align = (
+            _complete_core_index_frame
+            if expected_stock_symbols_loader is not None
+            else _align_index_frame_to_date
+        )
         if (
             not last_index_frame.is_empty()
             and last_index_fetched_at_ms is not None
             and now_ms - last_index_fetched_at_ms < daily_refresh_s * 1000
         ):
-            return last_index_frame
+            cached = align(last_index_frame, expected_date)
+            if not cached.is_empty():
+                return cached
         if provider_name == "tickflow" or not custom_sources.provider_has_dataset(provider_name, "daily"):
-            return last_index_frame
+            return align(last_index_frame, expected_date)
         try:
             index_provider = custom_sources.get_provider(provider_name)
             frame = _latest_daily(index_provider, "index")
-            if not frame.is_empty():
-                last_index_frame = frame
+            aligned = align(frame, expected_date)
+            if not aligned.is_empty():
+                last_index_frame = aligned
                 last_index_fetched_at_ms = now_ms
         except Exception as exc:
             logger.warning("dashboard index snapshot unavailable: %s", type(exc).__name__)
-        return last_index_frame
+        return align(last_index_frame, expected_date)
 
     def fetch() -> DashboardSnapshot:
         nonlocal last_daily
         from app.data_providers import custom as custom_sources
         from app.services import preferences
+        from app.services.market_calendar import refresh_market_calendar
 
+        refresh_market_calendar()
         market_asof = resolve_market_as_of()
         realtime_allowed = market_asof.session in {
             MarketSession.MORNING,
@@ -440,6 +610,7 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                             "session": market_asof.session.value,
                             "is_partial": market_asof.is_partial,
                             "date_verified": date_verified,
+                            "calendar_basis": trading_calendar_source(),
                             "observed_at": market_asof.observed_at.isoformat(),
                         },
                     )
@@ -451,11 +622,22 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
             realtime_status = "provider_unavailable"
 
         now_ms = time.time() * 1000
+        daily_cache_s = daily_refresh_s
+        if (
+            last_daily is not None
+            and market_asof.session in {MarketSession.POST_CLOSE, MarketSession.CLOSED}
+            and last_daily.snapshot_date == market_asof.daily_date
+            and last_daily.market_as_of.get("date_verified") is True
+        ):
+            # A verified completed candle does not change every 30 seconds.
+            # Keep the normal short interval during live sessions, but avoid
+            # downloading thousands of identical rows all evening/weekend.
+            daily_cache_s = max(daily_refresh_s, _SETTLED_DAILY_REFRESH_S)
         if (
             last_daily is not None
             and last_daily.provider == daily_provider
             and last_daily.fetched_at_ms is not None
-            and now_ms - last_daily.fetched_at_ms < daily_refresh_s * 1000
+            and now_ms - last_daily.fetched_at_ms < daily_cache_s * 1000
         ):
             return replace(
                 last_daily,
@@ -470,6 +652,26 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                 if not frame.is_empty():
                     latest = frame.get_column("date").drop_nulls().max()
                     if latest is not None:
+                        expected_symbols: set[str] | None = None
+                        if expected_stock_symbols_loader is not None:
+                            try:
+                                expected_symbols = set(expected_stock_symbols_loader())
+                            except Exception as exc:
+                                logger.warning(
+                                    "dashboard expected universe unavailable: %s",
+                                    type(exc).__name__,
+                                )
+                        rejection = (
+                            _daily_snapshot_rejection(frame, latest, expected_symbols)
+                            if expected_stock_symbols_loader is not None
+                            else None
+                        )
+                        if rejection is not None:
+                            return DashboardSnapshot.empty(
+                                daily_provider,
+                                "invalid",
+                                f"daily_quality:{rejection}",
+                            )
                         now_ms = time.time() * 1000
                         _reset_daily_fallback_fail_count()
                         last_daily = DashboardSnapshot(
@@ -481,7 +683,7 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                             fetched_at_ms=now_ms,
                             error=realtime_error,
                             realtime_rows=0,
-                            index_frame=_load_index_frame(daily_provider, now_ms),
+                            index_frame=_load_index_frame(daily_provider, now_ms, latest),
                             market_as_of={
                                 "trade_date": latest.isoformat(),
                                 "intraday_date": market_asof.intraday_date.isoformat()
@@ -490,6 +692,7 @@ def make_dashboard_snapshot_fetcher(*, daily_refresh_s: float = 30.0) -> Callabl
                                 "session": market_asof.session.value,
                                 "is_partial": market_asof.is_partial,
                                 "date_verified": True,
+                                "calendar_basis": trading_calendar_source(),
                                 "observed_at": market_asof.observed_at.isoformat(),
                             },
                         )

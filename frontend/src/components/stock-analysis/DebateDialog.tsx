@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Circle, Play, Swords, Square, X } from 'lucide-react'
 import { ActionIcon, Button } from '@mantine/core'
 import { Modal } from '@/components/Modal'
+import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
 import { api, type StockDebateEvent } from '@/lib/api'
 
 interface StageBox {
@@ -56,6 +57,7 @@ export function DebateDialog({ symbol, name, onClose }: DebateDialogProps) {
       setMissing(event.missing ?? [])
       setStatus('底稿就绪，辩论开始')
     } else if (event.type === 'stage') {
+      setStatus(event.label ? `${event.label}正在生成…` : '辩论正在生成…')
       setStages(items => [...items, {
         stage: event.stage ?? '', label: event.label ?? '', content: '', done: false,
       }])
@@ -73,6 +75,7 @@ export function DebateDialog({ symbol, name, onClose }: DebateDialogProps) {
           }
         : item))
     } else if (event.type === 'error') {
+      setStatus('')
       setError(event.stage ? `${event.stage}：${event.message ?? '生成失败'}` : (event.message ?? '辩论失败'))
     } else if (event.type === 'done') {
       setStatus(event.failed_stages?.length
@@ -85,7 +88,7 @@ export function DebateDialog({ symbol, name, onClose }: DebateDialogProps) {
     if (running) return
     reset()
     setRunning(true)
-    setStatus('正在连接后端…')
+    setStatus('正在启动多空辩论…')
     const controller = new AbortController()
     abortRef.current = controller
     try {
@@ -97,12 +100,14 @@ export function DebateDialog({ symbol, name, onClose }: DebateDialogProps) {
         applyEvent(event)
       }
       if (!sawDone && !sawError && !controller.signal.aborted) {
+        setStatus('')
         setError('辩论连接在完成前断开，请重试')
       }
     } catch (caught) {
       if (caught instanceof DOMException && caught.name === 'AbortError') {
         setStatus('已中止')
       } else {
+        setStatus('')
         setError(caught instanceof Error ? caught.message : String(caught))
       }
     } finally {
@@ -210,8 +215,8 @@ export function DebateDialog({ symbol, name, onClose }: DebateDialogProps) {
                 {!stage.done && <span className="animate-pulse text-[10px] text-muted">生成中…</span>}
                 {stage.failed && <span className="text-[10px] text-bear">失败</span>}
               </div>
-              <div className="whitespace-pre-wrap text-xs leading-6 text-secondary">
-                {stage.content || '…'}
+              <div className="text-xs leading-6 text-secondary [&_p]:text-xs [&_p]:leading-6 [&_li]:text-xs [&_li]:leading-6">
+                {stage.content ? <MarkdownRenderer content={stage.content} /> : '…'}
               </div>
             </section>
           ))}

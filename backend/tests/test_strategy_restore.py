@@ -61,7 +61,7 @@ def test_restore_defaults_removes_user_strategies_and_returns_all_builtins(tmp_p
     (overrides_dir / "ma_golden_cross.json").write_text('{"params":{"window":99}}', encoding="utf-8")
 
     engine = _engine(tmp_path)
-    assert len(engine.list_strategies()) == 22
+    assert len(engine.list_strategies()) == 25
 
     result = restore_default_strategies(
         RestoreDefaultsRequest(confirm=True),
@@ -69,10 +69,10 @@ def test_restore_defaults_removes_user_strategies_and_returns_all_builtins(tmp_p
     )
 
     assert result["ok"] is True
-    assert result["count"] == 19
-    assert len(result["builtin_strategy_ids"]) == 19
+    assert result["count"] == 22
+    assert len(result["builtin_strategy_ids"]) == 22
     assert result["deleted"] == ["ai_saved", "composite_saved", "custom_saved"]
     assert not list((tmp_path / "strategies").glob("**/*.py"))
     assert not list(overrides_dir.glob("*.json"))
     assert {item["source"] for item in engine.list_strategies()} == {"builtin"}
-    assert len(engine.list_strategies()) == 19
+    assert len(engine.list_strategies()) == 22

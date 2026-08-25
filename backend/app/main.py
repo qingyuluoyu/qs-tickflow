@@ -142,7 +142,10 @@ async def lifespan(app: FastAPI):
                 return []
             return instruments.get_column("symbol").drop_nulls().unique().to_list()
 
-        provider_fetcher = make_dashboard_snapshot_fetcher(daily_refresh_s=30.0)
+        provider_fetcher = make_dashboard_snapshot_fetcher(
+            daily_refresh_s=30.0,
+            expected_stock_symbols_loader=_dashboard_stock_symbols,
+        )
         sina_fetcher = make_sina_intraday_snapshot_fetcher(
             _dashboard_stock_symbols,
             lambda: list(QuoteService.CORE_INDEX_SYMBOLS),
@@ -152,6 +155,7 @@ async def lifespan(app: FastAPI):
         dashboard_failover_fetcher = make_dashboard_failover_fetcher(
             provider_fetcher,
             sina_fetcher,
+            allow_cross_source_fallback=False,
         )
 
         def dashboard_fetcher():

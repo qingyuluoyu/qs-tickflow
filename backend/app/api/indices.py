@@ -9,7 +9,7 @@ import polars as pl
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.indicators.pipeline import compute_enriched
-from app.market_time import cn_today, resolve_market_as_of
+from app.market_time import cn_today, resolve_market_as_of, trading_calendar_source
 from app.services import index_sync, kline_sync
 from app.tickflow.capabilities import Cap
 
@@ -102,6 +102,7 @@ def get_index_daily(
                 "cutoff_time": market_asof.cutoff_time,
                 "session": market_asof.session.value,
                 "is_partial": market_asof.is_partial,
+                "calendar_basis": trading_calendar_source(),
             },
         }
 
@@ -147,6 +148,7 @@ def get_index_minute(
             "cutoff_time": market_asof.cutoff_time,
             "session": market_asof.session.value,
             "is_partial": market_asof.is_partial,
+            "calendar_basis": trading_calendar_source(),
             "explicit_date": explicit_trade_date,
         },
     }

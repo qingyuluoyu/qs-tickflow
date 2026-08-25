@@ -15,7 +15,7 @@ import polars as pl
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from app.market_time import cn_today, is_market_snapshot_stale
+from app.market_time import cn_today, is_market_snapshot_stale, trading_calendar_source
 from app.services.ext_data import (
     ExtConfig,
     ExtConfigStore,
@@ -58,7 +58,7 @@ def _data_freshness(active_date: str | None, *, explicit_date: bool) -> dict[str
             if explicit_date
             else is_market_snapshot_stale(parsed, current_date)
         ),
-        "calendar_basis": "weekday_fallback",
+        "calendar_basis": trading_calendar_source(),
     }
 
 

@@ -253,6 +253,8 @@ class QuoteService:
         # 午休/收盘最终同步状态: 到边界后必须成功拉取一版行情, 再进入休盘态。
         self._final_sync_done: set[tuple[date, str]] = set()
         self._final_sync_failed: dict[tuple[date, str], str] = {}
+        self._final_sync_attempts: dict[tuple[date, str], int] = {}
+        self._final_sync_retry_at: dict[tuple[date, str], float] = {}
 
     # ================================================================
     # 生命周期
@@ -659,16 +661,23 @@ class QuoteService:
                     phase = self._market_phase()
                     if self._should_fetch_for_phase(phase):
                         is_final = phase in {"morning_final", "close_final"}
-                        ok = self._fetch_quotes(final=is_final)
+                        ok = self._fetch_quotes(final_phase=phase if is_final else None)
                         if is_final:
                             key = self._final_sync_key(phase)
                             if key and ok:
                                 self._final_sync_done.add(key)
                                 self._final_sync_failed.pop(key, None)
+                                self._final_sync_attempts.pop(key, None)
+                                self._final_sync_retry_at.pop(key, None)
                                 logger.info("%s 最终行情同步完成, 进入休盘态", "午休" if phase == "morning_final" else "收盘")
                             elif key:
                                 self._final_sync_failed[key] = "fetch_failed"
-                                logger.warning("%s 最终行情同步失败, 将继续重试", "午休" if phase == "morning_final" else "收盘")
+                                retry_delay = self._schedule_final_retry(key)
+                                logger.warning(
+                                    "%s 最终行情同步失败, %.0f 秒后重试",
+                                    "午休" if phase == "morning_final" else "收盘",
+                                    retry_delay,
+                                )
                     else:
                         logger.debug("非轮询阶段(%s), 跳过行情轮询", phase)
             except Exception as e:  # noqa: BLE001
@@ -679,11 +688,14 @@ class QuoteService:
                 time.sleep(0.5)
                 waited += 0.5
 
-    def _fetch_quotes(self, *, final: bool = False) -> bool:
+    def _fetch_quotes(self, *, final_phase: str | None = None) -> bool:
         """按当前档位拉取行情。加锁串行化 (后台轮询 vs 手动 refresh)。返回本轮是否成功更新。"""
         with self._fetch_lock:
+            if final_phase == "close_final" and self._post_close_daily_snapshot_ready():
+                logger.info("TeaJoin 当日收盘日线已校验, 无需重复拉取实时端点")
+                return True
             before = self._fetched_at
-            if final:
+            if final_phase:
                 logger.info("最终行情同步开始")
             if self.realtime_mode() == "watchlist":
                 self._fetch_watchlist_quotes()
@@ -715,12 +727,12 @@ class QuoteService:
                     logger.warning("自定义实时行情拉取失败(连续%d次): %s", self._custom_fail_count, e)
                 else:
                     logger.debug("自定义实时行情拉取失败(连续%d次): %s", self._custom_fail_count, e)
-                self._fetch_sina_overlay_fallback()
+                # Keep TeaJoin failures visible; do not mix a second vendor into
+                # persisted realtime, enriched or strategy snapshots.
                 return
             if not records:
                 self._record_fetch_status("empty")
-                if not self._fetch_sina_overlay_fallback():
-                    logger.warning("自定义实时行情数据为空: provider=%s", provider_name)
+                logger.warning("custom realtime snapshot is empty: provider=%s", provider_name)
                 return
             try:
                 self._process_full_market_records(records, t0=t0, now_ts=now_ts)
@@ -1365,12 +1377,46 @@ class QuoteService:
             return (cn_today(), "close")
         return None
 
+    def _post_close_daily_snapshot_ready(self) -> bool:
+        """Return whether the preloader has a provider-verified close snapshot.
+
+        TeaJoin publishes the complete stock daily table after the close while
+        its realtime endpoint can legitimately return an empty table.  Only a
+        non-empty daily snapshot explicitly verified for today's trading date
+        can terminate the close-final loop.  Morning settlement never uses
+        this path because the previous completed daily bar is not a morning
+        quote.
+        """
+        preloader = getattr(self._app_state, "market_overview_preloader", None)
+        snapshot = preloader.snapshot() if preloader is not None else None
+        frame = getattr(snapshot, "frame", None)
+        market_as_of = getattr(snapshot, "market_as_of", None)
+        return bool(
+            snapshot is not None
+            and str(getattr(snapshot, "kind", "") or "").endswith(".daily")
+            and getattr(snapshot, "snapshot_date", None) == cn_today()
+            and frame is not None
+            and not frame.is_empty()
+            and isinstance(market_as_of, dict)
+            and market_as_of.get("date_verified") is True
+        )
+
+    def _schedule_final_retry(self, key: tuple[date, str]) -> float:
+        """Schedule a bounded exponential retry and return the delay seconds."""
+        attempt = self._final_sync_attempts.get(key, 0) + 1
+        self._final_sync_attempts[key] = attempt
+        delay = min(300.0, max(30.0, self._interval * (2 ** min(attempt - 1, 8))))
+        self._final_sync_retry_at[key] = time.time() + delay
+        return delay
+
     def _should_poll_for_phase(self, phase: str) -> bool:
         """是否处于会主动拉行情的阶段。final 阶段成功后即停止。"""
         if phase in {"preopen", "morning", "pre_afternoon", "afternoon"}:
             return True
         key = self._final_sync_key(phase)
-        return bool(key and key not in self._final_sync_done)
+        if not key or key in self._final_sync_done:
+            return False
+        return time.time() >= self._final_sync_retry_at.get(key, 0.0)
 
     def _should_fetch_for_phase(self, phase: str) -> bool:
         return self._should_poll_for_phase(phase)

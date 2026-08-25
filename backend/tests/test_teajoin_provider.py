@@ -1,4 +1,6 @@
 from datetime import datetime
+from datetime import date
+from copy import deepcopy
 from pathlib import Path
 
 import polars as pl
@@ -9,6 +11,47 @@ from app.data_providers.custom.config import CustomSourceConfig, DatasetConfig
 from app.data_providers.custom.loader import _sanitize_for_yaml
 from app.data_providers.custom.provider import GenericHTTPProvider
 from app.services import instrument_sync
+
+
+def test_calendar_dataset_normalizes_open_dates_for_market_time(monkeypatch):
+    provider = GenericHTTPProvider(
+        CustomSourceConfig(
+            name="teajoin",
+            display_name="TeaJoin",
+            datasets={
+                "calendar": DatasetConfig(
+                    url="https://teajoin.example/trade_cal",
+                    method="POST",
+                    response_path="data",
+                    field_map={"cal_date": "date", "is_open": "is_open"},
+                    transforms={"date": "parse_date(value, '%Y%m%d')"},
+                )
+            },
+        )
+    )
+    captured = {}
+
+    def fake_request(_cfg, **kwargs):
+        captured.update(kwargs)
+        return [
+            {"date": "20260814", "is_open": 1},
+            {"date": "20260815", "is_open": 0},
+        ]
+
+    monkeypatch.setattr(provider, "_request_rows", fake_request)
+    try:
+        frame = provider.get_calendar(
+            datetime(2026, 8, 14), datetime(2026, 8, 15), exchange="SSE"
+        )
+    finally:
+        provider.close()
+
+    assert captured["start_time"] == datetime(2026, 8, 14)
+    assert captured["end_time"] == datetime(2026, 8, 15)
+    assert frame.to_dicts() == [
+        {"date": date(2026, 8, 14), "is_open": 1},
+        {"date": date(2026, 8, 15), "is_open": 0},
+    ]
 
 
 def test_private_deploy_secret_file_is_used_when_environment_is_empty(monkeypatch, tmp_path: Path):
@@ -146,6 +189,40 @@ def test_realtime_symbol_query_places_codes_in_nested_params_body():
     provider.close()
 
     assert captured["kwargs"]["json"]["params"]["ts_code"] == "000001.SZ,600000.SH"
+
+
+def test_realtime_symbol_filter_does_not_leak_into_next_unfiltered_request():
+    provider = GenericHTTPProvider(CustomSourceConfig(
+        name="teajoin",
+        display_name="TeaJoin",
+        datasets={
+            "realtime": DatasetConfig(
+                url="https://teajoin.example/realtime",
+                method="POST",
+                body={"params": {}},
+                symbols_body_path="params.ts_code",
+                field_map={"ts_code": "symbol", "last": "last_price"},
+            ),
+        },
+    ))
+    bodies: list[dict] = []
+
+    def request(_method, _url, **kwargs):
+        bodies.append(deepcopy(kwargs["json"]))
+        return type("Response", (), {
+            "raise_for_status": lambda self: None,
+            "json": lambda self: {"data": {"fields": [], "items": []}},
+        })()
+
+    provider._client.request = request
+    provider.get_realtime(symbols=["000001.SZ"])
+    provider.get_realtime()
+    provider.close()
+
+    assert bodies == [
+        {"params": {"ts_code": "000001.SZ"}},
+        {"params": {}},
+    ]
 
 
 def test_teajoin_realtime_table_payload_maps_to_quote_records():

@@ -15,7 +15,7 @@ def test_qingshu_one_is_pinned_first_of_nineteen_builtin_strategies():
 
     assert engine.load_errors() == []
     strategies = engine.list_strategies()
-    assert len(strategies) == 19
+    assert len(strategies) == 22
     # 清数一号是旗舰策略, 列表默认置顶
     assert strategies[0]["id"] == "qingshu_one"
     strategy = engine.get("qingshu_one")
