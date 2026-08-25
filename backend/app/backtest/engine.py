@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import threading
 import time
 from collections import OrderedDict
@@ -30,6 +31,75 @@ from app.parquet import scan_enriched_parquet
 from app.tickflow.repository import KlineRepository
 
 logger = logging.getLogger(__name__)
+
+_MARTINGALE_MAX_MULTIPLIER = 4.0
+_MARTINGALE_MAX_LEVEL = 4
+
+
+def _finite_bounded_float(
+    value: object,
+    *,
+    default: float,
+    lower: float,
+    upper: float | None = None,
+    name: str = "parameter",
+) -> float:
+    """Return a finite, bounded float for direct backtest-engine callers.
+
+    API validation normally constrains strategy parameters, but the engine is
+    also called directly by tests, batch jobs, and legacy integrations.  A
+    NaN/Inf or an enormous martingale multiplier must never reach exponentiation
+    or allocation math.
+    """
+    try:
+        candidate = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a finite number") from exc
+    if not math.isfinite(candidate):
+        raise ValueError(f"{name} must be a finite number")
+    candidate = max(candidate, lower)
+    if upper is not None:
+        candidate = min(candidate, upper)
+    return candidate
+
+
+def normalize_martingale_parameters(
+    *,
+    base_pct: object,
+    multiplier: object,
+    max_level: object,
+    max_exposure_pct: object,
+) -> tuple[float, float, int]:
+    """Normalize bounded martingale inputs once for service and engine paths."""
+    exposure = _finite_bounded_float(
+        max_exposure_pct,
+        default=1.0,
+        lower=0.0,
+        upper=1.0,
+        name="max_exposure_pct",
+    )
+    base = _finite_bounded_float(
+        base_pct,
+        default=0.1,
+        lower=0.0,
+        upper=exposure,
+        name="martingale_base_pct",
+    )
+    factor = _finite_bounded_float(
+        multiplier,
+        default=2.0,
+        lower=1.0,
+        upper=_MARTINGALE_MAX_MULTIPLIER,
+        name="martingale_multiplier",
+    )
+    level = int(_finite_bounded_float(
+        max_level,
+        default=2.0,
+        lower=0.0,
+        upper=_MARTINGALE_MAX_LEVEL,
+        name="martingale_max_level",
+    ))
+    return base, factor, level
 
 
 def _matrix_entry_score(matrix: MarketMatrix, time_id: int, asset_id: int) -> float:
@@ -67,7 +137,13 @@ class MatcherConfig:
     score_min: float | None = None
     score_max: float | None = None
     initial_capital: float = 1_000_000.0
-    position_sizing: Literal["equal", "score_weight"] = "equal"
+    position_sizing: Literal["equal", "score_weight", "martingale_capped"] = "equal"
+    # Used only by the bounded martingale sizing mode.  The level is advanced
+    # after a losing closed trade and reset after a winning one; it never
+    # changes the signal or bypasses max exposure/cash constraints.
+    martingale_base_pct: float = 0.1
+    martingale_multiplier: float = 2.0
+    martingale_max_level: int = 2
     # 分钟K精确成交: 开启后, 信号触发日的成交价用当日分钟K优化
     # (有参考线→穿越价, 无参考线→VWAP)。数据缺失时降级为日K口径。
     minute_fill: bool = False
@@ -1617,7 +1693,26 @@ class BacktestEngine:
         cash = float(config.initial_capital)
         peak = cash
         max_positions = max(int(config.max_positions), 0)
-        max_exposure_pct = min(max(float(config.max_exposure_pct), 0.0), 1.0)
+        max_exposure_pct = _finite_bounded_float(
+            config.max_exposure_pct,
+            default=1.0,
+            lower=0.0,
+            upper=1.0,
+            name="max_exposure_pct",
+        )
+        martingale_level = 0
+        martingale_max_level_reached = 0
+        if config.position_sizing == "martingale_capped":
+            martingale_base_pct, martingale_multiplier, martingale_max_level = (
+                normalize_martingale_parameters(
+                    base_pct=config.martingale_base_pct,
+                    multiplier=config.martingale_multiplier,
+                    max_level=config.martingale_max_level,
+                    max_exposure_pct=max_exposure_pct,
+                )
+            )
+        else:
+            martingale_base_pct, martingale_multiplier, martingale_max_level = 0.1, 2.0, 0
         positions: dict[int, dict] = {}
         last_close = np.full(asset_count, np.nan, dtype=np.float64)
         trades: list[TradeRecord] = []
@@ -1764,7 +1859,7 @@ class BacktestEngine:
             sold_today: set[int],
             override: float | None = None,
         ) -> None:
-            nonlocal cash
+            nonlocal cash, martingale_level, martingale_max_level_reached
             pos = positions.pop(asset_id)
             exit_price = float(override) if override is not None else _refill_price(
                 time_id, asset_id, "sell", float(exit_prices[time_id, asset_id])
@@ -1773,6 +1868,15 @@ class BacktestEngine:
             cash += exit_value
             pnl_amount = exit_value - pos["entry_value"]
             pnl_pct = pnl_amount / pos["entry_value"] if pos["entry_value"] > 0 else 0.0
+            if config.position_sizing == "martingale_capped":
+                if pnl_amount < 0:
+                    martingale_level = min(martingale_level + 1, martingale_max_level)
+                    martingale_max_level_reached = max(
+                        martingale_max_level_reached,
+                        martingale_level,
+                    )
+                else:
+                    martingale_level = 0
             sold_today.add(asset_id)
             trades.append(TradeRecord(
                 symbol=matrix.symbols[asset_id],
@@ -1946,7 +2050,14 @@ class BacktestEngine:
                     selected = candidates[:slots]
                     market_value_before = _market_value()
                     equity_before = cash + market_value_before
-                    target_value = equity_before * max_exposure_pct / max_positions
+                    if config.position_sizing == "martingale_capped":
+                        target_value = (
+                            equity_before
+                            * martingale_base_pct
+                            * (martingale_multiplier ** martingale_level)
+                        )
+                    else:
+                        target_value = equity_before * max_exposure_pct / max_positions
                     exposure_capacity = equity_before * max_exposure_pct - market_value_before
                     if equity_before <= 0 or exposure_capacity <= 0 or max_exposure_pct <= 0:
                         execution_stats["buy_exposure"] += len(selected)
@@ -2049,6 +2160,9 @@ class BacktestEngine:
         )
         stats["execution"] = execution_stats
         stats["pending_exit_positions"] = sum(1 for pos in positions.values() if pos.get("pending_exit_reason"))
+        if config.position_sizing == "martingale_capped":
+            stats["martingale_level"] = martingale_level
+            stats["martingale_max_level_reached"] = martingale_max_level_reached
         stats["market_matrix_shape"] = [time_count, asset_count]
         stats["market_matrix_bytes"] = matrix.nbytes
         return SimResult(
@@ -2075,6 +2189,10 @@ class BacktestEngine:
         exit_signal_ids: list[str] | None = None,
     ) -> SimResult:
         """账户级组合回测：日线信号 → 成交约束 → 仓位/现金撮合。"""
+        if config.position_sizing == "martingale_capped":
+            raise ValueError(
+                "martingale_capped requires the matrix portfolio simulator"
+            )
         if panel.is_empty():
             return self._empty_result()
 

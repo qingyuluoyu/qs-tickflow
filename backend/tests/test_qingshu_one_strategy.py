@@ -15,7 +15,7 @@ def test_qingshu_one_is_pinned_first_of_nineteen_builtin_strategies():
 
     assert engine.load_errors() == []
     strategies = engine.list_strategies()
-    assert len(strategies) == 22
+    assert len(strategies) == 19
     # 清数一号是旗舰策略, 列表默认置顶
     assert strategies[0]["id"] == "qingshu_one"
     strategy = engine.get("qingshu_one")
@@ -161,3 +161,9 @@ def test_qingshu_one_returns_candidate_with_complete_point_in_time_inputs():
     assert result.rows[0]["symbol"] == "000001.SZ"
     assert result.rows[0]["qingshu_candidate_qualified"] is True
     assert result.rows[0]["qingshu_status"] == "triggered"
+
+
+def test_qingshu_one_declares_historical_share_dependency_for_backtests():
+    engine = StrategyEngine(strategy_dirs=[BUILTIN_DIR])
+
+    assert "total_shares" in engine.get("qingshu_one").required_features

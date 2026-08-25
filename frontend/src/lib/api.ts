@@ -2029,7 +2029,7 @@ export const api = {
     slippage_bps?: number
     max_positions?: number
     initial_capital?: number
-    position_sizing?: 'equal' | 'score_weight'
+    position_sizing?: 'equal' | 'score_weight' | 'martingale_capped'
     asset_type?: 'stock' | 'etf' | 'index'
     minute_fill?: boolean
   }) =>

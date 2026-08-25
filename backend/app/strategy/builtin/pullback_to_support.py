@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "pullback_to_support",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "缩量回踩",
     "description": "回踩MA20附近 + 缩量 + 中期趋势向上",
     "tags": ["回踩", "支撑"],

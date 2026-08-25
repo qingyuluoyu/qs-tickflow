@@ -42,7 +42,7 @@ META = {
 EXECUTION_BACKEND = "matrix_native"
 ENTRY_SIGNALS = ["signal_ma20_breakout"]
 EXIT_SIGNALS = ["signal_ma20_breakdown"]
-STOP_LOSS = -0.06
+STOP_LOSS = -0.03
 MAX_HOLD_DAYS = 15
 ALERTS = []
 

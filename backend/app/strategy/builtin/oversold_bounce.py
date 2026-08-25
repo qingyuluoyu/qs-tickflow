@@ -25,7 +25,7 @@ META = {
             "id": "rsi_max",
             "label": "RSI上限",
             "type": "float",
-            "default": 30.0,
+            "default": 25.0,
             "min": 10.0,
             "max": 50.0,
             "step": 1.0,
@@ -36,7 +36,7 @@ META = {
             "id": "vol_ratio_min",
             "label": "最低量比",
             "type": "float",
-            "default": 1.2,
+            "default": 1.5,
             "min": 0.5,
             "max": 5.0,
             "step": 0.1,
@@ -69,12 +69,12 @@ class OversoldBounceMatrixStrategy:
     def compute_signals(self, market: MarketDataMatrix, params: dict) -> SignalMatrix:
         entry = np.ones(market.shape, dtype=bool)
         if params.get("use_rsi_filter", True):
-            entry &= matrix_feature(market, "rsi_14") < float(params.get("rsi_max", 30.0))
+            entry &= matrix_feature(market, "rsi_14") < float(params.get("rsi_max", 25.0))
         if params.get("require_bullish_candle", True):
             entry &= market.close > market.open
         if params.get("use_volume_filter", True):
             entry &= matrix_feature(market, "vol_ratio_5d") >= float(
-                params.get("vol_ratio_min", 1.2)
+                params.get("vol_ratio_min", 1.5)
             )
         ma20 = matrix_feature(market, "ma20")
         exit_ = (market.close < ma20) & (shift(market.close, 1) >= shift(ma20, 1))

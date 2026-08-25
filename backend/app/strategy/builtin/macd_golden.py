@@ -17,6 +17,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "macd_golden",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "MACD 金叉放量",
     "description": "MACD金叉当日 + 量能放大",
     "tags": ["MACD", "金叉", "放量"],

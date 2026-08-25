@@ -6,6 +6,8 @@ from app.backtest.matrix import MarketDataMatrix, SignalMatrix, make_signal_matr
 
 META = {
     "id": "boll_breakout",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "布林突破",
     "description": "突破布林上轨 + 放量, 强势加速信号",
     "tags": ["布林", "突破"],

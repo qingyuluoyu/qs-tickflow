@@ -84,6 +84,7 @@ export function storageForUser(userId: string) {
     watchlistIntraday:    userKey<boolean>('watchlist_showIntraday'),
     watchlistBoardFilter: userKey<string[]>('watchlist_boardFilter'),
     strategyPool:         userKey<string[]>('strategy_pool'),
+    strategyPoolMigrations: userKey<number>('strategy_pool_migrations'),
   } as const
 }
 
@@ -93,6 +94,7 @@ export const storage = {
 
   /** 策略池 (screener) */
   strategyPool:         kv<string[]>('strategy-pool'),
+  strategyPoolMigrations: kv<number>('strategy_pool_migrations'),
 
   /** 自选列表列配置 */
   watchlistColumns:     kv<unknown[]>('watchlist_columns'),
@@ -173,7 +175,7 @@ export const storage = {
     maxPositions: string
     maxExposure: string
     initialCapital: string
-    positionSizing: 'equal' | 'score_weight'
+    positionSizing: 'equal' | 'score_weight' | 'martingale_capped'
     mode: 'position' | 'full'
     holdingDays: string
     minuteFill?: boolean

@@ -19,7 +19,13 @@ from typing import Literal
 import numpy as np
 import polars as pl
 
-from app.backtest.engine import BacktestEngine, MatcherConfig, SimResult, SimulationOptions
+from app.backtest.engine import (
+    BacktestEngine,
+    MatcherConfig,
+    SimResult,
+    SimulationOptions,
+    normalize_martingale_parameters,
+)
 from app.backtest.matrix import (
     MarketDataMatrix,
     MatrixCacheProfile,
@@ -234,6 +240,11 @@ class StrategyDependencyResolver:
             "signal_limit_up",
             "signal_limit_down",
         }
+        # Matrix strategies may depend on derived fields that are not physical
+        # parquet columns (for example the historical price-limit percentage).
+        # Keep those dependencies in the matrix request so the loader can build
+        # the derived panel before signal computation.
+        matrix_columns.update(strategy.matrix_strategy.required_fields())
         return ResolvedFeaturePlan(
             base_columns=base_columns,
             intermediate_columns=frozenset(),
@@ -468,7 +479,10 @@ class StrategyBacktestConfig:
     max_positions: int = 10
     max_exposure_pct: float = 1.0
     initial_capital: float = 1_000_000.0
-    position_sizing: Literal["equal", "score_weight"] = "equal"
+    position_sizing: Literal["equal", "score_weight", "martingale_capped"] = "equal"
+    martingale_base_pct: float = 0.1
+    martingale_multiplier: float = 2.0
+    martingale_max_level: int = 2
     mode: Literal["position", "full"] = "position"
     asset_type: str = "stock"
     holding_days: int = 5
@@ -1101,6 +1115,27 @@ class StrategyBacktestService:
                 return _err("正式回测区间内无数据")
             feature_width = int(panel.width)
 
+        strategy_position_sizing = str(s.meta.get("position_sizing") or config.position_sizing)
+        effective_martingale_base_pct = float(
+            params.get("base_position_pct", config.martingale_base_pct)
+        )
+        effective_martingale_multiplier = float(
+            params.get("multiplier", config.martingale_multiplier)
+        )
+        effective_martingale_max_level = int(
+            params.get("max_levels", config.martingale_max_level)
+        )
+        if strategy_position_sizing == "martingale_capped":
+            (
+                effective_martingale_base_pct,
+                effective_martingale_multiplier,
+                effective_martingale_max_level,
+            ) = normalize_martingale_parameters(
+                base_pct=effective_martingale_base_pct,
+                multiplier=effective_martingale_multiplier,
+                max_level=effective_martingale_max_level,
+                max_exposure_pct=config.max_exposure_pct,
+            )
         matcher_config = MatcherConfig(
             matching=config.matching,
             entry_fill=config.entry_fill,
@@ -1120,7 +1155,10 @@ class StrategyBacktestService:
             score_min=score_min,
             score_max=score_max,
             initial_capital=config.initial_capital,
-            position_sizing=config.position_sizing,
+            position_sizing=strategy_position_sizing,
+            martingale_base_pct=effective_martingale_base_pct,
+            martingale_multiplier=effective_martingale_multiplier,
+            martingale_max_level=effective_martingale_max_level,
             minute_fill=config.minute_fill,
         )
         t_signal = time.perf_counter()
@@ -1454,6 +1492,16 @@ class StrategyBacktestService:
             "score_max": score_max,
             "source": s.source,
             "execution_backend": s.execution_backend,
+            "position_sizing": strategy_position_sizing,
+            **(
+                {
+                    "martingale_base_pct": effective_martingale_base_pct,
+                    "martingale_multiplier": effective_martingale_multiplier,
+                    "martingale_max_level": effective_martingale_max_level,
+                }
+                if strategy_position_sizing == "martingale_capped"
+                else {}
+            ),
             **(
                 {
                     "composite_children": [
@@ -1475,7 +1523,13 @@ class StrategyBacktestService:
 
         return StrategyBacktestResult(
             run_id=run_id,
-            config=self._config_to_dict(config),
+            config=self._config_to_dict(
+                config,
+                effective_position_sizing=strategy_position_sizing,
+                effective_martingale_base_pct=effective_martingale_base_pct,
+                effective_martingale_multiplier=effective_martingale_multiplier,
+                effective_martingale_max_level=effective_martingale_max_level,
+            ),
             stats=selected_stats,
             equity_curve=result.equity_curve if result_policy.include_curves else [],
             drawdown_curve=result.drawdown_curve if result_policy.include_curves else [],
@@ -1933,11 +1987,45 @@ class StrategyBacktestService:
         }
 
     @staticmethod
-    def _config_to_dict(c: StrategyBacktestConfig) -> dict:
+    def _config_to_dict(
+        c: StrategyBacktestConfig,
+        *,
+        effective_position_sizing: str | None = None,
+        effective_martingale_base_pct: float | None = None,
+        effective_martingale_multiplier: float | None = None,
+        effective_martingale_max_level: int | None = None,
+    ) -> dict:
         score_min, score_max = StrategyBacktestService._normalize_score_range(
             (c.overrides or {}).get("score_min"),
             (c.overrides or {}).get("score_max"),
         )
+        result_position_sizing = effective_position_sizing or c.position_sizing
+        result_martingale_base_pct = (
+            c.martingale_base_pct
+            if effective_martingale_base_pct is None
+            else effective_martingale_base_pct
+        )
+        result_martingale_multiplier = (
+            c.martingale_multiplier
+            if effective_martingale_multiplier is None
+            else effective_martingale_multiplier
+        )
+        result_martingale_max_level = (
+            c.martingale_max_level
+            if effective_martingale_max_level is None
+            else effective_martingale_max_level
+        )
+        if result_position_sizing == "martingale_capped":
+            (
+                result_martingale_base_pct,
+                result_martingale_multiplier,
+                result_martingale_max_level,
+            ) = normalize_martingale_parameters(
+                base_pct=result_martingale_base_pct,
+                multiplier=result_martingale_multiplier,
+                max_level=result_martingale_max_level,
+                max_exposure_pct=c.max_exposure_pct,
+            )
         return {
             "strategy_id": c.strategy_id,
             "symbols": c.symbols,
@@ -1962,7 +2050,10 @@ class StrategyBacktestService:
             "max_positions": c.max_positions,
             "max_exposure_pct": c.max_exposure_pct,
             "initial_capital": c.initial_capital,
-            "position_sizing": c.position_sizing,
+            "position_sizing": result_position_sizing,
+            "martingale_base_pct": result_martingale_base_pct,
+            "martingale_multiplier": result_martingale_multiplier,
+            "martingale_max_level": result_martingale_max_level,
             "mode": c.mode,
             "holding_days": c.holding_days,
             "minute_fill": c.minute_fill,

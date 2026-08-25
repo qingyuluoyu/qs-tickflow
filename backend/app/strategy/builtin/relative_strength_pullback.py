@@ -12,6 +12,8 @@ from app.backtest.matrix import valid_shift as shift
 
 META = {
     "id": "relative_strength_pullback",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "相对强势回踩",
     "description": "MA60 上方、20/60日动量为正, 回踩 MA20 后重新收强",
     "tags": ["趋势", "回踩", "动量"],

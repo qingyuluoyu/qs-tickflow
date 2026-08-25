@@ -204,9 +204,14 @@ class StrategyBacktestRequest(BaseModel):
     stamp_tax_pct: float | None = None
     slippage_bps: float = 5.0
     max_positions: int = 10
-    max_exposure_pct: float = 1.0
+    max_exposure_pct: float = Field(
+        default=1.0,
+        ge=0.0,
+        le=1.0,
+        allow_inf_nan=False,
+    )
     initial_capital: float = 1_000_000.0
-    position_sizing: Literal["equal", "score_weight"] = "equal"
+    position_sizing: Literal["equal", "score_weight", "martingale_capped"] = "equal"
     mode: Literal["position", "full"] = "position"
     holding_days: int = 5
     asset_type: str = "stock"

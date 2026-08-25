@@ -897,7 +897,7 @@ export function StrategyBacktest() {
   const [maxPositions, setMaxPositions] = useState(saved?.maxPositions ?? '10')
   const [maxExposure, setMaxExposure] = useState(saved?.maxExposure ?? '100')
   const [initialCapital, setInitialCapital] = useState(saved?.initialCapital ?? '1000000')
-  const [positionSizing, setPositionSizing] = useState<'equal' | 'score_weight'>(saved?.positionSizing ?? 'equal')
+  const [positionSizing, setPositionSizing] = useState<'equal' | 'score_weight' | 'martingale_capped'>(saved?.positionSizing ?? 'equal')
   const [simMode, setSimMode] = useState<'position' | 'full'>(saved?.mode ?? 'position')
   const [holdingDays, setHoldingDays] = useState(saved?.holdingDays ?? '5')
   const [highGranularity, setHighGranularity] = useState(saved?.minuteFill ?? false)
@@ -1627,11 +1627,12 @@ export function StrategyBacktest() {
             <Select
               size="xs"
               value={positionSizing}
-              onChange={v => v && setPositionSizing(v as 'equal' | 'score_weight')}
+              onChange={v => v && setPositionSizing(v as 'equal' | 'score_weight' | 'martingale_capped')}
               allowDeselect={false}
               data={[
                 { value: 'equal', label: '等权买入' },
                 { value: 'score_weight', label: '评分加权' },
+                { value: 'martingale_capped', label: '受限马丁格尔' },
               ]}
             />
           </div>

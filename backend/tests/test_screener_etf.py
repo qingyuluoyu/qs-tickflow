@@ -52,11 +52,11 @@ def test_matrix_builtin_strategies_use_matrix_backend():
     engine = _engine()
     assert engine.load_errors() == []
     strategies = [engine.get(meta["id"]) for meta in engine.list_strategies()]
-    assert len(strategies) == 22
+    assert len(strategies) == 19
     matrix_strategies = [
         strategy for strategy in strategies if strategy.execution_backend == "matrix_native"
     ]
-    assert len(matrix_strategies) == 21
+    assert len(matrix_strategies) == 18
     assert all(strategy.matrix_strategy is not None for strategy in matrix_strategies)
     assert all(strategy.filter_fn is None for strategy in matrix_strategies)
     assert all(strategy.filter_history_fn is None for strategy in matrix_strategies)

@@ -9,14 +9,17 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
 
 import polars as pl
 import pytest
 
 from app.backtest.factor import FactorBacktestService
 from app.backtest.matrix import build_market_data_matrix
+from app.backtest.strategy import StrategyDependencyResolver
 from app.indicators.pipeline import compute_limit_signals
 from app.strategy.builtin.near_limit_up import MATRIX_STRATEGY
+from app.strategy.engine import StrategyEngine
 
 
 def test_near_limit_pct_st_only_on_main_board():
@@ -120,12 +123,28 @@ def test_near_limit_up_accepts_stocks_inside_configured_gap():
         "close": closes,
         "volume": [1000.0] * len(dates),
     })
-    market = build_market_data_matrix(panel, field_columns={"price_limit_pct"})
+    market = build_market_data_matrix(panel, field_columns={"price_limit_pct", "raw_close"})
     signals = MATRIX_STRATEGY.compute_signals(market, {
         "min_change": 7.0,
         "limit_gap": 3.0,
     })
     assert signals.entry[-1, 0] == 1
+
+
+def test_near_limit_up_resolves_price_limit_pct_into_matrix_fields():
+    """The derived limit field must survive dependency resolution for real backtests."""
+    strategy = StrategyEngine(
+        [Path(__file__).resolve().parents[1] / "app" / "strategy" / "builtin"]
+    ).get("near_limit_up")
+    plan = StrategyDependencyResolver().resolve(
+        strategy,
+        params=StrategyEngine.resolve_params(strategy),
+        basic_filter={},
+        entry_signals=strategy.entry_signals,
+        exit_signals=strategy.exit_signals,
+        overrides={},
+    )
+    assert "price_limit_pct" in plan.matrix_columns
 
 
 def test_sharpe_annualization_matches_rebalance_frequency():

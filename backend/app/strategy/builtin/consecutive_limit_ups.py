@@ -6,6 +6,8 @@ from app.backtest.matrix import MarketDataMatrix, SignalMatrix, make_signal_matr
 
 META = {
     "id": "consecutive_limit_ups",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "连板股",
     "description": "当日涨停且连续涨停≥2天, 强势追涨",
     "tags": ["涨停", "连板"],
@@ -18,7 +20,7 @@ META = {
             "id": "min_boards",
             "label": "最少连板数",
             "type": "int",
-            "default": 2,
+            "default": 3,
             "min": 1,
             "max": 20,
             "step": 1,

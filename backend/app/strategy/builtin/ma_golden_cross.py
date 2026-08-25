@@ -26,7 +26,7 @@ META = {
             "id": "vol_ratio_min",
             "label": "最低量比",
             "type": "float",
-            "default": 1.2,
+            "default": 2.0,
             "min": 0.5,
             "max": 5.0,
             "step": 0.1,
@@ -47,7 +47,7 @@ META = {
 EXECUTION_BACKEND = "matrix_native"
 ENTRY_SIGNALS = ["signal_ma_golden_5_20"]
 EXIT_SIGNALS = ["signal_ma_dead_5_20"]
-STOP_LOSS = -0.06
+STOP_LOSS = -0.03
 MAX_HOLD_DAYS = 15
 ALERTS = []
 
@@ -70,7 +70,7 @@ class MAGoldenCrossMatrixStrategy:
             entry &= golden
         if params.get("use_volume_filter", True):
             entry &= matrix_feature(market, "vol_ratio_5d") >= float(
-                params.get("vol_ratio_min", 1.2)
+                params.get("vol_ratio_min", 2.0)
             )
         if params.get("require_above_ma60", True):
             entry &= market.close > matrix_feature(market, "ma60")

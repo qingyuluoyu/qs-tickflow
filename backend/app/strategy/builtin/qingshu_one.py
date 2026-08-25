@@ -38,10 +38,13 @@ META = {
 }
 
 EXECUTION_BACKEND = "python_history_legacy"
+# The historical filter uses point-in-time shares to apply the market-cap rule.
+# Declare it so the backtest loader joins instruments before filter_history runs.
+REQUIRED_FEATURES = {"total_shares"}
 LOOKBACK_DAYS = 130  # 120 日涨停/放量窗口 + 10 日候选基准; 受选股历史加载窗口限制
 ENTRY_SIGNALS: list[str] = []
 EXIT_SIGNALS: list[str] = []
-STOP_LOSS = -0.08
+STOP_LOSS = -0.04
 MAX_HOLD_DAYS = 20
 ALERTS: list[dict] = []
 

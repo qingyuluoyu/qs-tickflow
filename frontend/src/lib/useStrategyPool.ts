@@ -1,9 +1,16 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { storage, storageForUser } from '@/lib/storage'
 
+const STRATEGY_POOL_MIGRATION_VERSION = 1
+const MARTINGALE_STRATEGY_ID = 'martingale_capped'
+
 export function useStrategyPool(userId?: string) {
   const poolStorage = useMemo(
     () => userId ? storageForUser(userId).strategyPool : storage.strategyPool,
+    [userId],
+  )
+  const migrationStorage = useMemo(
+    () => userId ? storageForUser(userId).strategyPoolMigrations : storage.strategyPoolMigrations,
     [userId],
   )
   const [pool, setPool] = useState<string[]>(() => poolStorage.get([]))
@@ -36,6 +43,19 @@ export function useStrategyPool(userId?: string) {
     setPool(newOrder)
   }, [])
 
+  // Add newly shipped built-ins only after the API confirms that this account
+  // can actually use them. The migration is one-time so a user can remove the
+  // strategy later without it being forced back into the pool.
+  const migrateNewStrategies = useCallback((availableIds: Iterable<string>) => {
+    if (migrationStorage.get(0) >= STRATEGY_POOL_MIGRATION_VERSION) return
+    const available = availableIds instanceof Set ? availableIds : new Set(availableIds)
+    if (!available.has(MARTINGALE_STRATEGY_ID)) return
+    migrationStorage.set(STRATEGY_POOL_MIGRATION_VERSION)
+    setPool(prev => prev.includes(MARTINGALE_STRATEGY_ID)
+      ? prev
+      : [...prev, MARTINGALE_STRATEGY_ID])
+  }, [migrationStorage])
+
   // 清除池中不存在于 validIds 的失效策略(如本地开发残留的自定义策略)。
   // 仅当确实有失效项时才更新,避免无谓重渲染。
   const prune = useCallback((validIds: Iterable<string>) => {
@@ -49,5 +69,5 @@ export function useStrategyPool(userId?: string) {
 
   const isInPool = useCallback((id: string) => pool.includes(id), [pool])
 
-  return { pool, addToPool, removeFromPool, reorderPool, prune, isInPool }
+  return { pool, addToPool, removeFromPool, reorderPool, migrateNewStrategies, prune, isInPool }
 }

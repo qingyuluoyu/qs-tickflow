@@ -261,9 +261,9 @@ def test_builtin_matrix_strategies_use_their_declared_formula_modules():
         path for path in strategy_dir.glob("*.py") if path.name != "__init__.py"
     )
 
-    assert len(strategy_files) == 22
+    assert len(strategy_files) == 26
     matrix_strategy_files = [path for path in strategy_files if path.stem != "qingshu_one"]
-    assert len(matrix_strategy_files) == 21
+    assert len(matrix_strategy_files) == 25
     for strategy_path in matrix_strategy_files:
         strategy = StrategyEngine._load_file(strategy_path)
         assert strategy.execution_backend == "matrix_native"
@@ -682,8 +682,8 @@ def test_registered_builtin_matrix_strategies_share_one_cache_profile():
     matrix_strategies = [
         strategy for strategy in strategies if strategy.execution_backend == "matrix_native"
     ]
-    assert len(strategies) == 22
-    assert len(matrix_strategies) == 21
+    assert len(strategies) == 26
+    assert len(matrix_strategies) == 25
     assert all(strategy.execution_backend == "matrix_native" for strategy in matrix_strategies)
     assert profile.warmup_bars > 0
     assert profile.forward_bars == max(int(strategy.max_hold_days or 0) for strategy in matrix_strategies)

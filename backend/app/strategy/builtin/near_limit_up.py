@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "near_limit_up",
+    "status": "retired",
+    "retired_reason": "retired after unified six-month return fell below -40%; source kept for legacy compatibility",
     "name": "逼近涨停",
     "description": "涨幅 > 7% 且距涨停 < 3%, 追涨信号",
     "tags": ["涨停", "追涨"],
@@ -62,14 +64,14 @@ ALERTS = []
 
 class NearLimitUpMatrixStrategy:
     def required_fields(self) -> frozenset[str]:
-        return frozenset({"close", "price_limit_pct"})
+        return frozenset({"close", "raw_close", "price_limit_pct"})
 
     def required_warmup_bars(self, params: dict) -> int:
         del params
         return 60
 
     def compute_signals(self, market: MarketDataMatrix, params: dict) -> SignalMatrix:
-        change = matrix_feature(market, "change_pct")
+        change = matrix_feature(market, "raw_change_pct")
         entry = np.ones(market.shape, dtype=bool)
         if params.get("use_change_filter", True):
             entry &= change > float(params.get("min_change", 7.0)) / 100.0

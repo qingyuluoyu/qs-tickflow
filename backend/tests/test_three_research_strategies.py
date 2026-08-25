@@ -53,3 +53,10 @@ def test_risk_capped_reversal_explicitly_disclaims_unbounded_martingale():
     definition = engine.get("risk_capped_reversal")
 
     assert "不是无限加仓马丁格尔" in definition.meta["risk_note"]
+
+
+def test_consecutive_limit_ups_defaults_to_three_board_confirmation():
+    engine = StrategyEngine(strategy_dirs=[BUILTIN_DIR])
+    definition = engine.get("consecutive_limit_ups")
+    params = {param["id"]: param for param in definition.meta["params"]}
+    assert params["min_boards"]["default"] == 3

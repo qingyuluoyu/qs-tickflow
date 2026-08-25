@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 
 import polars as pl
+import pytest
 
 from app.backtest.engine import BacktestEngine, MatcherConfig
 
@@ -66,6 +67,110 @@ def test_max_exposure_sets_target_position_and_caps_count():
     assert {t.symbol for t in result.trades} == {"A", "B", "C"}
     assert all(abs(t.position_pct - 0.2) < 0.001 for t in result.trades)
     assert result.stats["max_exposure"] <= 0.61
+
+
+def test_capped_martingale_increases_next_trade_after_a_loss():
+    panel = _panel(
+        ["A", "B"],
+        days=6,
+        overrides={
+            ("A", 1): {"open": 10, "close": 10},
+            ("A", 2): {"open": 8, "close": 8},
+            ("A", 3): {"open": 8, "close": 8},
+            ("B", 4): {"open": 10, "close": 10},
+            ("B", 5): {"open": 11, "close": 11},
+        },
+    )
+    entries = _mask(panel, {("A", 0), ("B", 3)})
+    exits = _mask(panel, {("A", 2)})
+
+    result = _engine().simulate_portfolio(
+        panel,
+        entries,
+        exits,
+        MatcherConfig(
+            matching="open_t+1",
+            fees_pct=0,
+            slippage_bps=0,
+            max_positions=1,
+            max_exposure_pct=1.0,
+            initial_capital=100_000,
+            position_sizing="martingale_capped",
+            martingale_base_pct=0.1,
+            martingale_multiplier=2.0,
+            martingale_max_level=2,
+        ),
+    )
+
+    assert len(result.trades) == 2
+    assert result.trades[0].pnl_amount < 0
+    assert result.trades[1].position_pct > result.trades[0].position_pct * 1.8
+    assert result.stats["martingale_max_level_reached"] == 1
+
+
+def test_capped_martingale_rejects_non_finite_parameters():
+    panel = _panel(["A"], days=3)
+    entries = _mask(panel, {("A", 0)})
+    exits = _mask(panel, set())
+
+    with pytest.raises(ValueError, match=r"martingale_base_pct.*finite"):
+        _engine().simulate_portfolio(
+            panel,
+            entries,
+            exits,
+            MatcherConfig(
+                matching="open_t+1",
+                fees_pct=0,
+                slippage_bps=0,
+                max_positions=1,
+                max_exposure_pct=1.0,
+                initial_capital=100_000,
+                position_sizing="martingale_capped",
+                martingale_base_pct=float("nan"),
+            ),
+        )
+
+
+def test_capped_martingale_caps_extreme_finite_parameters():
+    panel = _panel(["A"], days=3)
+    entries = _mask(panel, {("A", 0)})
+    exits = _mask(panel, set())
+
+    result = _engine().simulate_portfolio(
+        panel,
+        entries,
+        exits,
+        MatcherConfig(
+            matching="open_t+1",
+            fees_pct=0,
+            slippage_bps=0,
+            max_positions=1,
+            max_exposure_pct=1.0,
+            initial_capital=100_000,
+            position_sizing="martingale_capped",
+            martingale_base_pct=10_000.0,
+            martingale_multiplier=10_000.0,
+            martingale_max_level=10_000,
+        ),
+    )
+
+    assert result.stats.get("error") is None
+    assert result.stats["martingale_max_level_reached"] <= 4
+    assert result.equity_curve[-1]["value"] == 100_000
+
+
+def test_legacy_portfolio_rejects_capped_martingale_instead_of_using_equal_weight():
+    panel = _panel(["A"], days=3)
+    entries = _mask(panel, {("A", 0)})
+    exits = _mask(panel, set())
+
+    with pytest.raises(ValueError, match=r"martingale_capped.*matrix"):
+        _engine().simulate_portfolio_legacy(
+            panel,
+            entries,
+            exits,
+            MatcherConfig(position_sizing="martingale_capped"),
+        )
 
 
 def test_position_simulation_returns_a_valid_zero_trade_result_without_entries():

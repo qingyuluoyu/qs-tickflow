@@ -40,7 +40,7 @@ META = {
             "id": "vol_ratio_min",
             "label": "最低量比",
             "type": "float",
-            "default": 2.0,
+            "default": 1.2,
             "min": 0.5,
             "max": 10.0,
             "step": 0.1,
@@ -55,7 +55,7 @@ META = {
 EXECUTION_BACKEND = "matrix_native"
 ENTRY_SIGNALS = ["signal_n_day_high"]
 EXIT_SIGNALS = ["signal_ma20_breakdown"]
-STOP_LOSS = -0.08
+STOP_LOSS = -0.03
 MAX_HOLD_DAYS = 20
 ALERTS = [
     {"field": "signal_volume_surge", "message": "放量异动"},
@@ -78,7 +78,7 @@ class TrendBreakoutMatrixStrategy:
             entry &= market.close >= matrix_feature(market, "high_60d")
         if params.get("use_volume_filter", True):
             entry &= matrix_feature(market, "vol_ratio_5d") >= float(
-                params.get("vol_ratio_min", 2.0)
+                params.get("vol_ratio_min", 1.2)
             )
         ma20 = matrix_feature(market, "ma20")
         exit_ = (market.close < ma20) & (shift(market.close, 1) >= shift(ma20, 1))

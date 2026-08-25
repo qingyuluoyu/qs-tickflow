@@ -3673,6 +3673,8 @@ def matrix_feature_available(market: MarketDataMatrix, name: str) -> bool:
     """判断某特征在该市场矩阵上是否可用 (如 ETF 无 turnover_rate)。"""
     if name in {"open", "high", "low", "close", "volume"} or name in market.fields:
         return True
+    if name == "raw_change_pct":
+        return "raw_close" in market.fields
     if name == "vol_ratio_5d":
         return True
     if name in {
@@ -3706,7 +3708,13 @@ def matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
         return market.field(name)
     if not matrix_feature_available(market, name):
         raise ValueError(f"unsupported matrix feature: {name}")
-    source = market.volume if name == "vol_ratio_5d" else market.close
+    source = (
+        market.volume
+        if name == "vol_ratio_5d"
+        else market.field("raw_close")
+        if name == "raw_change_pct"
+        else market.close
+    )
     with _activate_valid_bar_index(market.valid_bars):
         return _cached_matrix_operation(
             "matrix_feature",
@@ -3722,6 +3730,10 @@ def _compute_matrix_feature(market: MarketDataMatrix, name: str) -> np.ndarray:
         return valid_shift(market.close, 1, close_valid)
     if name == "change_pct":
         return _valid_return_over_bars(market.close, close_valid, 1)
+    if name == "raw_change_pct":
+        raw_close = market.field("raw_close")
+        raw_valid = np.isfinite(raw_close)
+        return _valid_return_over_bars(raw_close, raw_valid, 1)
     if name == "change_amount":
         previous = valid_shift(market.close, 1, close_valid)
         out = np.full(market.shape, np.nan, dtype=np.float32)

@@ -65,7 +65,7 @@ export function Screener() {
   const [builderMode, setBuilderMode] = useState<'create' | 'modify'>('create')
   const [showStore, setShowStore] = useState(false)
   const [showComposite, setShowComposite] = useState(false)
-  const { pool, addToPool, removeFromPool, reorderPool, prune } = useStrategyPool(user.id)
+  const { pool, addToPool, removeFromPool, reorderPool, migrateNewStrategies, prune } = useStrategyPool(user.id)
   const [cardSize, setCardSize] = useState<CardSize>(loadCardSize)
   // 日k蜡烛图显示开关（仅当 candle 列可见时才有意义；持久化）
   const [dailyKChartVisible, setDailyKChartVisible] = useState<boolean>(() => storage.screenerCandle.get(true))
@@ -199,6 +199,10 @@ export function Screener() {
     () => new Set((strategies.data?.presets ?? []).map(s => s.id)),
     [strategies.data],
   )
+  useEffect(() => {
+    if (!strategies.isSuccess) return
+    migrateNewStrategies(allStrategyIds)
+  }, [allStrategyIds, migrateNewStrategies, strategies.isSuccess])
   const availableStrategyIds = useMemo(
     () => new Set(strategyPresets.map(s => s.id)),
     [strategyPresets],

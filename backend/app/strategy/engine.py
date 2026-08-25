@@ -559,6 +559,10 @@ class StrategyEngine:
         """返回所有策略的元信息(清数一号默认置顶, 其余保持注册顺序)"""
         result = []
         for s in self._strategies.values():
+            # Keep retired definitions addressable for historical composites and
+            # saved results, but do not offer them as new user selections.
+            if s.meta.get("status") == "retired":
+                continue
             result.append({
                 **s.meta,
                 "source": s.source,
