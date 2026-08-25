@@ -232,6 +232,7 @@ def _is_current_realtime_snapshot(snapshot: DashboardSnapshot | None) -> bool:
         and snapshot.kind.endswith(".realtime")
         and snapshot.realtime_rows > 0
         and snapshot.snapshot_date == cn_today()
+        and snapshot.market_as_of.get("date_verified") is True
     )
 
 
@@ -309,14 +310,17 @@ def _normalise_realtime_frame(records: list[dict]) -> pl.DataFrame:
     if "close" not in frame.columns:
         return pl.DataFrame()
     if "date" not in frame.columns:
-        frame = frame.with_columns(pl.lit(cn_today()).cast(pl.Date).alias("date"))
-    else:
-        frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
-        if frame.get_column("date").null_count() > 0:
-            # An explicit but unparsable provider date is unsafe to infer as
-            # today. Mixed valid/null dates are equally unsafe because the
-            # undated rows would otherwise be relabelled as current.
-            return pl.DataFrame()
+        # A realtime quote without a provider-supplied trade date cannot be
+        # proven to belong to the current Beijing trading session. Never
+        # infer ``today`` here: doing so turns a delayed/undated response into
+        # a false current-market snapshot.
+        return pl.DataFrame()
+    frame = frame.with_columns(pl.col("date").cast(pl.Date, strict=False).alias("date"))
+    if frame.get_column("date").null_count() > 0:
+        # An explicit but unparsable provider date is unsafe to infer as
+        # today. Mixed valid/null dates are equally unsafe because the
+        # undated rows would otherwise be relabelled as current.
+        return pl.DataFrame()
     numeric = [
         "close", "last_price", "prev_close", "open", "high", "low", "volume",
         "amount", "change_pct", "change_amount", "amplitude", "turnover_rate",
@@ -614,7 +618,7 @@ def make_dashboard_snapshot_fetcher(
                             "observed_at": market_asof.observed_at.isoformat(),
                         },
                     )
-                realtime_status = "empty"
+                realtime_status = "unverified_date" if records and not date_verified else "empty"
             except Exception as exc:
                 realtime_status = "error"
                 realtime_error = type(exc).__name__
@@ -911,6 +915,7 @@ def make_sina_intraday_snapshot_fetcher(
                     "cutoff_time": market_asof.cutoff_time,
                     "session": market_asof.session.value,
                     "is_partial": True,
+                    "date_verified": True,
                     "observed_at": market_asof.observed_at.isoformat(),
                 },
             )

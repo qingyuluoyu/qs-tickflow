@@ -589,6 +589,7 @@ export interface OverviewMarket {
     realtime_provider?: string | null
     realtime_status?: string | null
     realtime_rows?: number
+    realtime_date_verified?: boolean
     snapshot_kind?: 'teajoin.realtime' | 'teajoin.daily' | 'persisted.enriched' | string | null
     snapshot_rows?: number | null
   }

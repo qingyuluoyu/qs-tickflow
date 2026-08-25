@@ -132,6 +132,7 @@ def test_dashboard_failover_uses_sina_when_custom_realtime_snapshot_is_empty(mon
         fetched_at_ms=2.0,
         error=None,
         realtime_rows=1,
+        market_as_of={"date_verified": True},
     )
 
     result = make_dashboard_failover_fetcher(lambda: primary, lambda: fallback)()
@@ -151,6 +152,7 @@ def test_dashboard_failover_can_be_strictly_primary_source_only(monkeypatch):
         fetched_at_ms=2.0,
         error=None,
         realtime_rows=1,
+        market_as_of={"date_verified": True},
     )
 
     result = make_dashboard_failover_fetcher(
@@ -186,12 +188,23 @@ def test_dashboard_snapshot_fetcher_is_callable_when_provider_has_no_realtime(mo
 def test_dashboard_realtime_rates_are_normalized_to_percent():
     frame = _normalise_realtime_frame([{
         "symbol": "000001.SZ",
+        "date": date(2026, 8, 24),
         "last_price": 12.3,
         "turnover_rate": 0.0315,
     }])
 
     assert frame["close"].item() == 12.3
     assert frame["turnover_rate"].item() == 3.15
+
+
+def test_dashboard_realtime_rows_without_explicit_date_are_rejected():
+    frame = _normalise_realtime_frame([{
+        "symbol": "000001.SZ",
+        "last_price": 12.3,
+        "turnover_rate": 0.0315,
+    }])
+
+    assert frame.is_empty()
 
 
 def test_dashboard_realtime_rows_without_close_are_rejected():

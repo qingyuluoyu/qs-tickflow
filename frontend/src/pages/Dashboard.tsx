@@ -596,7 +596,7 @@ export function Dashboard() {
   const snapshotStale = isLatestSnapshot && (freshness?.is_stale ?? (!!snapshotDate && snapshotDate < beijingDate()))
   // 对外只展示数据新鲜度，不暴露具体供应商或内部路由名称。
   const sourceLabel = freshness?.source === 'sina' ? '盘中快照' : '行情服务'
-  const realtimeUnavailable = freshness?.source === 'teajoin' && ['empty', 'provider_unavailable', 'error', 'never'].includes(realtimeStatus ?? '')
+  const realtimeUnavailable = freshness?.source === 'teajoin' && ['empty', 'unverified_date', 'provider_unavailable', 'error', 'never'].includes(realtimeStatus ?? '')
   // 实时模式: none / watchlist / full_market。
   // watchlist (Free 档) 仅自选 ≤5 只实时, 看板呈现的大盘数据实为盘后快照, 需提示避免误读。
   const quoteMode = data.quote_status?.mode as ('none' | 'watchlist' | 'full_market') | undefined

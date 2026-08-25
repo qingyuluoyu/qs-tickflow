@@ -183,6 +183,10 @@ def test_dashboard_uses_warmed_realtime_snapshot_without_provider_call(monkeypat
         fetched_at_ms=1.0,
         error=None,
         realtime_rows=1,
+        market_as_of={
+            "session": MarketSession.MORNING.value,
+            "date_verified": True,
+        },
     )
 
     def fail_if_provider_called(*_args, **_kwargs):
@@ -200,6 +204,58 @@ def test_dashboard_uses_warmed_realtime_snapshot_without_provider_call(monkeypat
     assert result["top_gainers"][0]["close"] == 13.2
     assert result["data_freshness"]["snapshot_kind"] == "teajoin.realtime"
     assert result["data_freshness"]["is_stale"] is False
+
+
+def test_dashboard_does_not_promote_unverified_realtime_snapshot(monkeypatch, tmp_path):
+    monkeypatch.setattr(builder, "ScreenerService", _FakeScreener)
+    monkeypatch.setattr(builder, "cn_today", lambda: date(2026, 8, 17))
+    monkeypatch.setattr(
+        builder,
+        "resolve_market_as_of",
+        lambda: MarketAsOf(
+            current_date=date(2026, 8, 17),
+            daily_date=date(2026, 8, 14),
+            intraday_date=date(2026, 8, 17),
+            session=MarketSession.MORNING,
+            cutoff_time="10:00:00",
+            is_partial=True,
+            observed_at=datetime(2026, 8, 17, 10, 0),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.preferences.get_daily_data_provider",
+        lambda: "teajoin",
+    )
+    snapshot = DashboardSnapshot(
+        provider="teajoin",
+        kind="teajoin.realtime",
+        status="success",
+        snapshot_date=date(2026, 8, 17),
+        frame=pl.DataFrame([{
+            "symbol": "000001.SZ",
+            "date": date(2026, 8, 17),
+            "close": 13.2,
+            "prev_close": 11.0,
+            "change_pct": 0.2,
+        }]),
+        fetched_at_ms=1.0,
+        error=None,
+        realtime_rows=1,
+        market_as_of={
+            "session": MarketSession.MORNING.value,
+            "date_verified": False,
+        },
+    )
+
+    result = builder.build_market_overview(
+        _FakeRepo(tmp_path),
+        quote_service=_FakeQuote(),
+        dashboard_live=True,
+        dashboard_snapshot=snapshot,
+    )
+
+    assert result["data_freshness"]["snapshot_kind"] == "persisted.enriched"
+    assert result["as_of"] == "2026-08-13"
 
 
 def test_dashboard_rejects_realtime_snapshot_from_previous_date(monkeypatch, tmp_path):
@@ -337,6 +393,10 @@ def test_dashboard_derives_turnover_and_extends_live_limit_ladder(monkeypatch, t
         fetched_at_ms=1.0,
         error=None,
         realtime_rows=1,
+        market_as_of={
+            "session": MarketSession.AFTERNOON.value,
+            "date_verified": True,
+        },
     )
 
     monkeypatch.setattr(builder, "ScreenerService", _MetricsScreener)
@@ -623,6 +683,10 @@ def test_dashboard_uses_sina_intraday_snapshot_as_live(monkeypatch, tmp_path):
         fetched_at_ms=1.0,
         error=None,
         realtime_rows=1,
+        market_as_of={
+            "session": MarketSession.MORNING.value,
+            "date_verified": True,
+        },
     )
 
     result = builder.build_market_overview(

@@ -498,6 +498,7 @@ def _data_freshness(
         realtime_status == "success"
         and realtime_provider == source
         and quote_status.get("last_fetch_rows", 0) > 0
+        and quote_status.get("realtime_date_verified") is True
     )
     # A provider-confirmed daily snapshot is authoritative for the exchange
     # calendar. This covers weekday holidays/closures without maintaining a
@@ -525,6 +526,7 @@ def _data_freshness(
         "realtime_provider": realtime_provider,
             "realtime_status": realtime_status,
             "realtime_rows": quote_status.get("last_fetch_rows", 0),
+        "realtime_date_verified": quote_status.get("realtime_date_verified") is True,
         "snapshot_kind": snapshot_kind,
         "session": market_asof.session.value,
         "cutoff_time": market_asof.cutoff_time,
@@ -1012,6 +1014,7 @@ def build_market_overview(
                 snapshot_session is None
                 or snapshot_session in realtime_sessions
             )
+            and snapshot_meta.get("date_verified") is True
         )
         if (
             realtime_is_current
@@ -1067,6 +1070,9 @@ def build_market_overview(
             "last_fetch_status": dashboard_snapshot.status,
             "last_fetch_rows": dashboard_snapshot.realtime_rows,
             "last_fetch_error": dashboard_snapshot.error,
+            "realtime_date_verified": (
+                dashboard_snapshot.market_as_of.get("date_verified") is True
+            ),
         }
     freshness = _data_freshness(
         as_of,

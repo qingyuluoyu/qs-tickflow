@@ -18,7 +18,7 @@ export function AskAiDialog({ task, minimized }: { task: AskTask | null; minimiz
   }
   const hasMessages = task.messages.length > 0 || !!task.content
   return (
-    <div className="fixed right-4 top-14 z-[70] flex h-[min(520px,72vh)] w-[min(380px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+    <div className="fixed right-4 top-14 z-[70] flex h-[min(680px,calc(100vh-5rem))] w-[min(500px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5">
         <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <Sparkles className="h-4 w-4 text-accent" />
