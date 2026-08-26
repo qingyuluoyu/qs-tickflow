@@ -13,11 +13,15 @@
 [![Deploy](https://img.shields.io/badge/Deploy-Docker-2496ed.svg)](./Dockerfile)
 [![Live site](https://img.shields.io/badge/Live-qszscloud.online-8b5cf6.svg)](https://www.qszscloud.online/)
 
-[线上入口](https://www.qszscloud.online/) · [核心功能](#核心功能) · [快速开始](#快速开始) · [配置](#配置) · [完整文档](#完整文档)
+[线上入口](https://www.qszscloud.online/) · [wz-06 当前版本](https://github.com/qingyuluoyu/qs-tickflow/tree/wz-06) · [核心功能](#核心功能) · [快速开始](#快速开始) · [配置](#配置) · [完整文档](#完整文档)
 
 </div>
 
 > 本项目用于金融研究、数据分析和投资教育，不构成任何投资建议。回测结果不代表未来收益，历史数据不代表未来表现，A 股及其他金融资产均存在本金损失风险。
+
+> **当前发布版本：wz-06**<br>
+> 在线体验：<https://www.qszscloud.online/><br>
+> 本版本包含最新的 AI 研究辅助、数据源标准化、策略筛选、回测、实时监控、账户隔离和资产配置教育页面。项目截图与页面说明保留在 [`screenshots/`](./screenshots/) 目录，README 下方展示当前线上入口、看板、回测、概念分析、监控中心、市场环境和资产配置页面。
 
 ## 项目简介
 
@@ -96,7 +100,7 @@ TickFlow Stock Panel 是一个本地优先、可自托管的 A 股智能投研�
 
 ## 界面预览
 
-线上入口：**<https://www.qszscloud.online/>**
+线上入口：**<https://www.qszscloud.online/>** · **GitHub 分支：[`wz-06`](https://github.com/qingyuluoyu/qs-tickflow/tree/wz-06)**
 
 公网入口当前先显示账户注册/登录页，登录后进入个人隔离的智能投研工作台。以下图片是当前版本的线上入口和主要工作台页面。
 
