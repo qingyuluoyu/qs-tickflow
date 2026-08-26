@@ -137,6 +137,11 @@ TickFlow Stock Panel 是一个本地优先、可自托管的 A 股智能投研�
   </tr>
 </table>
 
+### 演示视频
+
+查看当前 `wz-06` 版本的完整演示视频：
+[wz-06 项目演示视频（MP4）](./screenshots/wz-06-demo.mp4)
+
 更多财务分析、个股分析、策略、连板梯队、复盘和推送效果见[完整截图目录](./screenshots/README.md)。
 
 ## 数据源与数据口径
