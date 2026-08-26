@@ -10,7 +10,7 @@ import { api } from './api'
  * 3. "活跃任务"上限 MAX_ACTIVE=3:同时进行的任务最多 3 个,超出拒绝新建。
  *    (历史报告名额 MAX_REPORTS=20 在后端裁剪,与活跃任务名额分离)
  * 4. 同 symbol 已有活跃任务 → 直接聚焦那个,不新建第 2 个。
- * 5. 任务完成(收到 done 或 content 非空且流结束)→ 自动存后端 + 移入历史 + 弹窗可恢复为"历史模式"。
+ * 5. 任务完成(收到明确的 complete=true done)→ 自动存后端 + 移入历史；不完整流只展示并提示重试。
  */
 
 export type Phase = 'loading' | 'streaming' | 'done' | 'error'
@@ -23,6 +23,9 @@ export interface ActiveTask {
   phase: Phase
   content: string             // 累积的 Markdown
   error: string
+  complete: boolean
+  truncated: boolean
+  continuing: boolean
   meta: { summary?: string; periods?: number } | null
   createdAt: number           // ms 时间戳
   savedReportId?: string      // 完成后存到后端的报告 id
@@ -38,6 +41,8 @@ export interface HistoryReport {
   content: string
   periods?: number
   summary?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
 }
 
@@ -217,6 +222,7 @@ export async function startAnalysis(
   const task: ActiveTask = {
     id, symbol, name, focus,
     phase: 'loading', content: '', error: '',
+    complete: false, truncated: false, continuing: false,
     meta: null, createdAt: Date.now(),
   }
   activeTasks = [...activeTasks, task]
@@ -233,6 +239,7 @@ export async function startAnalysis(
 async function runStream(id: string, symbol: string, focus: string, previousContent: string) {
   try {
     let firstDelta = true
+    let sawDone = false
     for await (const chunk of api.financialAnalyzeStream(symbol, focus, previousContent)) {
       // 任务可能已被取消(不在列表里了)→ 终止
       const cur = activeTasks.find(t => t.id === id)
@@ -243,20 +250,39 @@ async function runStream(id: string, symbol: string, focus: string, previousCont
           break
         case 'delta':
           if (firstDelta) { patchTask(id, { phase: 'streaming' }); firstDelta = false }
-          patchTask(id, { content: cur.content + (chunk.content ?? '') })
+          patchTask(id, { content: cur.content + (chunk.content ?? ''), continuing: false })
+          break
+        case 'continuation':
+          patchTask(id, { continuing: true })
           break
         case 'error':
           patchTask(id, { phase: 'error', error: chunk.message ?? '分析失败' })
           return
         case 'done':
+          sawDone = true
           // 标记完成,稍后持久化(content 可能还在最后几个 delta 里,以 done 时为准)
-          patchTask(id, { phase: 'done' })
+          patchTask(id, {
+            phase: 'done',
+            complete: chunk.complete !== false,
+            truncated: chunk.truncated === true,
+            continuing: false,
+          })
           break
       }
     }
+    if (!sawDone) {
+      patchTask(id, {
+        phase: 'error',
+        error: '分析连接在完成前断开，请重试',
+        complete: false,
+        truncated: false,
+        continuing: false,
+      })
+      return
+    }
     // 流正常结束 → 持久化报告
     const final = activeTasks.find(t => t.id === id)
-    if (final && final.phase !== 'error' && final.content) {
+    if (final && final.phase !== 'error' && final.content && final.complete && !final.truncated) {
       try {
         const res = await api.financialReportSave({
           symbol: final.symbol,
@@ -265,6 +291,8 @@ async function runStream(id: string, symbol: string, focus: string, previousCont
           content: final.content,
           periods: final.meta?.periods,
           summary: final.meta?.summary ?? '',
+          complete: final.complete,
+          truncated: final.truncated,
         })
         if (res.report) {
           patchTask(id, { savedReportId: res.report.id })

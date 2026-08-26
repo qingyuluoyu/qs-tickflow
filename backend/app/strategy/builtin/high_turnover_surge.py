@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "high_turnover_surge",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits showed persistent negative return and excessive drawdown; source kept for legacy compatibility",
     "name": "高换手拉升",
     "description": "换手率 > 5% 且涨幅 > 3%, 资金活跃",
     "tags": ["换手率", "放量", "资金"],

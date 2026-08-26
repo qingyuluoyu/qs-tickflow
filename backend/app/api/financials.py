@@ -249,6 +249,8 @@ class SaveReportRequest(BaseModel):
     content: str
     periods: int | None = None
     summary: str = ""
+    complete: bool = True
+    truncated: bool = False
 
 
 @router.get("/reports")
@@ -272,6 +274,8 @@ def save_report(request: Request, req: SaveReportRequest):
         "content": req.content,
         "periods": req.periods,
         "summary": req.summary,
+        "complete": req.complete,
+        "truncated": req.truncated,
     })
     return {"ok": True, "report": report}
 

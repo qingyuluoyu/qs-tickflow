@@ -32,7 +32,13 @@ def _load_stock_financials(data_dir: Path, symbol: str) -> dict[str, list[dict]]
     for table in FINANCIAL_TABLES:
         # Read the local cache first, then request the missing symbol from the
         # configured TeaJoin provider without collapsing the report history.
-        df = load_financial_frame(data_dir, table, symbol, latest_only=False)
+        df = load_financial_frame(
+            data_dir,
+            table,
+            symbol,
+            latest_only=False,
+            prefer_provider=True,
+        )
         if df.is_empty():
             result[table] = []
             continue
@@ -162,9 +168,9 @@ async def analyze_financials_stream(
     """流式分析:yield 出每个文本 chunk。
 
     - 启动时先 yield 一条 {"type":"meta",...} 让前端显示数据摘要
-    - 之后逐 chunk yield {"type":"delta","content":"..."}
+    - 之后逐 chunk yield {"type":"delta","content":"..."} / continuation
     - 出错时 yield {"type":"error","message":"..."}
-    - 结束 yield {"type":"done"}
+    - 结束 yield 带 complete/truncated/finish_reason 的 done
     """
     # 1. 加载数据
     fins = _load_stock_financials(data_dir, symbol)
@@ -183,23 +189,22 @@ async def analyze_financials_stream(
 
     # 3. 调用 LLM 流式
     try:
-        from app.services.ai_provider import stream_ai_text
+        from app.services.ai_provider import stream_ai_events
 
         user_prompt = _build_user_prompt(fins, symbol, focus, previous_content)
-        async for delta in stream_ai_text(
+        async for event in stream_ai_events(
             [
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
             max_tokens=4000,
+            max_continuations=1,
             disable_thinking=True,
         ):
-            yield json.dumps({"type": "delta", "content": delta}, ensure_ascii=False)
+            yield json.dumps(event, ensure_ascii=False)
 
     except Exception as e:  # noqa: BLE001
         logger.exception("AI financial analysis failed for %s: %s", symbol, e)
         yield json.dumps({"type": "error", "message": f"AI 分析失败: {e}"}, ensure_ascii=False)
         return
-
-    yield json.dumps({"type": "done"}, ensure_ascii=False)

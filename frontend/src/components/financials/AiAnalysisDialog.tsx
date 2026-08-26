@@ -38,6 +38,11 @@ function getMeta(task: ActiveTask | HistoryReport | null) {
   return { summary: task.summary, periods: task.periods }
 }
 
+function getCompletion(task: ActiveTask | HistoryReport | null): { complete: boolean; truncated: boolean } {
+  if (!task || !('complete' in task)) return { complete: true, truncated: false }
+  return { complete: task.complete !== false, truncated: task.truncated === true }
+}
+
 export function AiAnalysisDialog({ task, mode, minimized }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const focusInputRef = useRef<HTMLInputElement>(null)
@@ -47,6 +52,7 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
   const phase = getPhase(task)
   const content = getContent(task)
   const meta = getMeta(task)
+  const completion = getCompletion(task)
   const isHistory = mode === 'history'
   const isWorking = phase === 'loading' || phase === 'streaming'
   const open = !!task && !minimized
@@ -212,6 +218,11 @@ export function AiAnalysisDialog({ task, mode, minimized }: Props) {
                 <MarkdownRenderer content={content} />
                 {phase === 'streaming' && (
                   <span className="inline-block w-1.5 h-3.5 bg-purple-400 ml-0.5 align-middle animate-pulse rounded-sm" />
+                )}
+                {(!completion.complete || completion.truncated) && !isWorking && (
+                  <div className="mt-4 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-[11px] leading-relaxed text-warning">
+                    当前回答未完整生成，请重新分析或缩短关注重点后重试。
+                  </div>
                 )}
               </div>
             )}

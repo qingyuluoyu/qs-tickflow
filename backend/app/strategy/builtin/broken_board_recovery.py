@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "broken_board_recovery",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits showed persistent negative return and risk-adjusted performance; source kept for legacy compatibility",
     "name": "断板反包",
     "description": "连板≥2后断板1-2天, 出现放量反包信号",
     "tags": ["涨停", "反包"],

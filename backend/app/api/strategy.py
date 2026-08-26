@@ -340,17 +340,13 @@ def run_strategy(req: RunRequest, request: Request):
         params = merged
 
     # 确定日期
-    as_of = req.as_of
+    from app.services.screener import ScreenerService
+    svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
+    as_of = svc.resolve_date(req.as_of)
     if not as_of:
-        from app.services.screener import ScreenerService
-        svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
-        as_of = svc.latest_date()
-    if not as_of:
-        raise HTTPException(status_code=400, detail="无可用数据日期")
+        raise HTTPException(status_code=400, detail="所选日期没有可用行情数据")
 
     try:
-        from app.services.screener import ScreenerService
-        svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
         context = svc.build_strategy_context(
             engine,
             as_of,
@@ -377,13 +373,11 @@ def run_all(req: RunAllRequest, request: Request):
     engine = _get_engine(request)
     data_dir = _data_dir(request)
 
-    as_of = req.as_of
+    from app.services.screener import ScreenerService
+    svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
+    as_of = svc.resolve_date(req.as_of)
     if not as_of:
-        from app.services.screener import ScreenerService
-        svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
-        as_of = svc.latest_date()
-    if not as_of:
-        return {"as_of": None, "results": {}}
+        raise HTTPException(status_code=400, detail="所选日期没有可用行情数据")
 
     all_overrides = strategy_config.list_overrides(data_dir)
     strategy_ids = [
@@ -392,8 +386,6 @@ def run_all(req: RunAllRequest, request: Request):
         if req.asset_type in meta.get("asset_types", ["stock"])
         and req.timeframe in meta.get("timeframes", ["1d"])
     ]
-    from app.services.screener import ScreenerService
-    svc = ScreenerService(request.app.state.repo, asset_type=req.asset_type)
     params_map = {
         sid: dict((all_overrides.get(sid) or {}).get("params") or {})
         for sid in strategy_ids

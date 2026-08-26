@@ -116,6 +116,7 @@ async def test_tool_stream_preserves_reasoning_content_for_follow_up_round(monke
 
     assert events[-1]["type"] == "round_done"
     assert events[-1]["reasoning_content"] == "需要先查询行情"
+    assert events[-1]["finish_reason"] == "tool_calls"
 
 
 @pytest.mark.asyncio

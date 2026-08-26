@@ -52,11 +52,11 @@ def test_matrix_builtin_strategies_use_matrix_backend():
     engine = _engine()
     assert engine.load_errors() == []
     strategies = [engine.get(meta["id"]) for meta in engine.list_strategies()]
-    assert len(strategies) == 19
+    assert len(strategies) == 13
     matrix_strategies = [
         strategy for strategy in strategies if strategy.execution_backend == "matrix_native"
     ]
-    assert len(matrix_strategies) == 18
+    assert len(matrix_strategies) == 12
     assert all(strategy.matrix_strategy is not None for strategy in matrix_strategies)
     assert all(strategy.filter_fn is None for strategy in matrix_strategies)
     assert all(strategy.filter_history_fn is None for strategy in matrix_strategies)
@@ -178,6 +178,37 @@ def test_service_restores_share_metadata_for_strategy_basic_filters(tmp_path):
     assert result.select(["total_shares", "float_shares"]).to_dicts() == [{
         "total_shares": 19_405_918_198.0,
         "float_shares": 19_405_600_653.0,
+    }]
+
+
+def test_service_restores_limit_state_from_enriched_partition_when_cache_is_narrow(tmp_path):
+    """策略上下文不能因内存缓存缺连板列而把连板策略整批打成空。"""
+    target = date(2026, 8, 13)
+    enriched_dir = tmp_path / "kline_daily_enriched" / f"date={target.isoformat()}"
+    enriched_dir.mkdir(parents=True)
+    pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "date": [target],
+        "consecutive_limit_ups": pl.Series([2], dtype=pl.UInt32),
+        "consecutive_limit_downs": pl.Series([0], dtype=pl.UInt32),
+    }).write_parquet(enriched_dir / "part.parquet")
+
+    narrow = pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "date": [target],
+        "close": [11.25],
+    })
+    svc = ScreenerService(_FakeRepo(tmp_path, enriched=narrow, latest=target))
+
+    result = svc._load_enriched_for_date(target)
+
+    assert result.select(
+        ["consecutive_limit_ups", "consecutive_limit_downs", "signal_limit_up", "signal_limit_down"]
+    ).to_dicts() == [{
+        "consecutive_limit_ups": 2,
+        "consecutive_limit_downs": 0,
+        "signal_limit_up": True,
+        "signal_limit_down": False,
     }]
 
 

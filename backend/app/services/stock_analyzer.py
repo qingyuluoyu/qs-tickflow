@@ -23,7 +23,7 @@ import polars as pl
 
 from app.indicators.levels import compute_levels, summarize_levels
 from app.market_time import cn_today
-from app.services.financial_sync import get_financial_df
+from app.services.financial_view import load_financial_frame, prepare_financial_prompt_frame
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +86,19 @@ def _load_financials(data_dir: Path, symbol: str) -> dict[str, list[dict]]:
     """
     out: dict[str, list[dict]] = {}
     for table in ("metrics", "income"):
-        df = get_financial_df(data_dir, table)
+        df = load_financial_frame(
+            data_dir,
+            table,
+            symbol,
+            latest_only=False,
+            prefer_provider=True,
+        )
         if df.is_empty():
             out[table] = []
             continue
-        df = df.filter(pl.col("symbol") == symbol)
+        df = prepare_financial_prompt_frame(table, df)
+        if "symbol" in df.columns:
+            df = df.filter(pl.col("symbol") == symbol)
         if df.is_empty():
             out[table] = []
             continue

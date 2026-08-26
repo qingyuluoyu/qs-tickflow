@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "oversold_reversal",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits failed to produce positive net return after costs; source kept for legacy compatibility",
     "name": "超跌反转",
     "description": "RSI14 < 30超卖 + 涨幅 > 1% + 站上MA5, 超卖反转信号",
     "tags": ["超跌", "反弹", "RSI"],

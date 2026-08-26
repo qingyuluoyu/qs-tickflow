@@ -15,7 +15,7 @@ from typing import Any
 import polars as pl
 
 from app.services.debate import _concept_rows, _json_safe, _quote, normalize_symbol
-from app.services.financial_sync import get_financial_df
+from app.services.financial_view import load_financial_frame, prepare_financial_prompt_frame
 
 logger = logging.getLogger(__name__)
 
@@ -45,28 +45,13 @@ _TOOLS_WITH_DATA = {
 TOOLS: list[dict[str, Any]] = [
     _tool("query_quote", "查询标的最新可用行情（实时缓存优先，日线回退）。", {"code": _CODE}, ["code"]),
     _tool("query_valuation", "查询估值字段；当前仅部分行情源提供 PE/PB/市值。", {"code": _CODE}, ["code"]),
-    _tool("query_valuation_percentile", "查询估值历史分位。", {"code": _CODE}, ["code"]),
     _tool("query_kline", "查询标的最近日 K 线及已计算指标。", {"code": _CODE, "days": {"type": "integer", "minimum": 1, "maximum": 250}}, ["code"]),
-    _tool("query_financials", "查询目标项目已同步的核心财务表。", {"code": _CODE, "table": {"type": "string", "enum": ["metrics", "income", "cash_flow", "balance", "shares"]}}, ["code"]),
+    _tool("query_financials", "查询目标项目已同步的核心财务表。", {"code": _CODE, "table": {"type": "string", "enum": ["metrics", "income", "cash_flow", "balance_sheet", "shares"]}}, ["code"]),
     _tool("query_company_info", "查询标的名称及基础证券信息。", {"code": _CODE}, ["code"]),
-    _tool("query_reports", "查询近期研报。", {"code": _CODE}, ["code"]),
-    _tool("query_news", "查询个股新闻。", {"code": _CODE}, ["code"]),
-    _tool("query_fund_flow", "查询个股资金流向。", {"code": _CODE}, ["code"]),
-    _tool("query_margin", "查询融资融券数据。", {"code": _CODE}, ["code"]),
-    _tool("query_holders", "查询股东户数。", {"code": _CODE}, ["code"]),
-    _tool("query_block_trade", "查询大宗交易。", {"code": _CODE}, ["code"]),
-    _tool("query_dragon_tiger", "查询龙虎榜。", {"code": _CODE}, ["code"]),
-    _tool("query_dividend", "查询分红数据。", {"code": _CODE}, ["code"]),
-    _tool("query_announcements", "查询公司公告。", {"code": _CODE}, ["code"]),
-    _tool("query_lockup", "查询限售解禁日历。", {"code": _CODE}, ["code"]),
-    _tool("query_investor_qa", "查询投资者问答。", {"code": _CODE}, ["code"]),
+    _tool("query_lockup", "查询已同步股本字段；当前不是完整的限售解禁日历。", {"code": _CODE}, ["code"]),
     _tool("query_concepts", "查询目标项目 ext_data 中的概念和行业标签。", {"code": _CODE}, ["code"]),
     _tool("query_industry_comparison", "查询目标项目可用的行业/概念板块目录。", {"code": _CODE}, ["code"]),
-    _tool("query_industry_reports", "查询行业研报。", {"code": _CODE}, ["code"]),
     _tool("query_market", "查询目标项目市场总览快照。", {}, []),
-    _tool("query_news_radar", "查询新闻雷达。", {}, []),
-    _tool("query_global_stock", "查询美股或其他全球市场行情。", {"code": _CODE}, ["code"]),
-    _tool("query_hk_cashflow", "查询港股资金流向。", {"code": _CODE}, ["code"]),
 ]
 
 
@@ -106,14 +91,22 @@ def _query_kline(repo, code: str, days: int = 60) -> dict[str, Any]:
 
 def _query_financials(repo, data_dir, code: str, table: str | None = None) -> dict[str, Any]:
     symbol = normalize_symbol(repo, code)
-    tables = [table] if table in {"metrics", "income", "cash_flow", "balance", "shares"} else ["metrics", "income"]
+    canonical_table = "balance_sheet" if table == "balance" else table
+    tables = [canonical_table] if canonical_table in {"metrics", "income", "cash_flow", "balance_sheet", "shares"} else ["metrics", "income"]
     out: dict[str, Any] = {"symbol": symbol}
     for name in tables:
         try:
-            frame = get_financial_df(data_dir, name)
+            frame = load_financial_frame(
+                data_dir,
+                name,
+                symbol,
+                latest_only=False,
+                prefer_provider=True,
+            )
             if frame.is_empty() or "symbol" not in frame.columns:
                 out[name] = []
                 continue
+            frame = prepare_financial_prompt_frame(name, frame)
             frame = frame.filter(pl.col("symbol") == symbol)
             if "period_end" in frame.columns:
                 frame = frame.sort("period_end", descending=True).head(4)
@@ -175,7 +168,9 @@ def _query_industry_comparison(repo, code: str) -> dict[str, Any]:
 def _query_market(repo, quote_service, depth_service) -> dict[str, Any]:
     try:
         from app.services.market_overview_builder import build_market_overview
-        overview = build_market_overview(repo, quote_service, depth_service, date.today())
+        # Let the overview builder resolve the latest verified trading snapshot.
+        # Passing the server's calendar date makes weekends/holidays look empty.
+        overview = build_market_overview(repo, quote_service, depth_service, None)
         return _json_result(overview)
     except Exception as exc:  # noqa: BLE001
         logger.debug("market tool failed", exc_info=True)

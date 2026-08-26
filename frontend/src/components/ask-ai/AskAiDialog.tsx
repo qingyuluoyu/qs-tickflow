@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, Loader2, Send, Sparkles, Trash2, X } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Loader2, Send, Sparkles, Trash2, X } from 'lucide-react'
 import type { AskTask } from '@/lib/askAiStore'
 import { clearAskConversation, closeAskDialog, sendAskMessage } from '@/lib/askAiStore'
 import { MarkdownRenderer } from '@/components/financials/MarkdownRenderer'
@@ -62,6 +62,11 @@ export function AskAiDialog({ task, minimized }: { task: AskTask | null; minimiz
           <div className="mr-4 rounded-2xl bg-elevated/60 px-3 py-2 text-secondary"><MarkdownRenderer content={task.content} /></div>
         )}
         {busy && <div className="flex items-center gap-2 text-xs text-muted"><Loader2 className="h-3.5 w-3.5 animate-spin" />AI 正在思考…</div>}
+        {!busy && task.phase === 'done' && (!task.complete || task.truncated) && (
+          <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2 text-xs text-warning">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />回答未完整生成，请重新提问或重试。
+          </div>
+        )}
         {task.phase === 'error' && <div className="flex items-center gap-2 rounded-lg border border-danger/30 bg-danger/5 p-2 text-xs text-danger"><AlertCircle className="h-3.5 w-3.5 shrink-0" />{task.error}</div>}
         <div ref={endRef} />
       </div>

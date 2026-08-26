@@ -18,6 +18,9 @@ class _CapturingScreenerService:
     def latest_date(self):
         return date(2026, 7, 15)
 
+    def resolve_date(self, requested):
+        return requested or self.latest_date()
+
     def build_strategy_context(
         self,
         engine,

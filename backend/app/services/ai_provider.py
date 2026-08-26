@@ -421,8 +421,12 @@ async def stream_ai_text_with_tools(
 
     calls: dict[int, dict[str, str]] = {}
     reasoning_parts: list[str] = []
+    finish_reason: str | None = None
     try:
         async for chunk in stream:
+            choice_finish = getattr(chunk.choices[0], "finish_reason", None) if chunk.choices else None
+            if choice_finish:
+                finish_reason = str(choice_finish)
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
@@ -459,6 +463,7 @@ async def stream_ai_text_with_tools(
         "type": "round_done",
         "tool_calls": [calls[index] for index in sorted(calls)],
         "reasoning_content": "".join(reasoning_parts),
+        "finish_reason": finish_reason or "stop",
     }
 
 

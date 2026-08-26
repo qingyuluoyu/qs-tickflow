@@ -75,7 +75,12 @@ async def chat(request: Request, req: ChatRequest):
         ):
             if event.get("type") == "delta":
                 assistant_parts.append(str(event.get("text") or ""))
-            if event.get("type") == "done" and assistant_parts:
+            if (
+                event.get("type") == "done"
+                and assistant_parts
+                and event.get("complete") is not False
+                and event.get("truncated") is not True
+            ):
                 store.save([*messages, {"role": "assistant", "content": "".join(assistant_parts)}], conversation_id)
             yield json.dumps(event, ensure_ascii=False, default=str) + "\n"
 

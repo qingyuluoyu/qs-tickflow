@@ -14,6 +14,8 @@ from app.backtest.matrix import (
 
 META = {
     "id": "strong_open",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits showed unstable return with severe drawdown; source kept for legacy compatibility",
     "name": "强势高开",
     "description": "高开 > 3% 且收盘高于开盘价, 集合竞价强势",
     "tags": ["高开", "强势"],

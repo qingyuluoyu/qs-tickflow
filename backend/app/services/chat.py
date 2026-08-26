@@ -24,7 +24,7 @@ from app.services.ai_provider import (
 )
 from app.services.ai_tools import TOOLS, exec_tool
 from app.services.debate import _concept_rows, _json_safe, _quote, normalize_symbol
-from app.services.financial_sync import get_financial_df
+from app.services.financial_view import load_financial_frame, prepare_financial_prompt_frame
 from app.services.stock_analyzer import _KLINE_KEEP_COLS, _load_kline
 
 logger = logging.getLogger(__name__)
@@ -173,10 +173,17 @@ def build_stock_context(repo, data_dir: Path, stock_code: str | None, stock_name
     financials: dict[str, list[dict[str, Any]]] = {}
     for table in ("metrics", "income"):
         try:
-            df = get_financial_df(data_dir, table)
+            df = load_financial_frame(
+                data_dir,
+                table,
+                symbol,
+                latest_only=False,
+                prefer_provider=True,
+            )
             if df.is_empty() or "symbol" not in df.columns:
                 financials[table] = []
                 continue
+            df = prepare_financial_prompt_frame(table, df)
             df = df.filter(pl.col("symbol") == symbol)
             if "period_end" in df.columns:
                 df = df.sort("period_end", descending=True).head(2)
@@ -257,6 +264,7 @@ async def run_chat_tools_stream(
     for round_no in range(1, MAX_ROUNDS + 1):
         round_text: list[str] = []
         round_reasoning_content = ""
+        round_finish_reason = "stop"
         try:
             tool_calls: list[dict[str, str]] = []
             async for event in stream_ai_text_with_tools(working, TOOLS, temperature=0.5, max_tokens=4000, timeout=180.0):
@@ -269,12 +277,22 @@ async def run_chat_tools_stream(
                 elif event.get("type") == "round_done":
                     tool_calls = [call for call in event.get("tool_calls", []) if isinstance(call, dict)]
                     round_reasoning_content = str(event.get("reasoning_content") or "")
+                    round_finish_reason = str(event.get("finish_reason") or "stop")
         except Exception as exc:  # noqa: BLE001
             yield {"type": "error", "message": str(exc)}
             return
 
         if not tool_calls:
-            yield {"type": "done", "content": "".join(full), "trace": trace, "rounds": round_no}
+            truncated = round_finish_reason not in {"stop", "end_turn", "eos"}
+            yield {
+                "type": "done",
+                "content": "".join(full),
+                "trace": trace,
+                "rounds": round_no,
+                "complete": not truncated,
+                "truncated": truncated,
+                "finish_reason": round_finish_reason,
+            }
             return
 
         assistant_tool_calls: list[dict[str, Any]] = []
@@ -348,7 +366,15 @@ async def run_chat_tools_stream(
         for call_id, result, _tool_name, _label in round_results:
             working.append({"role": "tool", "tool_call_id": call_id, "content": _safe_json(result, MAX_TOOL_RESULT_CHARS)})
 
-    yield {"type": "done", "content": "".join(full), "trace": trace, "rounds": MAX_ROUNDS}
+    yield {
+        "type": "done",
+        "content": "".join(full),
+        "trace": trace,
+        "rounds": MAX_ROUNDS,
+        "complete": False,
+        "truncated": True,
+        "finish_reason": "tool_round_limit",
+    }
 
 
 def _error_result(message: str) -> dict[str, str]:

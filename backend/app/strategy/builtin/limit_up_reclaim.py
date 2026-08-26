@@ -12,6 +12,8 @@ from app.backtest.matrix import valid_shift as shift
 
 META = {
     "id": "limit_up_reclaim",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits showed persistent negative return and negative risk-adjusted performance; source kept for legacy compatibility",
     "name": "涨停反包",
     "description": "前一日涨停动能后, 今日放量收阳并重新站上短均线; 避开封死涨停。",
     "tags": ["游资", "反包", "涨停", "短线"],

@@ -167,34 +167,42 @@ def load_financial_frame(
     *,
     latest_only: bool = True,
     provider_factory: Callable[[], Any | None] | None = None,
+    prefer_provider: bool = False,
 ) -> pl.DataFrame:
-    """Load one symbol, using TeaJoin only when the local table misses it."""
+    """Load one symbol from the configured financial source.
+
+    Normal UI reads remain local-first for latency. AI reads can opt into
+    ``prefer_provider`` so a stale local row cannot mask a newer TeaJoin report;
+    an empty or failed provider response still falls back to the local cache.
+    """
     normalized_symbol = symbol.strip().upper()
     local = get_financial_df(data_dir, table)
     if not local.is_empty() and "symbol" in local.columns:
         local = local.filter(pl.col("symbol").cast(pl.Utf8) == normalized_symbol)
-        if not local.is_empty():
-            return normalize_financial_frame(table, local)
 
     owns_provider = provider_factory is not None
-    try:
-        provider = (provider_factory or _custom_financial_provider)()
-        if provider is None:
-            return normalize_financial_frame(table, local)
-        fetched = provider.get_financials(table, [normalized_symbol], latest_only=latest_only)
-        return normalize_financial_frame(table, fetched)
-    except Exception as exc:
-        logger.warning("financial read fallback failed for %s/%s: %s", table, normalized_symbol, exc)
-        return normalize_financial_frame(table, local)
-    finally:
-        # A factory creates a request-scoped provider. The default loader returns
-        # a process-wide provider shared by daily, realtime and financial calls;
-        # closing it here would make later market-data requests fail with
-        # "client has been closed" until the whole source registry is reloaded.
-        if owns_provider and "provider" in locals() and provider is not None:
-            close = getattr(provider, "close", None)
-            if callable(close):
-                close()
+    provider = None
+    if prefer_provider or local.is_empty():
+        try:
+            provider = (provider_factory or _custom_financial_provider)()
+            if provider is not None:
+                fetched = provider.get_financials(table, [normalized_symbol], latest_only=latest_only)
+                normalized = normalize_financial_frame(table, fetched)
+                if not normalized.is_empty():
+                    return normalized
+        except Exception as exc:
+            logger.warning("financial read fallback failed for %s/%s: %s", table, normalized_symbol, exc)
+        finally:
+            # A factory creates a request-scoped provider. The default loader returns
+            # a process-wide provider shared by daily, realtime and financial calls;
+            # closing it here would make later market-data requests fail with
+            # "client has been closed" until the whole source registry is reloaded.
+            if owns_provider and provider is not None:
+                close = getattr(provider, "close", None)
+                if callable(close):
+                    close()
+
+    return normalize_financial_frame(table, local)
 
 
 def _local_search(repo: Any, keyword: str, limit: int) -> list[dict]:

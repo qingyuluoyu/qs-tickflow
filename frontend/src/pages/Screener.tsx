@@ -246,6 +246,9 @@ export function Screener() {
       setHitCounts(prev => ({ ...prev, ...counts }))
       qc.invalidateQueries({ queryKey: ['screener-cached'] })
     },
+    onError: (error) => {
+      toast(error instanceof Error ? error.message : '策略扫描失败，请稍后重试', 'error')
+    },
   })
 
   const missingStrategyIds = useMemo(
@@ -481,6 +484,7 @@ export function Screener() {
       api.screenerRunPreset(id, undefined, date || undefined, extColumnsParam || undefined, assetType),
     onSuccess: (data, vars) => {
       setResult(data)
+      if (data.as_of) setAsOf(data.as_of)
       // 同步更新卡片上的命中数
       setHitCounts(prev => ({ ...prev, [vars.id]: data.total }))
       // 单策略重跑后刷新摘要和当前按需明细，避免参数保存后回退到旧缓存。

@@ -286,10 +286,9 @@ def strategies(
 def run_custom(req: CustomRequest, request: Request):
     repo = request.app.state.repo
     svc = ScreenerService(repo, asset_type=req.asset_type)
-    as_of = req.as_of or svc.latest_date()
+    as_of = svc.resolve_date(req.as_of)
     if not as_of:
-        raise HTTPException(status_code=400,
-                            detail="无可用数据日期 — enriched 表为空,请先运行盘后管道")
+        raise HTTPException(status_code=400, detail="所选日期没有可用行情数据")
     result = svc.run(
         as_of=as_of,
         conditions=req.conditions,
@@ -308,9 +307,9 @@ def run_custom(req: CustomRequest, request: Request):
 def run_preset(req: PresetRequest, request: Request):
     repo = request.app.state.repo
     svc = ScreenerService(repo, asset_type=req.asset_type)
-    as_of = req.as_of or svc.latest_date()
+    as_of = svc.resolve_date(req.as_of)
     if not as_of:
-        raise HTTPException(status_code=400, detail="无可用数据日期")
+        raise HTTPException(status_code=400, detail="所选日期没有可用行情数据")
 
     # 加载用户保存的策略配置
     from app.services.user_context import request_data_root
@@ -595,12 +594,12 @@ def run_all(request: Request, body: Optional[dict] = None):
 
     # 解析日期
     raw_date = body.get("as_of")
-    if raw_date:
-        as_of = date_type.fromisoformat(str(raw_date)) if isinstance(raw_date, str) else raw_date
-    else:
-        as_of = svc.latest_date()
+    requested_date = (
+        date_type.fromisoformat(str(raw_date)) if isinstance(raw_date, str) else raw_date
+    ) if raw_date else None
+    as_of = svc.resolve_date(requested_date)
     if not as_of:
-        return {"as_of": None, "results": {}}
+        raise HTTPException(status_code=400, detail="所选日期没有可用行情数据")
 
     from app.services.user_context import request_data_root
     data_dir = request_data_root(request, shared_root=request.app.state.repo.store.data_dir)

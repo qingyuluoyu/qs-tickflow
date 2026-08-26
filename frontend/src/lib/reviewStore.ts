@@ -98,6 +98,7 @@ export async function startReviewGeneration(
   abortCtrl = new AbortController()
   let buf = ''
   let failed = false
+  let sawDone = false
   let doneMeta: ReviewMeta | null = null
 
   try {
@@ -123,6 +124,7 @@ export async function startReviewGeneration(
         notify()
         return
       } else if (evt.type === 'done') {
+        sawDone = true
         state = {
           ...state,
           phase: 'done',
@@ -133,7 +135,13 @@ export async function startReviewGeneration(
         notify()
       }
     }
-    // 流正常结束但无 done 事件,按 done 处理
+    // A clean stream must carry an explicit done event.  A proxy/provider
+    // close without it is incomplete, not a successful report.
+    if (!sawDone && !failed) {
+      state = { ...state, phase: 'error', complete: false, truncated: false, error: '复盘连接在完成前断开，请重试' }
+      notify()
+      return
+    }
     if (buf && !failed) {
       if (state.phase !== 'done') {
         state = { ...state, phase: 'done', complete: true, truncated: false, continuing: false }

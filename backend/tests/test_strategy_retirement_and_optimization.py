@@ -18,12 +18,18 @@ def test_retired_backtests_are_hidden_without_removing_legacy_definitions():
     visible_ids = {item["id"] for item in engine.list_strategies()}
     retired_ids = {
         "boll_breakout",
+        "broken_board_recovery",
         "consecutive_limit_ups",
+        "high_turnover_surge",
         "hot_money_breakout",
+        "limit_up_reclaim",
         "macd_golden",
         "near_limit_up",
+        "oversold_reversal",
         "pullback_to_support",
         "relative_strength_pullback",
+        "squeeze_breakout",
+        "strong_open",
     }
     required_ids = {
         "qingshu_one",

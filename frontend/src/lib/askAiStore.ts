@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { api } from './api'
+import { accountStorage } from './storage'
 
 export type AskPhase = 'loading' | 'streaming' | 'done' | 'error'
 export interface AskMessage { role: 'user' | 'assistant'; content: string }
@@ -16,6 +17,8 @@ export interface AskTask {
   phase: AskPhase
   error: string
   tools: AskToolEvent[]
+  complete: boolean
+  truncated: boolean
   dismissed?: boolean
 }
 
@@ -41,9 +44,8 @@ function conversationId(scopeKey: string): string {
 }
 function storageKey(scopeKey: string): string { return `${STORAGE_PREFIX}${scopeKey}` }
 function readStoredMessages(scopeKey: string): AskMessage[] {
-  if (typeof window === 'undefined') return []
   try {
-    const raw = window.localStorage.getItem(storageKey(scopeKey))
+    const raw = accountStorage.getItem(storageKey(scopeKey))
     if (!raw) return []
     const parsed = JSON.parse(raw) as { version?: number; messages?: unknown }
     if (parsed.version !== STORAGE_VERSION && parsed.version !== 2) return []
@@ -57,9 +59,8 @@ function readStoredMessages(scopeKey: string): AskMessage[] {
   } catch { return [] }
 }
 function saveStoredMessages(task: AskTask) {
-  if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(storageKey(task.scopeKey), JSON.stringify({
+    accountStorage.setItem(storageKey(task.scopeKey), JSON.stringify({
       version: STORAGE_VERSION,
       updatedAt: Date.now(),
       messages: task.messages.slice(-40),
@@ -67,8 +68,7 @@ function saveStoredMessages(task: AskTask) {
   } catch { /* localStorage unavailable */ }
 }
 function removeStoredMessages(scopeKey: string) {
-  if (typeof window === 'undefined') return
-  try { window.localStorage.removeItem(storageKey(scopeKey)) } catch { /* ignore */ }
+  try { accountStorage.removeItem(storageKey(scopeKey)) } catch { /* ignore */ }
 }
 function patchTask(id: string, patch: Partial<AskTask>) {
   tasks = tasks.map(task => task.id === id ? { ...task, ...patch } : task)
@@ -123,6 +123,8 @@ export function openAskAi(
     phase: 'done',
     error: '',
     tools: [],
+    complete: true,
+    truncated: false,
   }
   tasks = [...tasks, task]
   dialogTaskId = task.id
@@ -157,6 +159,7 @@ async function runStream(id: string, signal: AbortSignal) {
   if (!task) return
   try {
     let content = ''
+    let sawDone = false
     for await (const event of api.chatStream({
       messages: task.messages,
       context: task.context,
@@ -184,20 +187,25 @@ async function runStream(id: string, signal: AbortSignal) {
         patchTask(id, { phase: 'error', error: event.message ?? '问 AI 失败' })
         return
       } else if (event.type === 'done') {
+        sawDone = true
         const completed = tasks.find(item => item.id === id)
-        const nextMessages = completed && content
+        const complete = event.complete !== false
+        const truncated = event.truncated === true
+        const nextMessages = completed && content && complete && !truncated
           ? [...completed.messages, { role: 'assistant' as const, content }]
           : completed?.messages ?? []
-        patchTask(id, { content, messages: nextMessages, phase: 'done', error: '' })
+        patchTask(id, { content, messages: nextMessages, phase: 'done', error: '', complete, truncated })
         const saved = tasks.find(item => item.id === id)
-        if (saved) saveStoredMessages(saved)
+        if (saved && complete && !truncated) saveStoredMessages(saved)
         controllers.delete(id)
       }
     }
     controllers.delete(id)
     const final = tasks.find(item => item.id === id)
-    if (final && final.phase !== 'error' && final.phase !== 'done') {
-      patchTask(id, { phase: content ? 'done' : 'error', error: content ? '' : 'AI 未返回内容' })
+    if (final && !sawDone && final.phase !== 'error') {
+      patchTask(id, { phase: 'error', error: '问 AI 连接在完成前断开，请重试', complete: false, truncated: false })
+    } else if (final && final.phase !== 'error' && final.phase !== 'done') {
+      patchTask(id, { phase: content ? 'done' : 'error', error: content ? '' : 'AI 未返回内容', complete: !!content, truncated: false })
       const saved = tasks.find(item => item.id === id)
       if (saved && content) saveStoredMessages(saved)
     }
@@ -206,6 +214,17 @@ async function runStream(id: string, signal: AbortSignal) {
     if (signal.aborted) return
     patchTask(id, { phase: 'error', error: String(error?.message ?? '问 AI 失败') })
   }
+}
+
+/** Stop old-account streams and clear all in-memory private conversations. */
+export function resetAccountState(): void {
+  for (const controller of controllers.values()) controller.abort()
+  controllers.clear()
+  tasks = []
+  dialogTaskId = null
+  minimized = false
+  rebuild()
+  emit()
 }
 
 export function clearAskConversation(id: string) {

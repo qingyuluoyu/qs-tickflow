@@ -54,6 +54,13 @@ class ScreenerService:
         if df.is_empty():
             return df
 
+        # The on-disk enriched contract keeps the A-share limit state, while a
+        # warm cache created during an early startup path can contain only the
+        # technical columns.  Restore the authoritative stored state before
+        # strategy execution; otherwise matrix strategies that depend on
+        # consecutive boards fail as a batch and the UI shows misleading zeros.
+        df = self._restore_limit_state(df)
+
         instruments = self.repo.get_instruments_asset(self.asset_type)
         if not instruments.is_empty() and "symbol" in instruments.columns:
             missing = [
@@ -143,6 +150,111 @@ class ScreenerService:
             if fallback in df.columns:
                 df = df.drop(fallback)
         return df
+
+    def _restore_limit_state(self, df: pl.DataFrame) -> pl.DataFrame:
+        """Restore stored limit-up/down state omitted by a narrow warm cache.
+
+        ``consecutive_limit_*`` is a persisted, point-in-time value.  It must
+        come from the matching parquet partition rather than being inferred
+        from the adjusted close in the current row.  The boolean signal columns
+        are equivalent projections of that stored run-length state and are
+        added for legacy strategies such as qingshu_one.
+        """
+        if (
+            self.asset_type != "stock"
+            or df.is_empty()
+            or "symbol" not in df.columns
+            or "date" not in df.columns
+        ):
+            return df
+
+        state_columns = ("consecutive_limit_ups", "consecutive_limit_downs")
+        missing = [column for column in state_columns if column not in df.columns]
+        missing_signals = [
+            column
+            for column in ("signal_limit_up", "signal_limit_down")
+            if column not in df.columns
+        ]
+        if not missing and not missing_signals:
+            return df
+        if not missing:
+            signal_exprs: list[pl.Expr] = []
+            if "signal_limit_up" in missing_signals:
+                signal_exprs.append(
+                    (pl.col("consecutive_limit_ups").fill_null(0) > 0).alias("signal_limit_up")
+                )
+            if "signal_limit_down" in missing_signals:
+                signal_exprs.append(
+                    (pl.col("consecutive_limit_downs").fill_null(0) > 0).alias("signal_limit_down")
+                )
+            return df.with_columns(signal_exprs)
+
+        enriched_dir = self.repo.store.data_dir / self._enriched_dirname
+        glob = str(enriched_dir / "**" / "*.parquet")
+        try:
+            available = set(scan_enriched_parquet(glob).collect_schema().names())
+            stored = [
+                "symbol",
+                "date",
+                *[column for column in state_columns if column in available],
+            ]
+            if len(stored) <= 2:
+                return df
+
+            start = df["date"].min()
+            end = df["date"].max()
+            state = (
+                scan_enriched_parquet(glob)
+                .filter((pl.col("date") >= start) & (pl.col("date") <= end))
+                .select(stored)
+                .collect()
+                .unique(subset=["symbol", "date"], keep="last")
+            )
+            if state.is_empty():
+                return df
+
+            # Older partitions may encode the counters as Int64 while the
+            # current cache uses UInt32.  Normalize before the join so a
+            # schema difference cannot silently disable the fallback.
+            state = state.with_columns([
+                pl.col(column).cast(
+                    df.schema.get(column, pl.UInt32), strict=False
+                ).alias(column)
+                for column in state_columns
+                if column in state.columns
+            ])
+
+            joined = df.join(state, on=["symbol", "date"], how="left", suffix="_stored")
+            for column in state_columns:
+                stored_column = f"{column}_stored"
+                if stored_column not in joined.columns:
+                    continue
+                if column in joined.columns:
+                    joined = joined.with_columns(
+                        pl.coalesce([pl.col(column), pl.col(stored_column)]).alias(column)
+                    ).drop(stored_column)
+                else:
+                    joined = joined.rename({stored_column: column})
+
+            signal_exprs: list[pl.Expr] = []
+            if (
+                "signal_limit_up" not in joined.columns
+                and "consecutive_limit_ups" in joined.columns
+            ):
+                signal_exprs.append(
+                    (pl.col("consecutive_limit_ups").fill_null(0) > 0).alias("signal_limit_up")
+                )
+            if (
+                "signal_limit_down" not in joined.columns
+                and "consecutive_limit_downs" in joined.columns
+            ):
+                signal_exprs.append(
+                    (pl.col("consecutive_limit_downs").fill_null(0) > 0).alias("signal_limit_down")
+                )
+            return joined.with_columns(signal_exprs) if signal_exprs else joined
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("restore stored limit state skipped: %s", exc)
+            return df
 
     @staticmethod
     def clear_history_cache() -> None:
@@ -525,3 +637,32 @@ class ScreenerService:
             return self.repo.latest_daily_date()
         except Exception:  # noqa: BLE001
             return None
+
+    def resolve_date(self, requested: date | None = None) -> date | None:
+        """Resolve a requested date to the latest available trading date.
+
+        Date pickers expose a calendar range, which includes weekends and
+        exchange holidays.  Never fabricate a bar for those dates: use the
+        latest real enriched partition on or before the request instead.
+        """
+        if requested is None:
+            return self.latest_date()
+
+        table = {
+            "stock": "kline_enriched",
+            "index": "kline_index_enriched",
+            "etf": "kline_etf_enriched",
+        }.get(self.asset_type)
+        if table is None:
+            return None
+        try:
+            row = self.repo.execute_one(
+                f"SELECT max(date) FROM {table} WHERE date <= ?",
+                [requested],
+            )
+            if row and row[0]:
+                value = row[0]
+                return value if isinstance(value, date) else date.fromisoformat(str(value))
+        except Exception:  # noqa: BLE001
+            logger.debug("resolve screener date failed: %s", requested, exc_info=True)
+        return None

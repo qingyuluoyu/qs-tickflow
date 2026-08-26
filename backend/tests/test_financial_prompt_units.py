@@ -34,8 +34,9 @@ def test_financial_prompt_frame_exposes_canonical_units_without_ambiguous_raw_fi
 def test_financial_analyzer_uses_provider_for_missing_local_rows(monkeypatch, tmp_path):
     calls = []
 
-    def fake_loader(data_dir, table, symbol, *, latest_only=True):
+    def fake_loader(data_dir, table, symbol, *, latest_only=True, prefer_provider=False):
         calls.append((data_dir, table, symbol, latest_only))
+        assert prefer_provider is True
         if table != "income":
             return pl.DataFrame()
         return pl.DataFrame(

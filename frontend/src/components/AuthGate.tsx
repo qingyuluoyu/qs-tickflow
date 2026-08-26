@@ -12,6 +12,7 @@ import { resetAccountState as resetOptimizerState } from '@/lib/optimizerTask'
 import { resetAccountState as resetWalkForwardState } from '@/lib/walkforwardTask'
 import { resetAccountState as resetReviewState } from '@/lib/reviewStore'
 import { resetAccountState as resetMonitorBadgeState } from '@/lib/monitorBadge'
+import { resetAccountState as resetAskAiState } from '@/lib/askAiStore'
 import { AccountEntry } from './AccountEntry'
 
 export function AuthGate({ children }: { children?: ReactNode }) {
@@ -101,4 +102,5 @@ function resetPrivateStores(): void {
   resetWalkForwardState()
   resetReviewState()
   resetMonitorBadgeState()
+  resetAskAiState()
 }

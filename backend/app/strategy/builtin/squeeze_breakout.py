@@ -12,6 +12,8 @@ from app.backtest.matrix import valid_shift as shift
 
 META = {
     "id": "squeeze_breakout",
+    "status": "retired",
+    "retired_reason": "retired after two rolling six-month audits showed persistent negative return and negative risk-adjusted performance; source kept for legacy compatibility",
     "name": "波动收缩突破",
     "description": "布林带收窄后放量突破上轨, 跟随波动扩张",
     "tags": ["波动率", "布林", "突破"],

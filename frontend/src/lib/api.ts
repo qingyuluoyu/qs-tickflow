@@ -210,6 +210,8 @@ export interface AiFinancialReport {
   content: string
   periods?: number
   summary?: string
+  complete?: boolean
+  truncated?: boolean
   created_at: string
 }
 
@@ -2248,7 +2250,7 @@ export const api = {
 
   financialReportSave: (r: {
     symbol: string; name?: string; focus?: string; content: string
-    periods?: number; summary?: string
+    periods?: number; summary?: string; complete?: boolean; truncated?: boolean
   }) =>
     request<{ ok: boolean; report: AiFinancialReport }>('/api/financials/reports', {
       method: 'POST', body: JSON.stringify(r),
@@ -2269,12 +2271,16 @@ export const api = {
    * 用 ReadableStream 解析(而非 SSE EventSource),支持 POST body 且更简单。
    */
   async *financialAnalyzeStream(symbol: string, focus?: string, previousContent?: string): AsyncGenerator<{
-    type: 'meta' | 'delta' | 'error' | 'done'
+    type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
     symbol?: string
     summary?: string
     periods?: number
     content?: string
     message?: string
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
+    continuations?: number
   }> {
     const res = await fetch('/api/financials/analyze', {
       method: 'POST',
@@ -2296,12 +2302,16 @@ export const api = {
 
     for await (const event of readNdjsonStream(res)) {
       yield event as {
-        type: 'meta' | 'delta' | 'error' | 'done'
+        type: 'meta' | 'reasoning_delta' | 'delta' | 'continuation' | 'error' | 'done'
         symbol?: string
         summary?: string
         periods?: number
         content?: string
         message?: string
+        complete?: boolean
+        truncated?: boolean
+        finish_reason?: string
+        continuations?: number
       }
     }
   },
@@ -2462,6 +2472,9 @@ export const api = {
     error_code?: string
     trace?: Array<{ call_id: string; tool_name: string; label: string }>
     rounds?: number
+    complete?: boolean
+    truncated?: boolean
+    finish_reason?: string
   }> {
     const res = await fetch('/api/chat', {
       method: 'POST',
