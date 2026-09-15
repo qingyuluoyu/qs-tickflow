@@ -425,6 +425,24 @@ async def test_stock_stream_keeps_reasoning_separate(monkeypatch, tmp_path):
     assert events[-1]["truncated"] is False
 
 
+def test_stock_prompt_payload_keeps_history_but_bounds_repeated_indicators():
+    rows = []
+    for index in range(60):
+        row = {column: float(index + 1) for column in stock_analyzer._KLINE_KEEP_COLS}
+        row["date"] = date(2026, 6, 1)
+        rows.append(row)
+    frame = pl.DataFrame(rows)
+
+    payload = stock_analyzer._build_kline_prompt_payload(frame)
+    encoded = json.dumps(payload, ensure_ascii=False)
+
+    assert len(payload["price_history_60d"]) == 60
+    assert len(payload["recent_indicators"]) == 10
+    assert "ma60" in payload["recent_indicators"][-1]
+    assert "ma60" not in payload["price_history_60d"][-1]
+    assert len(encoded) < 20_000
+
+
 @pytest.mark.asyncio
 async def test_stock_stream_reports_preflight_failure_instead_of_closing_silently(monkeypatch, tmp_path):
     repo = SimpleNamespace(resolve_asset_type=lambda _symbol: "stock")

@@ -214,7 +214,7 @@ _SYSTEM_PROMPT = """你是一位拥有 15 年 A 股一线研究经验的技术�
 # ================================================================
 
 def _build_user_prompt(
-    kline_tail: list[dict],
+    kline_tail: list[dict] | dict[str, list[dict]],
     fins: dict[str, list[dict]],
     levels: dict[str, list[dict]],
     close: float | None,
@@ -231,8 +231,8 @@ def _build_user_prompt(
         f"标的标准代码: {symbol}",
         f"关键价位概览: {summarize_levels(levels, close)}",
         "",
-        "以下是该标的最近日 K 数据(JSON,含 OHLCV 与已计算的技术指标。"
-        f"最近 {_KLINE_WINDOW} 个交易日,升序):",
+        "以下是该标的最近日 K 数据(JSON)。price_history_60d 保留完整价量历史; "
+        "recent_indicators 保留最近 10 个交易日的完整技术指标,均按日期升序:",
         "```json",
         json.dumps(kline_tail, ensure_ascii=False),
         "```",
@@ -286,6 +286,19 @@ _KLINE_KEEP_COLS = [
     "signal_macd_death", "signal_ma_golden_5_20", "signal_volume_surge",
     "signal_boll_breakout_upper", "signal_boll_breakout_lower",
 ]
+
+_KLINE_HISTORY_COLS = [
+    "date", "open", "high", "low", "close", "volume", "amount", "change_pct",
+]
+_RECENT_INDICATOR_BARS = 10
+
+
+def _build_kline_prompt_payload(df: pl.DataFrame) -> dict[str, list[dict]]:
+    """Keep the full price path without repeating every indicator for 60 bars."""
+    return {
+        "price_history_60d": _clean_rows(df, _KLINE_HISTORY_COLS),
+        "recent_indicators": _clean_rows(df.tail(_RECENT_INDICATOR_BARS), _KLINE_KEEP_COLS),
+    }
 
 
 # ================================================================
@@ -346,7 +359,7 @@ async def analyze_stock_stream(
         # 5+6. 构建提示词 + 流式调用 LLM
         from app.services.ai_provider import stream_ai_events
 
-        kline_tail = _clean_rows(df, _KLINE_KEEP_COLS)
+        kline_tail = _build_kline_prompt_payload(df)
         user_prompt = _build_user_prompt(
             kline_tail,
             fins,
@@ -363,9 +376,9 @@ async def analyze_stock_stream(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.5,
-            # 服务器场景限速优先: 3500 tokens 一轮 + 至多 1 次续写,
-            # 最坏 7000 tokens, 比原 3×6000 节省一半以上等待时间。
-            max_tokens=3500,
+            # 输入保留 60 日价量路径、只重复最近 10 日完整指标; 单轮输出
+            # 2200 tokens 足以覆盖 1000-1800 字报告并避免触发上游 TPM 上限。
+            max_tokens=2200,
             max_continuations=1,
             # 推理模型的思考草稿会吃光输出预算, 关掉后回答立即开始
             disable_thinking=True,
