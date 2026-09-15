@@ -70,6 +70,8 @@ ENRICHED_STORAGE_COLS = [
     "consecutive_limit_ups",                   # 递推状态, 需从历史 cum_sum
     "consecutive_limit_downs",
     "quote_ts",                                # 行情时间戳(ms): 盘后校验/量比折算/跨天完整性
+    "data_source",                             # 行情供应商；旧分区兼容为 null
+    "is_provisional",                          # True=盘后临时快照，待权威日K覆盖
 ]
 
 
@@ -1078,7 +1080,8 @@ def run_pipeline(data_dir: Path | None = None,
             if not hist_df.is_empty():
                 # 只取基础行情列做历史前缀
                 hist_cols = [c for c in ["symbol", "date", "open", "high", "low", "close",
-                                         "volume", "amount", "raw_close", "raw_high", "raw_low"]
+                                         "volume", "amount", "raw_close", "raw_high", "raw_low",
+                                         "data_source", "is_provisional"]
                              if c in hist_df.columns]
                 raw_full = pl.concat([hist_df.select(hist_cols), raw_new], how="diagonal_relaxed")
             else:
@@ -1331,6 +1334,7 @@ def _load_recent_history(enriched_base: Path, symbols: list[str], days: int) -> 
             for column in [
                 "symbol", "date", "open", "high", "low", "close",
                 "volume", "amount", "raw_close", "raw_high", "raw_low",
+                "data_source", "is_provisional",
             ]
             if column in available_columns
         ]

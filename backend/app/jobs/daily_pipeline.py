@@ -82,6 +82,23 @@ def post_close_retry_times(schedule: dict[str, int]) -> list[tuple[int, int]]:
     return retry_times
 
 
+def provider_snapshot_ready_for_pipeline(
+    provider_date: _date | None,
+    target: _date,
+    now: _datetime,
+) -> bool:
+    """Allow the close pipeline to create a labelled provisional snapshot.
+
+    A selected custom provider may publish authoritative daily bars on T+1.
+    Before close we still wait for it.  After 15:10, only today's missing bar
+    may use the existing Sina close-snapshot path; historical gaps remain
+    fail-closed and require the authoritative provider.
+    """
+    if provider_date is not None and provider_date >= target:
+        return True
+    return target == now.date() and now.time() >= _time(15, 10)
+
+
 def _is_pipeline_snapshot_ready(
     repo: KlineRepository,
     target: _date,
@@ -1732,17 +1749,18 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
             return False
 
     def _provider_snapshot_ready_for_retry() -> bool:
-        """Avoid a full retry while a custom provider has not published today."""
+        """Wait for historical provider data, but allow today's close snapshot."""
         if _prefs.get_daily_data_provider() == "tickflow":
             return True
-        target = required_market_snapshot_date(_datetime.now(BEIJING_TZ), sched)
+        now = _datetime.now(BEIJING_TZ)
+        target = required_market_snapshot_date(now, sched)
         try:
             from app.services.market_overview_builder import _dashboard_daily_snapshot
 
             provider_date, _ = _dashboard_daily_snapshot(repo)
-            return bool(provider_date and provider_date >= target)
+            return provider_snapshot_ready_for_pipeline(provider_date, target, now)
         except Exception:
-            return False
+            return provider_snapshot_ready_for_pipeline(None, target, now)
 
     def _run_pipeline_attempt(label: str) -> None:
         if _pipeline_snapshot_ready():

@@ -5,7 +5,10 @@ import polars as pl
 
 from app.indicators.pipeline import filter_halt_days
 
-DAILY_COLS = ["symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts"]
+DAILY_COLS = [
+    "symbol", "date", "open", "high", "low", "close", "volume", "amount", "quote_ts",
+    "data_source", "is_provisional",
+]
 ADJ_FACTOR_COLS = ["symbol", "trade_date", "ex_factor"]
 INSTRUMENT_COLS = ["symbol", "name", "code", "exchange", "asset_type", "source"]
 
@@ -74,7 +77,7 @@ def to_polars(data) -> pl.DataFrame:
         return pl.DataFrame()
 
 
-def normalize_daily(data, default_symbol: str | None = None, source: str = "tickflow") -> pl.DataFrame:  # noqa: ARG001
+def normalize_daily(data, default_symbol: str | None = None, source: str = "tickflow") -> pl.DataFrame:
     df = to_polars(data)
     if df.is_empty():
         return df
@@ -97,6 +100,13 @@ def normalize_daily(data, default_symbol: str | None = None, source: str = "tick
     for col in ("open", "high", "low", "close", "volume", "amount"):
         if col in df.columns:
             df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+    # Keep vendor provenance on every authoritative provider row.  This is an
+    # additive contract: old parquet files read these columns as null, while a
+    # same-day provisional snapshot can later be replaced by a provider row.
+    df = df.with_columns(
+        pl.lit(source).cast(pl.Utf8).alias("data_source"),
+        pl.lit(False).cast(pl.Boolean).alias("is_provisional"),
+    )
     df = filter_halt_days(df)
     keep = [c for c in DAILY_COLS if c in df.columns]
     return df.select(keep) if keep else pl.DataFrame()

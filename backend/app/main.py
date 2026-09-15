@@ -29,6 +29,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# The fallback is consumed only by the dashboard preloader.  QuoteService and
+# persisted strategy/enriched snapshots keep their selected-provider policy.
+DASHBOARD_ALLOW_CROSS_SOURCE_FALLBACK = True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -155,7 +159,7 @@ async def lifespan(app: FastAPI):
         dashboard_failover_fetcher = make_dashboard_failover_fetcher(
             provider_fetcher,
             sina_fetcher,
-            allow_cross_source_fallback=False,
+            allow_cross_source_fallback=DASHBOARD_ALLOW_CROSS_SOURCE_FALLBACK,
         )
 
         def dashboard_fetcher():

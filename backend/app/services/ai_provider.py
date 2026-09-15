@@ -379,6 +379,8 @@ async def stream_ai_text_with_tools(
     temperature: float | None = 0.5,
     max_tokens: int = 4000,
     timeout: float = 180.0,
+    first_event_timeout: float | None = None,
+    inactivity_timeout: float | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one OpenAI-compatible round, including accumulated tool calls.
 
@@ -408,12 +410,22 @@ async def stream_ai_text_with_tools(
         **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
         "stream": True,
     }
+    first_timeout = _resolve_stream_timeout(first_event_timeout, _STREAM_FIRST_EVENT_TIMEOUT)
+    inactivity = _resolve_stream_timeout(inactivity_timeout, _STREAM_INACTIVITY_TIMEOUT)
     try:
-        stream = await client.chat.completions.create(**request_kwargs)
+        stream = await _await_stream_operation(
+            client.chat.completions.create(**request_kwargs),
+            first_timeout,
+            "first_event",
+        )
     except Exception as exc:
         if temperature is not None and _is_temperature_rejected(exc):
             request_kwargs.pop("temperature", None)
-            stream = await client.chat.completions.create(**request_kwargs)
+            stream = await _await_stream_operation(
+                client.chat.completions.create(**request_kwargs),
+                first_timeout,
+                "first_event",
+            )
         else:
             if _is_openai_transport_error(exc):
                 raise RuntimeError(_format_openai_error(exc)) from exc
@@ -422,8 +434,24 @@ async def stream_ai_text_with_tools(
     calls: dict[int, dict[str, str]] = {}
     reasoning_parts: list[str] = []
     finish_reason: str | None = None
+    iterator = stream.__aiter__()
+    received_chunk = False
     try:
-        async for chunk in stream:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(
+                    anext(iterator),
+                    timeout=first_timeout if not received_chunk else inactivity,
+                )
+            except StopAsyncIteration:
+                break
+            except TimeoutError as exc:
+                phase = "first_event" if not received_chunk else "inactivity"
+                raise AiStreamTimeoutError(
+                    phase,
+                    first_timeout if not received_chunk else inactivity,
+                ) from exc
+            received_chunk = True
             choice_finish = getattr(chunk.choices[0], "finish_reason", None) if chunk.choices else None
             if choice_finish:
                 finish_reason = str(choice_finish)
@@ -458,6 +486,8 @@ async def stream_ai_text_with_tools(
         if _is_openai_transport_error(exc):
             raise RuntimeError(_format_openai_error(exc)) from exc
         raise
+    finally:
+        await _close_stream(stream)
 
     yield {
         "type": "round_done",
@@ -576,7 +606,7 @@ async def _stream_openai(
                 )
             except StopAsyncIteration:
                 break
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 phase = "first_event" if not received_chunk else "inactivity"
                 raise AiStreamTimeoutError(
                     phase,
@@ -670,7 +700,7 @@ async def _stream_openai_events(
                 )
             except StopAsyncIteration:
                 break
-            except asyncio.TimeoutError as exc:
+            except TimeoutError as exc:
                 phase = "first_event" if not received_chunk else "inactivity"
                 raise AiStreamTimeoutError(
                     phase,
@@ -715,7 +745,7 @@ def _resolve_stream_timeout(value: float | None, fallback: float) -> float:
 async def _await_stream_operation(awaitable, timeout: float, phase: str):
     try:
         return await asyncio.wait_for(awaitable, timeout=timeout)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise AiStreamTimeoutError(phase, timeout) from exc
 
 

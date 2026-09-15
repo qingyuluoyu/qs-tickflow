@@ -140,7 +140,12 @@ def fetch_spot_daily(symbols: list[str], *, asset_type: str = "stock") -> pl.Dat
     df = _fetch_spot(symbols, asset_type=asset_type)
     if df.is_empty():
         return df
-    return df.select(["symbol", "date", "open", "high", "low", "close", "volume", "amount"])
+    return df.select([
+        "symbol", "date", "open", "high", "low", "close", "volume", "amount",
+    ]).with_columns(
+        pl.lit("sina").cast(pl.Utf8).alias("data_source"),
+        pl.lit(True).cast(pl.Boolean).alias("is_provisional"),
+    )
 
 
 def fetch_market_spot(symbols: list[str], *, asset_type: str = "stock") -> pl.DataFrame:

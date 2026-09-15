@@ -745,6 +745,13 @@ async def ai_test(request: Request):
             max_tokens=8,
             timeout=15,
         )
+        text = text.strip()
+        if not text:
+            return {
+                "ok": False,
+                "error": "AI 返回空内容",
+                "error_type": "EmptyAIResponse",
+            }
         return {"ok": True, "model": current_ai_model() or current_ai_provider(), "response": text[:80]}
     except Exception as e:
         return {

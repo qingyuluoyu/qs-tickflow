@@ -142,6 +142,33 @@ def test_required_snapshot_date_uses_previous_weekday_before_close():
     ).isoformat() == "2026-08-14"
 
 
+def test_provider_snapshot_readiness_allows_current_post_close_provisional_fallback():
+    datetime = __import__("datetime").datetime
+    target = __import__("datetime").date(2026, 9, 15)
+
+    assert daily_pipeline.provider_snapshot_ready_for_pipeline(
+        provider_date=__import__("datetime").date(2026, 9, 14),
+        target=target,
+        now=datetime(2026, 9, 15, 16, 0),
+    ) is True
+
+
+def test_provider_snapshot_readiness_does_not_backfill_before_close_or_old_targets():
+    datetime = __import__("datetime").datetime
+    date = __import__("datetime").date
+
+    assert daily_pipeline.provider_snapshot_ready_for_pipeline(
+        provider_date=date(2026, 9, 14),
+        target=date(2026, 9, 15),
+        now=datetime(2026, 9, 15, 14, 59),
+    ) is False
+    assert daily_pipeline.provider_snapshot_ready_for_pipeline(
+        provider_date=date(2026, 9, 12),
+        target=date(2026, 9, 14),
+        now=datetime(2026, 9, 15, 16, 0),
+    ) is False
+
+
 def test_snapshot_coverage_distinguishes_waiting_from_partial_data():
     target = __import__("datetime").date(2026, 8, 14)
     universe = ["000001.SZ", "600519.SH", "300001.SZ"]

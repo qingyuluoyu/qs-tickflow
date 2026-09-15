@@ -261,6 +261,76 @@ async def test_stream_ai_text_times_out_when_provider_stalls_between_chunks(monk
 
 
 @pytest.mark.asyncio
+async def test_tool_stream_times_out_when_provider_never_emits_first_chunk(monkeypatch):
+    hanging = _HangingStream()
+
+    async def create(**_kwargs):
+        return hanging
+
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    with pytest.raises(ai_provider.AiStreamTimeoutError, match="首条响应"):
+        [event async for event in ai_provider.stream_ai_text_with_tools(
+            [{"role": "user", "content": "问题"}],
+            [{"type": "function"}],
+            first_event_timeout=0.001,
+        )]
+
+    assert hanging.closed is True
+
+
+@pytest.mark.asyncio
+async def test_tool_stream_times_out_when_provider_stalls_between_chunks(monkeypatch):
+    hanging = _StallingStream(_tool_chunk(reasoning_content="正在分析"))
+
+    async def create(**_kwargs):
+        return hanging
+
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    with pytest.raises(ai_provider.AiStreamTimeoutError, match="连续响应"):
+        [event async for event in ai_provider.stream_ai_text_with_tools(
+            [{"role": "user", "content": "问题"}],
+            [{"type": "function"}],
+            first_event_timeout=0.01,
+            inactivity_timeout=0.001,
+        )]
+
+    assert hanging.closed is True
+
+
+@pytest.mark.asyncio
+async def test_ai_test_endpoint_rejects_empty_provider_response(monkeypatch):
+    from app.api import strategy
+
+    async def empty_response(*_args, **_kwargs):
+        return "   "
+
+    monkeypatch.setattr(ai_provider, "generate_ai_text", empty_response)
+    monkeypatch.setattr(ai_provider, "current_ai_model", lambda: "test-model")
+
+    result = await strategy.ai_test(SimpleNamespace())
+
+    assert result == {
+        "ok": False,
+        "error": "AI 返回空内容",
+        "error_type": "EmptyAIResponse",
+    }
+
+
+@pytest.mark.asyncio
 async def test_stream_ai_events_continues_length_stopped_answer(monkeypatch):
     client, completions = _fake_client([
         [_chunk(content="第一段", finish_reason="length")],

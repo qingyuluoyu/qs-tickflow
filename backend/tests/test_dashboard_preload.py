@@ -16,6 +16,12 @@ from app.services.market_overview_preloader import (
 )
 
 
+def test_application_enables_source_labelled_display_only_dashboard_fallback():
+    from app import main
+
+    assert main.DASHBOARD_ALLOW_CROSS_SOURCE_FALLBACK is True
+
+
 def _snapshot(kind: str, status: str, value: float) -> DashboardSnapshot:
     return DashboardSnapshot(
         provider="teajoin",
