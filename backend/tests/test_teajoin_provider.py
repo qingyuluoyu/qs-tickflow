@@ -886,6 +886,45 @@ def test_teajoin_daily_basic_normalizes_historical_shares_to_shares():
     }]
 
 
+def test_teajoin_latest_daily_basic_uses_one_full_market_trade_date_request():
+    provider = GenericHTTPProvider(CustomSourceConfig(
+        name="teajoin",
+        display_name="TeaJoin",
+        datasets={
+            "financial": DatasetConfig(
+                url="https://teajoin.example/financial",
+                method="POST",
+                batch=100,
+                financial_url_template="https://teajoin.example/{table}",
+                financial_table_map={"metrics": "daily_basic"},
+                field_map={"ts_code": "symbol"},
+            ),
+        },
+    ))
+    calls = []
+
+    def request_rows(_cfg, **kwargs):
+        calls.append(kwargs)
+        return [
+            {"ts_code": "000001.SZ", "trade_date": "20260915", "total_share": 100.0},
+            {"ts_code": "600519.SH", "trade_date": "20260915", "total_share": 200.0},
+            {"ts_code": "999999.SH", "trade_date": "20260915", "total_share": 300.0},
+        ]
+
+    provider._request_rows = request_rows
+    result = provider.get_financials(
+        "metrics", ["000001.SZ", "600519.SH"], latest_only=True,
+    )
+    provider.close()
+
+    assert len(calls) == 1
+    assert calls[0].get("symbols") is None
+    assert calls[0]["override_url"] == "https://teajoin.example/daily_basic"
+    trade_date = calls[0]["override_body"]["params"]["trade_date"]
+    assert len(trade_date) == 8 and trade_date.isdigit()
+    assert result["symbol"].to_list() == ["000001.SZ", "600519.SH"]
+
+
 def test_teajoin_shares_requests_one_symbol_per_call():
     provider = GenericHTTPProvider(CustomSourceConfig(
         name="teajoin",

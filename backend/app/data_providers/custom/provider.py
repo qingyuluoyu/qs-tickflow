@@ -392,41 +392,21 @@ class GenericHTTPProvider:
             raise ValueError(
                 f"Custom data source '{self.name}' does not configure financial table '{table}'"
             )
-        frames: list[pl.DataFrame] = []
-        chunks = chunked(symbols, 1 if table == "shares" else cfg.batch)
-        for i, chunk in enumerate(chunks):
-            sleep_between_batches(i, cfg.rpm)
-            # 支持 financial_url_template: 按 table 动态拼 URL (teajoin 分端点模式)
-            upstream_table = cfg.financial_table_map.get(table, table)
-            url = cfg.url
-            if cfg.financial_url_template:
-                url = cfg.financial_url_template.replace("{table}", upstream_table)
-            # 把 table 注入到请求参数 (上游据此区分财务表)
-            extra_params = {**cfg.params, "table": upstream_table}
-            extra_body = {**cfg.body, "table": upstream_table}
-            if table == "shares":
-                extra_params["latest"] = latest_only
-                extra_body["latest"] = latest_only
-            rows = self._request_rows(
-                cfg, symbols=chunk,
-                override_params=extra_params, override_body=extra_body,
-                override_url=url or None,
-            )
+        def _financial_frame(rows: list[dict[str, Any]]) -> pl.DataFrame:
             # 财务三表字段彼此不同。只应用证券代码别名并保留 TeaJoin 返回的
-            # 全部字段，不能复用某一张表的 field_map 而截断资产负债表或现金流。
+            # 全部字段, 不能复用某一张表的 field_map 而截断资产负债表或现金流。
             # TeaJoin 同一财务列可能跨报告期混用 JSON number / string。先统一成
-            # Utf8，保留原始可追溯值，避免 Polars schema 推断因批次顺序失败。
-            if rows:
-                columns = list(dict.fromkeys(key for row in rows for key in row))
-                df = pl.DataFrame(
-                    [
-                        {key: (None if row.get(key) is None else str(row.get(key))) for key in columns}
-                        for row in rows
-                    ],
-                    schema={key: pl.Utf8 for key in columns},
-                )
-            else:
-                df = pl.DataFrame()
+            # Utf8, 保留原始可追溯值, 避免 Polars schema 推断因批次顺序失败。
+            if not rows:
+                return pl.DataFrame()
+            columns = list(dict.fromkeys(key for row in rows for key in row))
+            df = pl.DataFrame(
+                [
+                    {key: (None if row.get(key) is None else str(row.get(key))) for key in columns}
+                    for row in rows
+                ],
+                schema={key: pl.Utf8 for key in columns},
+            )
             if "ts_code" in df.columns and "symbol" not in df.columns:
                 df = df.rename({"ts_code": "symbol"})
             if "symbol" in df.columns:
@@ -437,8 +417,66 @@ class GenericHTTPProvider:
                 df = df.with_columns(
                     [pl.col(column).cast(pl.Float64, strict=False).alias(column) for column in numeric_columns]
                 )
+            return df
+
+        frames: list[pl.DataFrame] = []
+        upstream_table = cfg.financial_table_map.get(table, table)
+        url = (
+            cfg.financial_url_template.replace("{table}", upstream_table)
+            if cfg.financial_url_template
+            else cfg.url
+        )
+
+        # daily_basic 按证券批量拉历史时会触发上游 10,000 行上限和超时。
+        # 最新指标/股本只需按交易日做一次全市场请求; 非交易日精确查询为空时,
+        # 再取上游最近快照并只保留其最新日期。最后仍按调用方 symbols 收窄。
+        if upstream_table == "daily_basic" and latest_only:
+            from app.market_time import cn_today
+
+            trade_date = cn_today().strftime("%Y%m%d")
+            latest_body = deepcopy(cfg.body)
+            latest_params = dict(latest_body.get("params") or {})
+            latest_params["trade_date"] = trade_date
+            latest_body["params"] = latest_params
+            rows = self._request_rows(
+                cfg,
+                override_params={**cfg.params, "table": upstream_table},
+                override_body={**latest_body, "table": upstream_table},
+                override_url=url or None,
+            )
+            if not rows:
+                rows = self._request_rows(
+                    cfg,
+                    override_params={**cfg.params, "table": upstream_table},
+                    override_body={**cfg.body, "table": upstream_table},
+                    override_url=url or None,
+                )
+            df = _financial_frame(rows)
+            if not df.is_empty() and "trade_date" in df.columns:
+                latest_trade_date = df["trade_date"].drop_nulls().max()
+                if latest_trade_date is not None:
+                    df = df.filter(pl.col("trade_date") == latest_trade_date)
+            if not df.is_empty() and "symbol" in df.columns:
+                df = df.filter(pl.col("symbol").is_in(symbols))
             if not df.is_empty():
                 frames.append(df)
+        else:
+            chunks = chunked(symbols, 1 if table == "shares" else cfg.batch)
+            for i, chunk in enumerate(chunks):
+                sleep_between_batches(i, cfg.rpm)
+                extra_params = {**cfg.params, "table": upstream_table}
+                extra_body = {**cfg.body, "table": upstream_table}
+                if table == "shares":
+                    extra_params["latest"] = latest_only
+                    extra_body["latest"] = latest_only
+                rows = self._request_rows(
+                    cfg, symbols=chunk,
+                    override_params=extra_params, override_body=extra_body,
+                    override_url=url or None,
+                )
+                df = _financial_frame(rows)
+                if not df.is_empty():
+                    frames.append(df)
         if not frames:
             return pl.DataFrame()
         result = pl.concat(frames, how="diagonal_relaxed")

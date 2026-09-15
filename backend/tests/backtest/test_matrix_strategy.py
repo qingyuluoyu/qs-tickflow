@@ -821,6 +821,88 @@ def test_matrix_pipeline_applies_basic_filter_and_candidate_scoring():
     assert signals.score.tolist() == [[0.0, 50.0]]
 
 
+@pytest.mark.parametrize("total_shares", [None, 0.0])
+def test_matrix_pipeline_rejects_unavailable_share_capital_for_market_cap_filter(total_shares):
+    panel = pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "name": ["平安银行"],
+        "date": [date(2024, 1, 1)],
+        "open": [10.0],
+        "high": [10.0],
+        "low": [10.0],
+        "close": [10.0],
+        "volume": [100.0],
+        "total_shares": [total_shares],
+    })
+    market = build_market_data_matrix(panel, field_columns={"total_shares"})
+
+    class AllEntries:
+        def required_fields(self):
+            return frozenset({"close"})
+
+        def required_warmup_bars(self, params):
+            return 1
+
+        def compute_signals(self, market, params):
+            return make_signal_matrix(market.shape, entry=np.ones(market.shape, dtype=np.uint8))
+
+    with pytest.raises(ValueError, match="总股本数据不可用"):
+        MatrixStrategyPipeline().run(
+            AllEntries(),
+            market,
+            {},
+            MatrixPipelineConfig(
+                basic_filter={"enabled": True, "market_cap_min": 1_000_000_000.0},
+                scoring={},
+                order_by="score",
+                descending=True,
+            ),
+        )
+
+
+def test_matrix_market_cap_filter_uses_unadjusted_close():
+    panel = pl.DataFrame({
+        "symbol": ["000001.SZ"],
+        "name": ["平安银行"],
+        "date": [date(2024, 1, 1)],
+        "open": [100.0],
+        "high": [100.0],
+        "low": [100.0],
+        "close": [100.0],
+        "raw_close": [10.0],
+        "volume": [100.0],
+        "total_shares": [100_000_000.0],
+    })
+    market = build_market_data_matrix(
+        panel,
+        field_columns={"raw_close", "total_shares"},
+    )
+
+    class AllEntries:
+        def required_fields(self):
+            return frozenset({"close"})
+
+        def required_warmup_bars(self, params):
+            return 1
+
+        def compute_signals(self, market, params):
+            return make_signal_matrix(market.shape, entry=np.ones(market.shape, dtype=np.uint8))
+
+    signals = MatrixStrategyPipeline().run(
+        AllEntries(),
+        market,
+        {},
+        MatrixPipelineConfig(
+            basic_filter={"enabled": True, "market_cap_min": 5_000_000_000.0},
+            scoring={},
+            order_by="score",
+            descending=True,
+        ),
+    )
+
+    assert signals.entry.tolist() == [[0]]
+
+
 def test_signal_matrix_validation_rejects_mutable_strategy_output():
     signals = make_signal_matrix((2, 1))
     mutable_entry = signals.entry.copy()

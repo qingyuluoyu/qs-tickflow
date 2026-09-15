@@ -3556,8 +3556,19 @@ def _build_basic_filter_mask_uncached(market: MarketDataMatrix, config: dict) ->
     if config.get("price_max") is not None:
         mask &= close <= float(config["price_max"])
 
-    _apply_bound(mask, close * _optional_field(market, "total_shares"), config, "market_cap")
-    _apply_bound(mask, close * _optional_field(market, "float_shares"), config, "float_cap")
+    cap_price = market.fields.get("raw_close", close)
+    _apply_bound(
+        mask,
+        cap_price * _required_share_capital(market, config, "total_shares", "market_cap", "总股本"),
+        config,
+        "market_cap",
+    )
+    _apply_bound(
+        mask,
+        cap_price * _required_share_capital(market, config, "float_shares", "float_cap", "流通股本"),
+        config,
+        "float_cap",
+    )
     _apply_bound(mask, _required_field_for_bound(market, config, "amount"), config, "amount")
     _apply_bound(mask, _optional_field(market, "turnover_rate"), config, "turnover")
 
@@ -3882,6 +3893,28 @@ def _required_field_for_bound(
     if config.get(f"{name}_min") is None and config.get(f"{name}_max") is None:
         return np.full(market.shape, np.nan, dtype=np.float32)
     return market.field(name)
+
+
+def _required_share_capital(
+    market: MarketDataMatrix,
+    config: dict,
+    field_name: str,
+    bound_prefix: str,
+    label: str,
+) -> np.ndarray:
+    values = _optional_field(market, field_name)
+    has_bound = (
+        config.get(f"{bound_prefix}_min") is not None
+        or config.get(f"{bound_prefix}_max") is not None
+    )
+    if has_bound:
+        usable = np.isfinite(market.close) & np.isfinite(values) & (values > 0)
+        if not usable.any():
+            raise ValueError(
+                f"基础过滤需要{label}, 但当前回测区间的{label}数据不可用; "
+                "请先同步 TeaJoin daily_basic/股本数据后重试"
+            )
+    return values
 
 
 def _apply_bound(mask: np.ndarray, values: np.ndarray, config: dict, prefix: str) -> None:
