@@ -111,4 +111,3 @@
 - [ ] **Step 4: Replace the container only after the image builds; poll `/api/health` until ready and automatically roll back on failure.**
 - [ ] **Step 5: Verify A1–D3 with repository queries, backtest SSE, serial AI feature tests, HTTPS health checks and container/source SHA evidence.**
 - [ ] **Step 6: Record passed, failed and unexecuted acceptance items honestly; never convert an unavailable upstream into a passing result.**
-
