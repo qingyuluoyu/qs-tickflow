@@ -1,0 +1,15 @@
+# Fast production release path for source-only changes.
+#
+# Preconditions:
+# - RUNTIME_BASE was built from the same locked Python dependencies.
+# - FRONTEND_IMAGE was built from the current frontend source and lockfile.
+# - Dependency manifest changes require the full Dockerfile instead.
+ARG RUNTIME_BASE=app-app:latest
+ARG FRONTEND_IMAGE=tickflow-frontend:release
+
+FROM ${FRONTEND_IMAGE} AS frontend
+FROM ${RUNTIME_BASE}
+
+COPY backend/app ./app
+COPY tiers.yaml /app/tiers.yaml
+COPY --from=frontend /build/dist ./static
