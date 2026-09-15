@@ -63,6 +63,36 @@ def _guard_server_backtest_range(start: date, end: date):
         raise HTTPException(status_code=400, detail=BACKTEST_SERVER_GUARD_MESSAGE)
 
 
+def _backtest_data_asset_type(asset_type: str) -> str:
+    """Map UI asset types to the enriched repository partitions used by backtests."""
+    return "etf" if asset_type == "etf" else "stock"
+
+
+def _backtest_end_date_coverage_error(repo, *, asset_type: str, end_date: date) -> str | None:
+    """Return a user-actionable error when an enriched dataset cannot cover ``end_date``.
+
+    Strategy backtests read persisted enriched Parquet, not the live provider.  Accepting a
+    later calendar date makes a normal non-trading day look like a no-data strategy result.
+    """
+    data_asset_type = _backtest_data_asset_type(asset_type)
+    latest_date = repo.latest_enriched_date(data_asset_type)
+    label = "ETF" if data_asset_type == "etf" else "股票"
+    if latest_date is None:
+        return f"{label}复权指标数据尚未生成；请先完成数据同步和指标计算。"
+    if end_date > latest_date:
+        return (
+            f"回测结束日期 {end_date} 超出{label}复权指标数据截止日 {latest_date}；"
+            "请先同步并生成指标数据，或将结束日期改为不晚于该日期。"
+        )
+    return None
+
+
+def _default_backtest_end_date(repo, asset_type: str) -> date:
+    """Use the latest generated enriched trading date for an omitted end date."""
+    data_asset_type = _backtest_data_asset_type(asset_type)
+    return repo.latest_enriched_date(data_asset_type) or date.today()
+
+
 # ================================================================
 # 状态
 # ================================================================
@@ -225,9 +255,16 @@ def strategy_run(req: StrategyBacktestRequest, request: Request):
     from app.backtest.strategy import StrategyBacktestConfig
     from app.backtest.worker import make_worker_task, run_worker_task
 
-    end = req.end or date.today()
+    end = req.end or _default_backtest_end_date(request.app.state.repo, req.asset_type)
     start = _resolve_start(req, end, FACTOR_DEFAULT_DAYS)
     _guard_server_backtest_range(start, end)
+    coverage_error = _backtest_end_date_coverage_error(
+        request.app.state.repo,
+        asset_type=req.asset_type,
+        end_date=end,
+    )
+    if coverage_error:
+        raise HTTPException(status_code=422, detail=coverage_error)
 
     cfg = StrategyBacktestConfig(
         strategy_id=req.strategy_id,
@@ -398,7 +435,11 @@ async def strategy_stream(
     from app.backtest.strategy import StrategyBacktestConfig
     from app.backtest.worker import make_worker_task, run_worker_task
 
-    end_date = date.fromisoformat(end) if end else date.today()
+    end_date = (
+        date.fromisoformat(end)
+        if end
+        else _default_backtest_end_date(request.app.state.repo, asset_type)
+    )
     if start:
         start_date = date.fromisoformat(start)
     else:
@@ -412,6 +453,17 @@ async def strategy_stream(
         days = (end_date - start_date).days + 1
         if days > BACKTEST_MAX_SERVER_DAYS:
             guard_violated = True
+
+    coverage_error = _backtest_end_date_coverage_error(
+        request.app.state.repo,
+        asset_type=asset_type,
+        end_date=end_date,
+    )
+    if coverage_error:
+        async def coverage_error_generator():
+            yield f"event: error\ndata: {json.dumps({'message': coverage_error}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(coverage_error_generator(), media_type="text/event-stream")
 
     job_key = _make_job_key(
         strategy_id, symbols, start, end,

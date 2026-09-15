@@ -971,8 +971,17 @@ export function StrategyBacktest() {
     ? dataStatus.data?.etf_enriched
     : dataStatus.data?.enriched
   const earliestDate = backtestDataStatus?.earliest_date ?? null
-  const backtestDataUnavailable = dataStatus.isSuccess && !earliestDate
+  const latestDate = backtestDataStatus?.latest_date ?? null
+  const suggestedEndDate = latestDate ?? TODAY
+  const endExceedsAvailableData = Boolean(latestDate && end && end > latestDate)
+  const backtestDataUnavailable = dataStatus.isSuccess && (!earliestDate || !latestDate)
   const backtestDataLabel = assetType === 'etf' ? 'ETF 指标数据' : '股票指标数据'
+
+  // 初始默认值过去使用自然日 TODAY；非交易日时它可能晚于最近一次指标计算。
+  // 只替换该默认值，保留手工/历史保存的其他日期并明确提示用户修改。
+  useEffect(() => {
+    if (latestDate && end === TODAY) setEnd(latestDate)
+  }, [latestDate, end])
 
   const resetConfigFromDetail = (detail: StrategyDetail) => {
     setStrategyParams(strategyDefaultParams(detail))
@@ -1064,6 +1073,10 @@ export function StrategyBacktest() {
 
   const handleRun = () => {
     if (!selectedStrategy || backtestDataUnavailable) return
+    if (endExceedsAvailableData) {
+      toast(`结束日期超出${backtestDataLabel}截止日 ${latestDate}，请调整后再运行。`, 'error')
+      return
+    }
     const requestOverrides = detail
       ? normalizeStrategyOverrides(detail, overrides)
       : overrides
@@ -1121,20 +1134,20 @@ export function StrategyBacktest() {
 
   const applyRange = (months: number) => {
     setStart(monthsAgo(months))
-    setEnd(formatDate(new Date()))
+    setEnd(suggestedEndDate)
   }
 
   const applyAllRange = () => {
     setStart(earliestDate ?? '')
-    setEnd(formatDate(new Date()))
+    setEnd(suggestedEndDate)
   }
 
   // 进入页面/还在加载时就点了"全部": earliestDate 就绪后回填, 让 DatePicker 显示真实起始日
   useEffect(() => {
-    if (earliestDate && start === '' && end === TODAY) {
+    if (earliestDate && start === '' && end === suggestedEndDate) {
       setStart(earliestDate)
     }
-  }, [earliestDate, start, end])
+  }, [earliestDate, suggestedEndDate, start, end])
 
   const applyQuickRange = (range: QuickRangeConfig) => {
     if (range.unit === 'all') {
@@ -1163,8 +1176,8 @@ export function StrategyBacktest() {
 
   const visibleQuickRanges = quickRanges.filter(range => range.enabled)
   const matchedQuickRange = visibleQuickRanges.find(range => range.unit === 'all'
-    ? end === TODAY && (start === earliestDate || start === '')
-    : end === TODAY && start === monthsAgo(quickRangeMonths(range))
+    ? end === suggestedEndDate && (start === earliestDate || start === '')
+    : end === suggestedEndDate && start === monthsAgo(quickRangeMonths(range))
   )
   const rangeKey = matchedQuickRange?.id ?? 'custom'
   const rangeTitle = matchedQuickRange ? quickRangeTitle(matchedQuickRange) : '自定义区间'
@@ -1488,11 +1501,18 @@ export function StrategyBacktest() {
                 value={end}
                 onChange={setEnd}
                 min={start || undefined}
+                max={latestDate ?? undefined}
                 className="w-full"
                 buttonClassName="w-full justify-start"
               />
             </div>
           </div>
+
+          {latestDate && (
+            <p className="mt-1.5 text-[10px] text-muted">
+              回测数据截至 {latestDate}（仅已完成指标计算的交易日可回测）
+            </p>
+          )}
 
           <div className="mt-2 flex items-center gap-1">
             <SegmentedControl
@@ -1680,6 +1700,13 @@ export function StrategyBacktest() {
           </div>
         )}
 
+        {endExceedsAvailableData && (
+          <div className="flex items-start gap-1.5 rounded-btn border border-danger/30 bg-danger/10 px-3 py-2 text-[11px] leading-4 text-danger">
+            <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+            <span>结束日期超出{backtestDataLabel}截止日 {latestDate}，请调整后再运行。</span>
+          </div>
+        )}
+
         {isPending ? (
           <Button
             fullWidth
@@ -1698,7 +1725,7 @@ export function StrategyBacktest() {
             variant="gradient"
             gradient={{ from: 'accent', to: 'blue', deg: 90 }}
             onClick={handleRun}
-            disabled={!selectedStrategy || strategyDetail.isLoading || backtestDataUnavailable}
+            disabled={!selectedStrategy || strategyDetail.isLoading || backtestDataUnavailable || endExceedsAvailableData}
             leftSection={<Play className="h-3.5 w-3.5 fill-current" />}
             className="shadow-[0_10px_24px_rgba(59,130,246,0.22)]"
           >
