@@ -403,6 +403,7 @@ export interface KlineRow {
   low: number
   close: number
   volume?: number
+  turnover_rate?: number | null
   change_pct?: number
   ma5?: number | null
   ma20?: number | null

@@ -10,6 +10,7 @@ export interface OHLC {
   low: number
   close: number
   volume?: number
+  turnover_rate?: number | null
   ma5?: number | null
   ma10?: number | null
   ma20?: number | null
@@ -885,7 +886,9 @@ export function EChartsCandlestick({
     const isUp = chg >= 0
     const clr = isUp ? THEME.bull : THEME.bear
     const floatShares = stockInfo?.float_shares
-    const turnoverRate = floatShares && d.volume ? (d.volume * 100 / floatShares * 100) : null
+    const turnoverRate = d.turnover_rate != null
+      ? d.turnover_rate
+      : floatShares && d.volume ? (d.volume * 100 / floatShares * 100) : null
 
     let html = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;font:11px 'JetBrains Mono',monospace;select:none;height:20px;flex-wrap:wrap">`
     html += `<span style="color:${CT().text}">${d.date}</span>`
@@ -1121,7 +1124,9 @@ export function EChartsCandlestick({
     const d = idx >= 0 && idx < data.length ? data[idx] : null
     if (!d) return ''
     const floatShares = stockInfo?.float_shares
-    const turnoverRate = floatShares && d.volume ? (d.volume * 100 / floatShares * 100) : null
+    const turnoverRate = d.turnover_rate != null
+      ? d.turnover_rate
+      : floatShares && d.volume ? (d.volume * 100 / floatShares * 100) : null
     let html = `<div style="display:flex;align-items:center;gap:6px;padding:0 8px;font:11px 'JetBrains Mono',monospace;height:20px;flex-wrap:wrap">`
     html += `<span style="color:${CT().text}">${d.date}</span>`
     html += `<span style="color:${CT().text}">开</span>`
