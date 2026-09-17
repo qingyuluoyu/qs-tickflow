@@ -30,6 +30,7 @@ from app.services.stock_analyzer import _KLINE_KEEP_COLS, _load_kline
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 80
+EMPTY_FINAL_ANSWER_MESSAGE = "AI 服务未返回可用正文，请稍后重试"  # noqa: RUF001
 # Keep enough recent turns for continuity while leaving room for the injected
 # page data, tool definitions and the model's output budget.  The API accepts
 # larger browser histories, but sending all of them can exceed provider context
@@ -221,14 +222,24 @@ async def run_chat_stream(
     request_messages = _messages_with_context(messages, context, stock_context)
     full: list[str] = []
     try:
-        async for chunk in stream_ai_text(request_messages, temperature=0.5, max_tokens=4000, timeout=180.0):
+        async for chunk in stream_ai_text(
+            request_messages,
+            temperature=0.5,
+            max_tokens=4000,
+            timeout=180.0,
+            disable_thinking=True,
+        ):
             if chunk:
                 full.append(chunk)
                 yield {"type": "delta", "text": chunk}
     except Exception as exc:  # noqa: BLE001
         yield {"type": "error", "message": str(exc)}
         return
-    yield {"type": "done", "content": "".join(full), "rounds": 1}
+    answer = "".join(full)
+    if not answer.strip():
+        yield {"type": "error", "message": EMPTY_FINAL_ANSWER_MESSAGE}
+        return
+    yield {"type": "done", "content": answer, "rounds": 1}
 
 
 async def run_chat_tools_stream(
@@ -267,7 +278,14 @@ async def run_chat_tools_stream(
         round_finish_reason = "stop"
         try:
             tool_calls: list[dict[str, str]] = []
-            async for event in stream_ai_text_with_tools(working, TOOLS, temperature=0.5, max_tokens=4000, timeout=180.0):
+            async for event in stream_ai_text_with_tools(
+                working,
+                TOOLS,
+                temperature=0.5,
+                max_tokens=4000,
+                timeout=180.0,
+                disable_thinking=True,
+            ):
                 if event.get("type") == "delta":
                     text = str(event.get("text") or "")
                     if text:
@@ -284,6 +302,12 @@ async def run_chat_tools_stream(
 
         if not tool_calls:
             truncated = round_finish_reason not in {"stop", "end_turn", "eos"}
+            # A normal stop with no user-visible text is a false success.  Keep
+            # the established incomplete-completion contract for an explicit
+            # upstream truncation so callers can distinguish the two cases.
+            if not "".join(round_text).strip() and not truncated:
+                yield {"type": "error", "message": EMPTY_FINAL_ANSWER_MESSAGE}
+                return
             yield {
                 "type": "done",
                 "content": "".join(full),

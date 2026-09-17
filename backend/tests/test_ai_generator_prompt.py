@@ -74,3 +74,21 @@ async def test_generate_only_repairs_structural_output_once(monkeypatch):
     assert calls == 2
     assert result["valid"] is False
     assert "找不到 META 字典" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_generator_disables_thinking_for_code_generation(monkeypatch):
+    from app.services import ai_provider
+
+    received: dict = {}
+
+    async def fake_generate(*_args, **kwargs):
+        received.update(kwargs)
+        return "```python\nMETA = {'id': 'test'}\n```"
+
+    monkeypatch.setattr(ai_provider, "generate_ai_text", fake_generate)
+
+    result = await AIStrategyGenerator()._call_llm("生成测试策略", "指南")
+
+    assert received["disable_thinking"] is True
+    assert result == "META = {'id': 'test'}"

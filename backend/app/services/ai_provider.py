@@ -238,8 +238,9 @@ async def generate_ai_text(
     temperature: float | None = 0.3,
     max_tokens: int = 3000,
     timeout: float = 180.0,
+    disable_thinking: bool = False,
 ) -> str:
-    """Return a complete AI response from the currently configured provider."""
+    """Return a complete user-visible AI response from the configured provider."""
     if is_codex_cli_provider():
         return await _run_codex_cli(messages, max_tokens=max_tokens, timeout=max(timeout, 600.0))
     return await _run_openai_once(
@@ -247,6 +248,7 @@ async def generate_ai_text(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        disable_thinking=disable_thinking,
     )
 
 
@@ -379,6 +381,7 @@ async def stream_ai_text_with_tools(
     temperature: float | None = 0.5,
     max_tokens: int = 4000,
     timeout: float = 180.0,
+    disable_thinking: bool = False,
 ) -> AsyncIterator[dict[str, Any]]:
     """Stream one OpenAI-compatible round, including accumulated tool calls.
 
@@ -389,7 +392,11 @@ async def stream_ai_text_with_tools(
     """
     if is_codex_cli_provider():
         async for chunk in stream_ai_text(
-            messages, temperature=temperature, max_tokens=max_tokens, timeout=timeout,
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            disable_thinking=disable_thinking,
         ):
             if chunk:
                 yield {"type": "delta", "text": chunk}
@@ -408,13 +415,19 @@ async def stream_ai_text_with_tools(
         **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
         "stream": True,
     }
-    try:
-        stream = await client.chat.completions.create(**request_kwargs)
-    except Exception as exc:
-        if temperature is not None and _is_temperature_rejected(exc):
-            request_kwargs.pop("temperature", None)
+    if disable_thinking:
+        request_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    while True:
+        try:
             stream = await client.chat.completions.create(**request_kwargs)
-        else:
+            break
+        except Exception as exc:
+            if "temperature" in request_kwargs and _is_temperature_rejected(exc):
+                request_kwargs.pop("temperature", None)
+                continue
+            if "extra_body" in request_kwargs and _is_bad_request(exc):
+                request_kwargs.pop("extra_body", None)
+                continue
             if _is_openai_transport_error(exc):
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
@@ -473,6 +486,7 @@ async def _run_openai_once(
     temperature: float | None,
     max_tokens: int,
     timeout: float,
+    disable_thinking: bool,
 ) -> str:
     profile = resolve_current_profile()
     if not profile.api_key:
@@ -481,31 +495,39 @@ async def _run_openai_once(
     client = _openai_client(profile, timeout)
     model = profile.model
     req_messages = list(messages)
-    try:
-        resp = await client.chat.completions.create(
-            model=model,
-            messages=req_messages,
-            **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
-        )
-    except Exception as exc:
-        # Reasoning 类模型 (如 kimi-k2.7-code, deepseek-r1, o 系列) 拒绝非约定
-        # temperature (Moonshot 报 "only 1 is allowed for this model")。不再靠
-        # 模型名猜测, 而是捕获该错误后去掉 temperature 重试一次 —— 对所有此类模型都稳。
-        if temperature is not None and _is_temperature_rejected(exc):
-            resp = await client.chat.completions.create(
-                model=model,
-                messages=req_messages,
-                **_openai_kwargs(temperature=None, max_tokens=max_tokens),
-            )
-        else:
+    request_kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": req_messages,
+        **_openai_kwargs(temperature=temperature, max_tokens=max_tokens),
+    }
+    if disable_thinking:
+        # Hidden reasoning can consume the entire output budget, leaving no user
+        # answer.  Providers that do not support this optional field fall back
+        # below without reducing compatibility.
+        request_kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
+    while True:
+        try:
+            resp = await client.chat.completions.create(**request_kwargs)
+            break
+        except Exception as exc:
+            # Reasoning models can reject a non-default temperature.  Retry the
+            # request without one, and separately retry without the optional
+            # thinking field when a compatible endpoint rejects it.
+            if "temperature" in request_kwargs and _is_temperature_rejected(exc):
+                request_kwargs.pop("temperature", None)
+                continue
+            if "extra_body" in request_kwargs and _is_bad_request(exc):
+                request_kwargs.pop("extra_body", None)
+                continue
             if _is_openai_transport_error(exc):
                 raise RuntimeError(_format_openai_error(exc)) from exc
             raise
     if not resp.choices:
         return ""
     msg = resp.choices[0].message
-    # 推理模型将内容放在 reasoning,content 可能为空。
-    return (msg.content or getattr(msg, "reasoning", "") or "").strip()
+    # Hidden reasoning is never a user-visible answer.  The caller can report
+    # an empty completion explicitly instead of exposing internal model text.
+    return str(getattr(msg, "content", None) or "").strip()
 
 
 async def _stream_openai(
@@ -586,7 +608,9 @@ async def _stream_openai(
             delta = chunk.choices[0].delta if chunk.choices else None
             if not delta:
                 continue
-            text = delta.content or getattr(delta, "reasoning", "") or ""
+            # Keep chain-of-thought on the structured event path only; callers
+            # of this text-only API must never render it as the final answer.
+            text = getattr(delta, "content", None) or ""
             if text:
                 yield text
     except Exception as exc:

@@ -197,6 +197,7 @@ class AIStrategyGenerator:
             ],
             temperature=0.3,
             max_tokens=3000,
+            disable_thinking=True,
         ):
             yield chunk
 
@@ -396,6 +397,7 @@ META = {{...}}，{entrypoint_requirement}。只输出完整 Python 代码。
             ],
             temperature=0.3,
             max_tokens=3000,
+            disable_thinking=True,
         )
         return self._extract_code_block(content)
 

@@ -29,6 +29,10 @@ router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 logger = logging.getLogger(__name__)
 _USER_STRATEGY_SOURCES = ("custom", "ai", "composite")
 
+
+class EmptyAiResponse(RuntimeError):  # noqa: N818
+    """Raised when an AI request ends without a user-visible response body."""
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -744,7 +748,10 @@ async def ai_test(request: Request):
             temperature=0,
             max_tokens=8,
             timeout=15,
+            disable_thinking=True,
         )
+        if not text.strip():
+            raise EmptyAiResponse("AI 服务未返回可用正文，请稍后重试")  # noqa: RUF001
         return {"ok": True, "model": current_ai_model() or current_ai_provider(), "response": text[:80]}
     except Exception as e:
         return {

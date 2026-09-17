@@ -120,6 +120,83 @@ async def test_tool_stream_preserves_reasoning_content_for_follow_up_round(monke
 
 
 @pytest.mark.asyncio
+async def test_tool_stream_disables_thinking_when_the_caller_requests_final_text(monkeypatch):
+    client, completions = _fake_client([[
+        _tool_chunk(finish_reason="stop"),
+    ]])
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    events = [event async for event in ai_provider.stream_ai_text_with_tools(
+        [{"role": "user", "content": "查行情"}], [{"type": "function"}],
+        max_tokens=100,
+        disable_thinking=True,
+    )]
+
+    assert events[-1]["type"] == "round_done"
+    assert completions.calls[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+@pytest.mark.asyncio
+async def test_tool_stream_retries_without_optional_thinking_parameter(monkeypatch):
+    class BadRequestError(Exception):
+        status_code = 400
+
+    class FakeCompletions:
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        async def create(self, **kwargs):
+            self.calls.append(kwargs)
+            if "extra_body" in kwargs:
+                raise BadRequestError("unknown thinking parameter")
+            return _FakeStream([_tool_chunk(finish_reason="stop")])
+
+    completions = FakeCompletions()
+    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    events = [event async for event in ai_provider.stream_ai_text_with_tools(
+        [{"role": "user", "content": "查行情"}], [{"type": "function"}],
+        max_tokens=100,
+        disable_thinking=True,
+    )]
+
+    assert events[-1]["type"] == "round_done"
+    assert "extra_body" in completions.calls[0]
+    assert "extra_body" not in completions.calls[1]
+
+
+@pytest.mark.asyncio
+async def test_text_stream_never_emits_hidden_reasoning_as_answer(monkeypatch):
+    client, _ = _fake_client([[
+        _chunk(reasoning="private chain of thought"),
+        _chunk(content="final answer", finish_reason="stop"),
+    ]])
+    profile = SimpleNamespace(
+        provider="openai_compat", api_key="test", model="test-model",
+        base_url="https://example.com", user_agent="",
+    )
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    chunks = [chunk async for chunk in ai_provider.stream_ai_text(
+        [{"role": "user", "content": "问题"}], max_tokens=100,
+    )]
+
+    assert chunks == ["final answer"]
+
+
+@pytest.mark.asyncio
 async def test_chat_tool_round_replays_reasoning_content(monkeypatch, tmp_path):
     from app.services import chat
 

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import tomllib
+from types import SimpleNamespace
 
 import httpx
 import openai
+import pytest
 
 from app.services import ai_provider
 from app.services.ai_provider import (
@@ -143,6 +145,87 @@ def test_is_temperature_rejected_false_for_non_400():
     )
     exc = openai.AuthenticationError("unauthorized", response=response, body=None)
     assert _is_temperature_rejected(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_nonstream_response_disables_thinking_and_never_returns_hidden_reasoning(monkeypatch):
+    """A hidden chain of thought is not a valid response body."""
+    calls: list[dict] = []
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(
+                    message=SimpleNamespace(content=None, reasoning_content="internal reasoning"),
+                )],
+            )
+
+    profile = SimpleNamespace(
+        provider="openai_compat",
+        api_key="test-key",
+        model="test-model",
+        base_url="https://example.com/v1",
+        user_agent="",
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    answer = await ai_provider.generate_ai_text(
+        [{"role": "user", "content": "Reply exactly: OK"}],
+        temperature=None,
+        max_tokens=32,
+        disable_thinking=True,
+    )
+
+    assert answer == ""
+    assert calls == [{
+        "model": "test-model",
+        "messages": [{"role": "user", "content": "Reply exactly: OK"}],
+        "max_tokens": 32,
+        "extra_body": {"thinking": {"type": "disabled"}},
+    }]
+
+
+@pytest.mark.asyncio
+async def test_nonstream_response_retries_without_optional_thinking_parameter(monkeypatch):
+    """Providers that reject the optional thinking flag retain a compatible path."""
+    calls: list[dict] = []
+
+    class BadRequestError(Exception):
+        status_code = 400
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                raise BadRequestError("unknown thinking parameter")
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="OK", reasoning=""))],
+            )
+
+    profile = SimpleNamespace(
+        provider="openai_compat",
+        api_key="test-key",
+        model="test-model",
+        base_url="https://example.com/v1",
+        user_agent="",
+    )
+    client = SimpleNamespace(chat=SimpleNamespace(completions=FakeCompletions()))
+    monkeypatch.setattr(ai_provider, "resolve_current_profile", lambda: profile)
+    monkeypatch.setattr(ai_provider, "_openai_client", lambda _profile, _timeout: client)
+
+    answer = await ai_provider.generate_ai_text(
+        [{"role": "user", "content": "Reply exactly: OK"}],
+        temperature=None,
+        max_tokens=32,
+        disable_thinking=True,
+    )
+
+    assert answer == "OK"
+    assert "extra_body" in calls[0]
+    assert "extra_body" not in calls[1]
 
 
 def test_codex_process_env_excludes_application_secrets(monkeypatch, tmp_path):
