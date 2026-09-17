@@ -596,6 +596,14 @@ export function Dashboard() {
   const snapshotStale = isLatestSnapshot && (freshness?.is_stale ?? (!!snapshotDate && snapshotDate < beijingDate()))
   // 对外只展示数据新鲜度，不暴露具体供应商或内部路由名称。
   const sourceLabel = freshness?.source === 'sina' ? '盘中快照' : '行情服务'
+  const isVerifiedDaily = freshness?.snapshot_kind?.endsWith('.daily') && !snapshotStale
+  const sourceStatusLabel = isVerifiedDaily
+    ? `收盘日线 · 截至 ${effectiveLatestDate ?? '—'}`
+    : snapshotStale
+      ? `${sourceLabel} 未返回有效交易日快照`
+      : quoteRunning
+        ? runningLabel
+        : '实时行情未接入'
   const realtimeUnavailable = freshness?.source === 'teajoin' && ['empty', 'unverified_date', 'provider_unavailable', 'error', 'never'].includes(realtimeStatus ?? '')
   // 实时模式: none / watchlist / full_market。
   // watchlist (Free 档) 仅自选 ≤5 只实时, 看板呈现的大盘数据实为盘后快照, 需提示避免误读。
@@ -642,10 +650,10 @@ export function Dashboard() {
             )}
             <span className="flex items-center gap-1"><Timer className="h-3 w-3" />{quoteAge(data.quote_status?.quote_age_ms)}</span>
             <span className="hidden" aria-hidden="true">
-              {snapshotStale ? '数据过期' : quoteRunning ? runningLabel : '非实时'}
+              {sourceStatusLabel}
             </span>
-            <span className={snapshotStale ? 'text-danger' : quoteRunning ? 'text-accent' : 'text-warning'}>
-              {snapshotStale ? (realtimeUnavailable ? `${sourceLabel} 未返回今日快照` : '数据过期') : quoteRunning ? runningLabel : '非实时'}
+            <span className={isVerifiedDaily || quoteRunning ? 'text-accent' : snapshotStale ? 'text-danger' : 'text-warning'}>
+              {sourceStatusLabel}
             </span>
             <Button
               size="xs"
