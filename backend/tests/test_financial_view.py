@@ -1,7 +1,9 @@
 import polars as pl
 
 from app.api import financials as financials_api
+from app.services import financial_view
 from app.services.financial_analyzer import _load_stock_financials
+from app.services.financial_sync import _write_table
 from app.services.financial_view import (
     load_financial_frame,
     normalize_financial_frame,
@@ -182,3 +184,103 @@ def test_financial_analyzer_reads_canonical_periods_from_teajoin_rows(tmp_path):
 
     assert result["income"][0]["period_end"] == "20240630"
     assert result["income"][0]["net_income"] == 8.0
+
+
+def test_preferred_provider_financial_read_uses_bounded_cache(tmp_path, monkeypatch):
+    class Provider:
+        name = "cache-test-provider"
+
+        def __init__(self):
+            self.calls = 0
+
+        def get_financials(self, table, symbols, latest_only=True):
+            self.calls += 1
+            return pl.DataFrame({
+                "symbol": symbols,
+                "end_date": ["20260630"],
+                "ann_date": ["20260820"],
+                "n_income": [float(self.calls)],
+            })
+
+    now = {"value": 1_000.0}
+    monkeypatch.setattr(financial_view.time, "monotonic", lambda: now["value"])
+    financial_view.invalidate_provider_financial_cache()
+    provider = Provider()
+
+    try:
+        first = load_financial_frame(
+            tmp_path,
+            "income",
+            "000001.SZ",
+            latest_only=False,
+            provider_factory=lambda: provider,
+            prefer_provider=True,
+        )
+        second = load_financial_frame(
+            tmp_path,
+            "income",
+            "000001.SZ",
+            latest_only=False,
+            provider_factory=lambda: provider,
+            prefer_provider=True,
+        )
+
+        assert provider.calls == 1
+        assert first is not second
+        assert second["net_income"].to_list() == [1.0]
+
+        now["value"] += 301.0
+        refreshed = load_financial_frame(
+            tmp_path,
+            "income",
+            "000001.SZ",
+            latest_only=False,
+            provider_factory=lambda: provider,
+            prefer_provider=True,
+        )
+
+        assert provider.calls == 2
+        assert refreshed["net_income"].to_list() == [2.0]
+    finally:
+        financial_view.invalidate_provider_financial_cache()
+
+
+def test_financial_write_invalidates_matching_preferred_provider_cache(tmp_path, monkeypatch):
+    class Provider:
+        name = "write-invalidation-provider"
+
+        def __init__(self):
+            self.calls = 0
+
+        def get_financials(self, table, symbols, latest_only=True):
+            self.calls += 1
+            return pl.DataFrame({
+                "symbol": symbols,
+                "end_date": ["20260630"],
+                "n_income": [float(self.calls)],
+            })
+
+    monkeypatch.setattr(financial_view.time, "monotonic", lambda: 1_000.0)
+    financial_view.invalidate_provider_financial_cache()
+    provider = Provider()
+
+    try:
+        load_financial_frame(
+            tmp_path,
+            "income",
+            "000001.SZ",
+            provider_factory=lambda: provider,
+            prefer_provider=True,
+        )
+        _write_table("income", pl.DataFrame({"symbol": ["000001.SZ"]}), tmp_path)
+        load_financial_frame(
+            tmp_path,
+            "income",
+            "000001.SZ",
+            provider_factory=lambda: provider,
+            prefer_provider=True,
+        )
+
+        assert provider.calls == 2
+    finally:
+        financial_view.invalidate_provider_financial_cache()

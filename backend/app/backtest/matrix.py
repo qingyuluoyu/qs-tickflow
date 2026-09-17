@@ -892,9 +892,11 @@ def _resolve_matrix_storage_fields(
     if "raw_close" in wanted_fields:
         matrix_fields.add("raw_close")
     if "turnover_rate" in wanted_fields:
+        # Historical turnover must come from the date-aligned enriched row.
+        # A current instruments.float_shares value would leak future share-capital
+        # changes into a historical backtest, so an absent physical field remains
+        # unavailable for the strategy-level data-quality preflight.
         matrix_fields.add("turnover_rate")
-        if "turnover_rate" not in parquet_fields and "float_shares" in instrument_columns:
-            vector_fields.add("float_shares")
     if "price_limit_pct" in wanted_fields:
         matrix_fields.add("price_limit_pct")
     resolved = matrix_fields | vector_fields
@@ -1368,8 +1370,6 @@ def _populate_matrix_derived_arrays(
     vector_fields: list[str],
 ) -> tuple[list[str], Mapping[str, np.ndarray]]:
     instrument_wanted = set(wanted_fields)
-    if "turnover_rate" in wanted_fields and "turnover_rate" not in fields:
-        instrument_wanted.add("float_shares")
     names, instrument_fields, latest_limits = _instrument_axis_values(
         actual_symbols,
         instrument_wanted,
@@ -1388,42 +1388,7 @@ def _populate_matrix_derived_arrays(
             np.copyto(fields[name], values, where=seen)
     if "raw_close" in wanted_fields and "raw_close" not in parquet_fields:
         np.copyto(fields["raw_close"], arrays["close"])
-    if "turnover_rate" in wanted_fields and "turnover_rate" not in parquet_fields:
-        float_shares = fields.get("float_shares")
-        if float_shares is None:
-            raise ValueError("matrix turnover_rate requires float_shares")
-        _write_turnover_rate_matrix(
-            fields["turnover_rate"],
-            arrays["volume"],
-            float_shares,
-        )
     return names, latest_limits
-
-
-def _write_turnover_rate_matrix(
-    target: np.ndarray,
-    volume: np.ndarray,
-    float_shares: np.ndarray,
-) -> None:
-    shares = (
-        float_shares
-        if float_shares.ndim == 2
-        else np.broadcast_to(float_shares.reshape(1, -1), volume.shape)
-    )
-    rows_per_chunk = max(1, (32 * 1024 * 1024) // max(1, volume.shape[1] * 4))
-    for start in range(0, volume.shape[0], rows_per_chunk):
-        stop = min(volume.shape[0], start + rows_per_chunk)
-        out = target[start:stop]
-        np.multiply(volume[start:stop], np.float32(10_000.0), out=out)
-        shares_chunk = shares[start:stop]
-        valid = np.isfinite(shares_chunk) & (shares_chunk != 0)
-        np.divide(
-            out,
-            shares_chunk,
-            out=out,
-            where=valid,
-        )
-        out[~valid] = np.nan
 
 
 def _write_tradable_matrix(

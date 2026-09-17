@@ -6,6 +6,7 @@ import { Play, FlaskConical, Clock, Loader2, Square, Search, Plus, X, SlidersHor
 import {
   api,
   type StrategyBacktestResult,
+  type StrategyBacktestDataQuality,
   type StrategyBacktestTrade,
   type StrategyDetail,
   type StrategyParamDef,
@@ -1324,6 +1325,16 @@ export function StrategyBacktest() {
   const resultStartDate = result?.config?.start ?? result?.equity_curve?.[0]?.date ?? start
   const resultEndDate = result?.config?.end ?? result?.equity_curve?.[result.equity_curve.length - 1]?.date ?? end
   const resultTradeDays = result?.equity_curve?.length ?? 0
+  const dataQuality = (
+    result?.stats?.data_quality ?? backtestTask?.dataQuality
+  ) as StrategyBacktestDataQuality | undefined
+  const isVerifiedNoSignal = Boolean(
+    result
+    && !result.error
+    && Number(result.stats?.n_trades ?? result.trades.length) === 0
+    && dataQuality
+    && dataQuality.turnover_rate !== 'missing',
+  )
   const selectionStats = result?.stats?.selection as Record<string, number | boolean> | undefined
   const selectionStages = selectionStats
     ? [
@@ -1810,6 +1821,11 @@ export function StrategyBacktest() {
         {backtestTask?.error && (
           <div className="text-sm text-danger bg-danger/10 border border-danger/30 rounded-btn px-3 py-2">
             <div>{backtestTask.error}</div>
+            {dataQuality && (
+              <div className="mt-1 text-xs text-secondary">
+                数据覆盖 {dataQuality.covered_start ?? '—'} ~ {dataQuality.covered_end ?? '—'} · 标的 {dataQuality.symbols_loaded}/{dataQuality.symbols_requested}
+              </div>
+            )}
             {result && (
               <div className="mt-1 text-xs text-secondary">本次回测未生成新结果，下方仍展示上一次成功结果。</div>
             )}
@@ -2042,6 +2058,23 @@ export function StrategyBacktest() {
                 {Number(selectionStats?.entry_trigger_filtered ?? 0) > 0 && (
                   <span className="ml-auto text-amber-400">入场触发器过滤 {Number(selectionStats?.entry_trigger_filtered)} 个</span>
                 )}
+              </div>
+            )}
+
+            {dataQuality && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-card border border-border bg-base/35 px-3 py-2 text-[11px] text-secondary">
+                <span className="font-medium text-foreground">数据覆盖</span>
+                <span>{dataQuality.covered_start ?? '—'} ~ {dataQuality.covered_end ?? '—'}</span>
+                <span>标的 <b className="font-mono text-foreground">{dataQuality.symbols_loaded}/{dataQuality.symbols_requested}</b></span>
+                {dataQuality.turnover_rate && (
+                  <span>历史换手率 {dataQuality.turnover_rate === 'complete' ? '完整' : dataQuality.turnover_rate === 'not_required' ? '未要求' : '缺失'}</span>
+                )}
+              </div>
+            )}
+
+            {isVerifiedNoSignal && (
+              <div className="rounded-card border border-accent/25 bg-accent/[0.06] px-3 py-2 text-xs text-secondary">
+                本次条件下没有入场信号；数据覆盖已校验
               </div>
             )}
 

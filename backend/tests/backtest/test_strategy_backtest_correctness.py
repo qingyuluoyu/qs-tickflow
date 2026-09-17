@@ -198,6 +198,71 @@ def test_position_backtest_with_no_candidates_returns_successful_zero_trade_resu
     assert result.error is None
     assert result.trades == []
     assert result.stats["selection"]["entry_candidates"] == 0
+    assert result.stats["data_quality"] == {
+        "asset_type": "stock",
+        "requested_start": "2024-01-01",
+        "requested_end": "2024-01-03",
+        "covered_start": "2024-01-01",
+        "covered_end": "2024-01-03",
+        "symbols_requested": 1,
+        "symbols_loaded": 1,
+        "turnover_rate": "not_required",
+    }
+
+
+def test_matrix_backtest_rejects_missing_required_historical_turnover():
+    start = date(2024, 1, 1)
+    panel = pl.DataFrame([
+        {
+            "symbol": "A",
+            "name": "A",
+            "date": start + timedelta(days=offset),
+            "open": 10.0,
+            "high": 10.0,
+            "low": 10.0,
+            "close": 10.0,
+            "volume": 1_000.0,
+            "amount": 10_000.0,
+            "raw_close": 10.0,
+            "raw_high": 10.0,
+            "signal_limit_up": False,
+            "signal_limit_down": False,
+        }
+        for offset in range(2)
+    ])
+
+    class TurnoverStrategy:
+        def required_fields(self):
+            return frozenset({"open", "high", "low", "close", "volume", "turnover_rate"})
+
+        def required_warmup_bars(self, params):
+            return 1
+
+        def compute_signals(self, market, params):
+            return make_signal_matrix(market.shape, entry=np.ones(market.shape, dtype=np.uint8))
+
+    engine = _EngineStub(panel)
+    strategy = _strategy(
+        meta={"id": "turnover", "name": "turnover", "scoring": {}, "params": [], "limit": 100},
+        basic_filter={"enabled": False},
+        filter_fn=None,
+        execution_backend="matrix_native",
+        matrix_strategy=TurnoverStrategy(),
+    )
+    service = StrategyBacktestService(engine=engine, strategy_engine=_StrategyEngineStub(strategy))
+
+    result = service.run(StrategyBacktestConfig(
+        strategy_id="turnover",
+        symbols=["A"],
+        start=start,
+        end=start + timedelta(days=1),
+        matching="close_t",
+        mode="position",
+    ))
+
+    assert result.error == "回测数据缺少历史换手率" "\N{FULLWIDTH COMMA}无法按当前条件计算"
+    assert result.trades == []
+    assert result.stats["data_quality"]["turnover_rate"] == "missing"
 
 
 def test_selection_stats_explain_entry_trigger_filtering():

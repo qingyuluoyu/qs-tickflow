@@ -3,16 +3,16 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+from datetime import date, datetime
 
 import polars as pl
-from fastapi import Depends, APIRouter, HTTPException, Query, Request
-
-from app.api.deps import require_admin
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.services import ai_reports
-from app.services import server_preferences
+from app.api.deps import require_admin
+from app.services import ai_reports, server_preferences
 from app.services.financial_analyzer import analyze_financials_stream
 from app.services.financial_sync import FINANCIAL_TABLES, get_financial_df
 from app.services.financial_view import load_financial_frame, search_financial_symbols
@@ -21,6 +21,60 @@ from app.tickflow.capabilities import Cap
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
+
+
+def _empty_table_status() -> dict[str, int | str | None]:
+    return {
+        "rows": 0,
+        "symbols": 0,
+        "latest_period_end": None,
+        "latest_announce_date": None,
+    }
+
+
+def _financial_date_value(value: object) -> tuple[str, str] | None:
+    """Return a validated sortable date and its source representation.
+
+    Status must show source dates as supplied, never manufacture a period from a
+    sync timestamp or another unrelated field.
+    """
+    if isinstance(value, datetime):
+        text = value.date().isoformat()
+    elif isinstance(value, date):
+        text = value.isoformat()
+    else:
+        text = str(value).strip()
+
+    if re.fullmatch(r"\d{8}", text):
+        try:
+            datetime.strptime(text, "%Y%m%d")
+        except ValueError:
+            return None
+        return text, text
+
+    candidate = text[:10]
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
+        try:
+            parsed = date.fromisoformat(candidate)
+        except ValueError:
+            return None
+        return parsed.strftime("%Y%m%d"), text
+    return None
+
+
+def _latest_financial_date(frame: pl.DataFrame, column: str | None) -> str | None:
+    if column is None or column not in frame.columns:
+        return None
+    dates = [
+        parsed
+        for value in frame.get_column(column).drop_nulls().to_list()
+        if (parsed := _financial_date_value(value)) is not None
+    ]
+    return max(dates, default=None, key=lambda item: item[0])[1] if dates else None
+
+
+def _first_column(columns: set[str], candidates: tuple[str, ...]) -> str | None:
+    return next((column for column in candidates if column in columns), None)
 
 
 def _financial_allowed(capset) -> bool:
@@ -60,15 +114,25 @@ def financial_status(request: Request):
         path = data_dir / "financials" / table / "part.parquet"
         if path.exists():
             try:
-                df = pl.read_parquet(path, columns=["symbol"])
+                schema = pl.read_parquet_schema(path)
+                columns = set(schema)
+                period_column = _first_column(columns, ("period_end", "end_date", "trade_date"))
+                announce_column = _first_column(columns, ("announce_date", "ann_date"))
+                selected = ["symbol"]
+                for column in (period_column, announce_column):
+                    if column is not None and column not in selected:
+                        selected.append(column)
+                df = pl.read_parquet(path, columns=selected)
                 tables[table] = {
                     "rows": len(df),
                     "symbols": df["symbol"].n_unique() if not df.is_empty() else 0,
+                    "latest_period_end": _latest_financial_date(df, period_column),
+                    "latest_announce_date": _latest_financial_date(df, announce_column),
                 }
             except Exception:
-                tables[table] = {"rows": 0, "symbols": 0}
+                tables[table] = _empty_table_status()
         else:
-            tables[table] = {"rows": 0, "symbols": 0}
+            tables[table] = _empty_table_status()
 
     fs = getattr(request.app.state, "financial_scheduler", None)
     last_sync = fs.last_sync if fs else {}

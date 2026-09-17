@@ -2,6 +2,8 @@
 # 见 ADR-17 / §8.1。
 services:
   app:
+    # 默认开发标签；生产发布必须由流水线/操作员显式指定不可变的提交标签。
+    image: ${IMAGE_TAG:-tickflow-stock-panel:dev}
     build:
       context: .
       dockerfile: Dockerfile
@@ -11,7 +13,8 @@ services:
         UV_VERSION: ${UV_VERSION:-0.8.24}
     container_name: TickFlow_Stock_Panel
     ports:
-      - "${PORT:-3018}:3018"
+      # 仅供本机 Nginx 反向代理和 SSH 隧道访问；不得把应用端口直接暴露到公网。
+      - "127.0.0.1:${PORT:-3018}:3018"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:

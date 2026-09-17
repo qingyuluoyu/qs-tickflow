@@ -10,6 +10,7 @@ import logging
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 import polars as pl
 
 from app.tickflow.capabilities import Cap, CapabilitySet
@@ -72,8 +73,8 @@ def _fetch_table(
 
     # 自定义数据源分流
     if is_custom:
-        from app.services import preferences
         from app.data_providers import custom as custom_sources
+        from app.services import preferences
         try:
             provider = custom_sources.get_provider(preferences.get_financial_provider())
             logger.info(
@@ -164,6 +165,12 @@ def _write_table(table: str, df: pl.DataFrame, data_dir: Path) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_file = out_dir / "part.parquet"
     df.write_parquet(out_file)
+
+    # Read-side provider snapshots are only a short-lived latency optimization.
+    # Once a durable table changes, discard only that table's remote snapshots so
+    # subsequent analysis and UI reads cannot keep serving a superseded report.
+    from app.services.financial_view import invalidate_provider_financial_cache
+    invalidate_provider_financial_cache(table)
 
     logger.info("sync_%s done: %d records written", table, len(df))
     return len(df)

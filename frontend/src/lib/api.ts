@@ -113,7 +113,12 @@ export interface CapabilitiesResponse {
 // ===== Financials =====
 export interface FinancialStatus {
   available: boolean
-  tables: Record<string, { rows: number; symbols: number }>
+  tables: Record<string, {
+    rows: number
+    symbols: number
+    latest_period_end?: string | null
+    latest_announce_date?: string | null
+  }>
   last_sync: Record<string, string>
   /** 服务端是否正在同步(手动触发)——驱动"同步中"UI 并防重复点击 */
   syncing?: boolean
@@ -1063,10 +1068,21 @@ export interface StrategyBacktestTrade {
   exit_signal_id?: string | null
 }
 
+export interface StrategyBacktestDataQuality {
+  asset_type: string
+  requested_start: string
+  requested_end: string
+  covered_start: string | null
+  covered_end: string | null
+  symbols_requested: number
+  symbols_loaded: number
+  turnover_rate?: 'complete' | 'missing' | 'not_required'
+}
+
 export interface StrategyBacktestResult {
   run_id: string
   config: Record<string, any>
-  stats: Record<string, any>
+  stats: Record<string, any> & { data_quality?: StrategyBacktestDataQuality }
   equity_curve: { date: string; value: number; cash?: number; positions?: number; exposure?: number }[]
   drawdown_curve: { date: string; value: number }[]
   benchmark_curve?: { date: string; value: number; close?: number; name?: string; symbol?: string }[]

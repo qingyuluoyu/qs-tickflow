@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,19 @@ from app.services import preferences
 from app.services.financial_sync import get_financial_df
 
 logger = logging.getLogger(__name__)
+
+
+_PROVIDER_FINANCIAL_CACHE_TTL_SECONDS = 300.0
+
+
+@dataclass(frozen=True)
+class _ProviderFrameCacheEntry:
+    expires_at: float
+    frame: pl.DataFrame
+
+
+_provider_financial_cache: dict[tuple[str, str, str, bool], _ProviderFrameCacheEntry] = {}
+_provider_financial_cache_lock = threading.RLock()
 
 
 _ALIASES: dict[str, dict[str, str]] = {
@@ -160,6 +176,60 @@ def _custom_financial_provider() -> Any | None:
     return custom_sources.get_provider(provider_name)
 
 
+def _provider_cache_name(provider: Any) -> str:
+    """Return a stable provider identifier without relying on its implementation."""
+    name = getattr(provider, "name", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    return type(provider).__qualname__
+
+
+def _read_provider_financial_cache(
+    provider: Any,
+    table: str,
+    symbol: str,
+    latest_only: bool,
+) -> pl.DataFrame | None:
+    key = (_provider_cache_name(provider), table, symbol, latest_only)
+    now = time.monotonic()
+    with _provider_financial_cache_lock:
+        cached = _provider_financial_cache.get(key)
+        if cached is None:
+            return None
+        if cached.expires_at <= now:
+            _provider_financial_cache.pop(key, None)
+            return None
+        return cached.frame.clone()
+
+
+def _store_provider_financial_cache(
+    provider: Any,
+    table: str,
+    symbol: str,
+    latest_only: bool,
+    frame: pl.DataFrame,
+) -> None:
+    if frame.is_empty():
+        return
+    key = (_provider_cache_name(provider), table, symbol, latest_only)
+    with _provider_financial_cache_lock:
+        _provider_financial_cache[key] = _ProviderFrameCacheEntry(
+            expires_at=time.monotonic() + _PROVIDER_FINANCIAL_CACHE_TTL_SECONDS,
+            frame=frame.clone(),
+        )
+
+
+def invalidate_provider_financial_cache(table: str | None = None) -> None:
+    """Drop remote financial snapshots after a local financial-table write."""
+    with _provider_financial_cache_lock:
+        if table is None:
+            _provider_financial_cache.clear()
+            return
+        for key in tuple(_provider_financial_cache):
+            if key[1] == table:
+                _provider_financial_cache.pop(key, None)
+
+
 def load_financial_frame(
     data_dir: Path,
     table: str,
@@ -186,9 +256,26 @@ def load_financial_frame(
         try:
             provider = (provider_factory or _custom_financial_provider)()
             if provider is not None:
+                if prefer_provider:
+                    cached = _read_provider_financial_cache(
+                        provider,
+                        table,
+                        normalized_symbol,
+                        latest_only,
+                    )
+                    if cached is not None:
+                        return cached
                 fetched = provider.get_financials(table, [normalized_symbol], latest_only=latest_only)
                 normalized = normalize_financial_frame(table, fetched)
                 if not normalized.is_empty():
+                    if prefer_provider:
+                        _store_provider_financial_cache(
+                            provider,
+                            table,
+                            normalized_symbol,
+                            latest_only,
+                            normalized,
+                        )
                     return normalized
         except Exception as exc:
             logger.warning("financial read fallback failed for %s/%s: %s", table, normalized_symbol, exc)

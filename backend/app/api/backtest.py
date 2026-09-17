@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import threading
+import time
 from dataclasses import asdict
 from datetime import date, timedelta
 from typing import Literal
@@ -263,9 +265,6 @@ def strategy_run(req: StrategyBacktestRequest, request: Request):
 
 
 # ── SSE 流式回测 (实时进度 + 可取消 + 支持重连) ───────────────────
-
-import time
-import hashlib
 
 
 class _BacktestJob:
@@ -527,13 +526,17 @@ async def strategy_stream(
                         yield f"event: error\ndata: {json.dumps({'message': job.error}, ensure_ascii=False)}\n\n"
                     elif job.result is not None:
                         r = job.result
-                        error = r.get("error") if isinstance(r, dict) else getattr(r, "error", None)
+                        payload = r if isinstance(r, dict) else asdict(r)
+                        error = payload.get("error")
                         if error == "cancelled":
                             yield f"event: error\ndata: {json.dumps({'message': '回测已取消'}, ensure_ascii=False)}\n\n"
                         elif error:
-                            yield f"event: error\ndata: {json.dumps({'message': error}, ensure_ascii=False)}\n\n"
+                            error_payload = {"message": error}
+                            data_quality = payload.get("stats", {}).get("data_quality")
+                            if data_quality is not None:
+                                error_payload["data_quality"] = data_quality
+                            yield f"event: error\ndata: {json.dumps(error_payload, ensure_ascii=False, default=str)}\n\n"
                         else:
-                            payload = r if isinstance(r, dict) else asdict(r)
                             yield f"event: done\ndata: {json.dumps(payload, ensure_ascii=False, default=str)}\n\n"
                     return
 

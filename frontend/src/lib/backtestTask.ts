@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import type { StrategyBacktestResult } from './api'
+import type { StrategyBacktestDataQuality, StrategyBacktestResult } from './api'
 import { accountStorage } from './storage'
 
 /**
@@ -26,6 +26,7 @@ export interface BacktestTask {
   result: StrategyBacktestResult | null
   progress: BacktestProgress | null
   error: string | null
+  dataQuality: StrategyBacktestDataQuality | null
   /** 连接中断、正在有界重连中 (UI 显示"连接中断，重试中") */
   reconnecting: boolean
 }
@@ -118,7 +119,14 @@ function connectSSE(url: string): void {
     if (current?.id !== id) return
     try {
       const result = JSON.parse(e.data) as StrategyBacktestResult
-      current = { ...current, isPending: false, result, error: null, reconnecting: false }
+      current = {
+        ...current,
+        isPending: false,
+        result,
+        error: null,
+        dataQuality: result.stats.data_quality ?? null,
+        reconnecting: false,
+      }
       emit()
     } catch {
       current = { ...current, isPending: false, error: '结果解析失败', reconnecting: false }
@@ -134,8 +142,17 @@ function connectSSE(url: string): void {
     // SSE error 事件: 有 data 说明是后端主动推送的错误/取消; 无 data 说明是连接断开
     if (e.data) {
       try {
-        const msg = JSON.parse(e.data)?.message ?? '回测出错'
-        current = { ...current, isPending: false, error: msg, reconnecting: false }
+        const payload = JSON.parse(e.data) as {
+          message?: string
+          data_quality?: StrategyBacktestDataQuality
+        }
+        current = {
+          ...current,
+          isPending: false,
+          error: payload.message ?? '回测出错',
+          dataQuality: payload.data_quality ?? null,
+          reconnecting: false,
+        }
         emit()
       } catch {
         current = { ...current, isPending: false, error: '回测出错', reconnecting: false }
@@ -200,7 +217,15 @@ export function startBacktest(params: {
   }
 
   const id = ++taskSeq
-  current = { id, isPending: true, result: null, progress: null, error: null, reconnecting: false }
+  current = {
+    id,
+    isPending: true,
+    result: null,
+    progress: null,
+    error: null,
+    dataQuality: null,
+    reconnecting: false,
+  }
   emit()
 
   const qs = buildQuery({
@@ -276,7 +301,15 @@ export function tryReconnect(): boolean {
   if (!qs) return false
   // 有未完成的任务, 重连
   const id = ++taskSeq
-  current = { id, isPending: true, result: null, progress: null, error: null, reconnecting: false }
+  current = {
+    id,
+    isPending: true,
+    result: null,
+    progress: null,
+    error: null,
+    dataQuality: null,
+    reconnecting: false,
+  }
   emit()
   connectSSE(`/api/backtest/strategy/stream?${qs}`)
   return true

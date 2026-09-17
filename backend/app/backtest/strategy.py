@@ -554,6 +554,7 @@ class BacktestResultPolicy:
             return stats
         diagnostic = {
             "error",
+            "data_quality",
             "timing_ms",
             "execution",
             "selection",
@@ -921,10 +922,14 @@ class StrategyBacktestService:
         run_id = uuid.uuid4().hex[:10]
         result_policy = result_policy or BacktestResultPolicy()
 
-        def _err(msg: str) -> StrategyBacktestResult:
+        def _err(
+            msg: str,
+            data_quality: dict[str, object] | None = None,
+        ) -> StrategyBacktestResult:
             return StrategyBacktestResult(
                 run_id=run_id,
                 config=self._config_to_dict(config),
+                stats={"data_quality": data_quality} if data_quality is not None else {},
                 error=msg,
                 elapsed_ms=(time.perf_counter() - t0) * 1000,
             )
@@ -1114,6 +1119,18 @@ class StrategyBacktestService:
             if not formal_range.any():
                 return _err("正式回测区间内无数据")
             feature_width = int(panel.width)
+
+        data_quality = self._data_quality(
+            config,
+            feature_plan,
+            market_data=market_data,
+            panel=panel,
+        )
+        if data_quality.get("turnover_rate") == "missing":
+            return _err(
+                "回测数据缺少历史换手率" "\N{FULLWIDTH COMMA}无法按当前条件计算",
+                data_quality,
+            )
 
         strategy_position_sizing = str(s.meta.get("position_sizing") or config.position_sizing)
         effective_martingale_base_pct = float(
@@ -1453,6 +1470,7 @@ class StrategyBacktestService:
 
         timing_ms["total"] = round((time.perf_counter() - t0) * 1000, 1)
         result.stats["timing_ms"] = timing_ms
+        result.stats["data_quality"] = data_quality
         result.stats["panel_rows"] = panel_rows
         result.stats["panel_columns"] = panel_columns
         result.stats["feature_columns"] = feature_width
@@ -1547,6 +1565,101 @@ class StrategyBacktestService:
             strategy_info=strategy_info,
             elapsed_ms=round(elapsed, 1),
         )
+
+    @staticmethod
+    def _requested_symbol_count(config: StrategyBacktestConfig, loaded: int) -> int:
+        if config.symbols is None:
+            return loaded
+        return len({symbol.strip().upper() for symbol in config.symbols if symbol.strip()})
+
+    @classmethod
+    def _data_quality(
+        cls,
+        config: StrategyBacktestConfig,
+        feature_plan: ResolvedFeaturePlan,
+        *,
+        market_data: MarketDataMatrix | None,
+        panel: pl.DataFrame | None,
+    ) -> dict[str, object]:
+        required_fields = (
+            set(feature_plan.base_columns)
+            | set(feature_plan.instrument_columns)
+            | set(feature_plan.matrix_columns)
+        )
+        turnover_required = "turnover_rate" in required_fields
+        quality: dict[str, object] = {
+            "asset_type": config.asset_type,
+            "requested_start": config.start.isoformat(),
+            "requested_end": config.end.isoformat(),
+            "covered_start": None,
+            "covered_end": None,
+            "symbols_requested": 0,
+            "symbols_loaded": 0,
+            "turnover_rate": "not_required",
+        }
+
+        if market_data is not None:
+            seen = np.isfinite(market_data.close)
+            loaded_dates = np.flatnonzero(seen.any(axis=1))
+            loaded_symbols = int(np.count_nonzero(seen.any(axis=0)))
+            quality["covered_start"] = (
+                market_data.timestamp_labels[int(loaded_dates[0])][:10]
+                if loaded_dates.size else None
+            )
+            quality["covered_end"] = (
+                market_data.timestamp_labels[int(loaded_dates[-1])][:10]
+                if loaded_dates.size else None
+            )
+            quality["symbols_loaded"] = loaded_symbols
+            quality["symbols_requested"] = cls._requested_symbol_count(config, loaded_symbols)
+            if turnover_required:
+                turnover_values = market_data.fields.get("turnover_rate")
+                quality["turnover_rate"] = (
+                    "complete"
+                    if (
+                        turnover_values is not None
+                        and seen.any()
+                        and np.isfinite(turnover_values[seen]).all()
+                    )
+                    else "missing"
+                )
+            return quality
+
+        if panel is None or panel.is_empty():
+            return quality
+
+        close = (
+            panel.get_column("close")
+            .cast(pl.Float64, strict=False)
+            .fill_null(float("nan"))
+            .to_numpy()
+        )
+        seen_rows = np.isfinite(close)
+        date_values = panel.get_column("date").to_list()
+        loaded_dates = [date_values[index] for index in np.flatnonzero(seen_rows)]
+        loaded_symbols = set(
+            panel.get_column("symbol").cast(pl.Utf8).to_numpy()[seen_rows].tolist()
+        )
+        quality["covered_start"] = min(loaded_dates).isoformat() if loaded_dates else None
+        quality["covered_end"] = max(loaded_dates).isoformat() if loaded_dates else None
+        quality["symbols_loaded"] = len(loaded_symbols)
+        quality["symbols_requested"] = cls._requested_symbol_count(config, len(loaded_symbols))
+        if turnover_required:
+            if "turnover_rate" not in panel.columns:
+                quality["turnover_rate"] = "missing"
+            else:
+                turnover = (
+                    panel.get_column("turnover_rate")
+                    .cast(pl.Float64, strict=False)
+                    .fill_null(float("nan"))
+                    .to_numpy()
+                )
+                quality["turnover_rate"] = (
+                    "complete"
+                    if seen_rows.any() and np.isfinite(turnover[seen_rows]).all()
+                    else "missing"
+                )
+        return quality
 
     # ── 全量模拟 (选股能力统计, 不建组合不算净值) ──
 

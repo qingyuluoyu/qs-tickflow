@@ -208,6 +208,8 @@ export function Financials() {
                 const isThisSyncing = currentSyncingTable === key
                 const isWaiting = isWaitingTable(key)
                 const lsTime = lastSync[key]
+                const periodLabel = key === 'metrics' ? '数据日' : '报告期'
+                const latestPeriod = info?.latest_period_end
                 return (
                   <div
                     key={key}
@@ -258,6 +260,13 @@ export function Financials() {
                     </div>
                     <div className="text-[11px] text-muted mt-0.5">
                       {fmtBigNum(info?.symbols ?? 0)} 只标的
+                    </div>
+                    <div className="text-[10px] text-muted mt-1">
+                      {hasData
+                        ? latestPeriod
+                          ? `${periodLabel} ${latestPeriod}`
+                          : `${periodLabel}未提供`
+                        : '尚未同步'}
                     </div>
                     <div className="mt-auto pt-2 border-t border-border/40 text-[10px] text-muted flex items-center gap-1">
                       <Clock className="h-2.5 w-2.5 shrink-0" />

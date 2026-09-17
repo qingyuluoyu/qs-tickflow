@@ -8,7 +8,7 @@ import polars as pl
 import pytest
 
 from app.backtest.engine import BacktestEngine, MatcherConfig, SimulationOptions
-from app.backtest.matrix import build_market_matrix
+from app.backtest.matrix import build_market_matrix, load_market_data_matrix_from_parquet
 
 
 def _row(symbol: str, day: int, price: float, **overrides) -> dict:
@@ -57,6 +57,39 @@ def test_duplicate_timestamp_symbol_is_rejected():
     panel = pl.DataFrame([_row("A", 0, 10), _row("A", 0, 11)])
     with pytest.raises(ValueError, match="unique timestamp/symbol"):
         build_market_matrix(panel, None, None)
+
+
+def test_parquet_matrix_preserves_partial_physical_turnover_without_current_shares_fallback(tmp_path):
+    root = tmp_path / "kline_daily_enriched"
+    days = [date(2024, 1, 2), date(2024, 1, 3)]
+    for current, turnover in zip(days, [5.1, None], strict=True):
+        partition = root / f"date={current.isoformat()}"
+        partition.mkdir(parents=True)
+        pl.DataFrame({
+            "symbol": ["000001.SZ"],
+            "date": [current],
+            "open": [10.0],
+            "high": [10.0],
+            "low": [10.0],
+            "close": [10.0],
+            "volume": [1_000.0],
+            "turnover_rate": [turnover],
+        }).write_parquet(partition / "part.parquet")
+
+    market = load_market_data_matrix_from_parquet(
+        root,
+        days[0],
+        days[-1],
+        field_columns={"turnover_rate"},
+        instruments=pl.DataFrame({
+            "symbol": ["000001.SZ"],
+            "float_shares": [1.0],
+        }),
+        cache_root=None,
+    )
+
+    assert market.field("turnover_rate")[0, 0] == pytest.approx(5.1)
+    assert np.isnan(market.field("turnover_rate")[1, 0])
 
 
 def test_intraday_timestamps_share_daily_session_id():

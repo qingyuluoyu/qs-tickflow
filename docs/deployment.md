@@ -8,6 +8,9 @@
 
 Nginx 示例（按实际域名和部署拓扑调整）：
 
+Docker Compose 会把应用端口固定绑定到宿主机 `127.0.0.1`，Nginx 必须与容器运行在同一台主机。
+公网防火墙只放行 HTTPS（443）和受限来源的 SSH；**不要**再放行 3018。
+
     location /api/ {
         proxy_pass http://127.0.0.1:3018;
         proxy_http_version 1.1;
@@ -70,6 +73,47 @@ Docker 采用两阶段构建,前端 dist 拷进后端镜像,**单容器**运行,
 Windows Docker Desktop 若提示 `HOME` 未设置,请在 `.env` 中把 `CODEX_HOME_HOST` 设置为主机
 `.codex` 目录的绝对路径。未使用 Codex CLI 时也可以在部署版 Compose 中移除该只读挂载。
 
+### 生产发布与回滚（Nginx 单入口）
+
+生产部署不要对正在运行的目录直接执行 `git pull && docker compose up --build`，也不要用
+`docker cp` 覆盖容器内单个文件。先在经过测试、无未提交改动的源码提交上构建一个带提交号的镜像，
+再用同一个标签启动容器。`data/` 仍是宿主机挂载目录，不随镜像切换而删除。
+
+```bash
+# 在已审核的源码提交上执行；记录完整提交号以便追溯
+export REVISION="$(git rev-parse --verify HEAD)"
+export IMAGE_TAG="tickflow-stock-panel:${REVISION:0:12}"
+
+# 切换前保存当前可回滚镜像标签（首次部署可跳过这一行）
+export PREVIOUS_IMAGE="$(docker inspect --format '{{.Config.Image}}' TickFlow_Stock_Panel)"
+
+docker compose config --quiet
+docker compose build app
+docker image inspect "$IMAGE_TAG" >/dev/null
+docker compose up -d --no-build app
+```
+
+等待容器就绪后再让 Nginx 接收流量。启动初期的连接重置不代表最终失败；以就绪探针为准：
+
+```bash
+for i in $(seq 1 30); do
+  curl -fsS http://127.0.0.1:3018/api/health && break
+  sleep 2
+done
+curl -fsS https://你的域名/api/health
+docker compose ps
+```
+
+若新版本未通过探针且未执行不可逆数据迁移，使用已记录镜像回滚；不要复制旧容器文件：
+
+```bash
+IMAGE_TAG="$PREVIOUS_IMAGE" docker compose up -d --no-build --force-recreate app
+curl -fsS http://127.0.0.1:3018/api/health
+```
+
+密钥只放在权限为 `600` 的 `.env` 或服务器密钥管理中，绝不写入镜像、构建参数、终端截图或 Git。
+曾在聊天、日志或截图中出现过的 API Key 应在发布前完成轮换。
+
 ### 多账户个人 AI Key 主密钥
 
 如果允许用户填写自己的 AI API Key，生产部署必须在服务器密钥管理器或运行环境中设置 `USER_SECRETS_MASTER_KEY`。它用于加密数据库内的用户私有 Key，必须在滚动更新、扩容和恢复时保持一致；不要写入镜像、Git 或前端配置。具体生成和恢复规则见 [configuration.md 的多账户 AI 密钥](./configuration.md#多账户-ai-密钥)。
@@ -90,8 +134,8 @@ Windows Docker Desktop 若提示 `HOME` 未设置,请在 `.env` 中把 `CODEX_HO
 更新到新版本:
 
 ```bash
-git pull
-docker compose up --build -d
+# 按“生产发布与回滚（Nginx 单入口）”构建带提交号的新 IMAGE_TAG，
+# 验证健康检查后再切换；不要直接覆盖运行中的容器文件。
 ```
 
 ---
@@ -118,11 +162,14 @@ vectorbt → numba 体积较大,作为可选 extras(`uv sync --extra backtest`)�
 
 ## 更新代码(已部署用户必读)
 
-拉取新版本只需一条命令:
+开发环境可以拉取新版本:
 
 ```bash
 git pull
 ```
+
+生产环境请使用上文“生产发布与回滚（Nginx 单入口）”的带标签镜像流程；它保留上一个镜像标签，
+而不是把源码目录和运行中的容器混在一起更新。
 
 **整个 `data/` 目录都不纳入 git** —— 行情 K线、财务、自选、回测、监控记录,乃至概念/行业扩展数据,全部是程序运行时生成/拉取的用户数据,`git pull` 物理上无法影响它们。新用户首次启动时,概念/行业两份扩展数据会自动从远程接口拉取,无需任何手动操作。
 
