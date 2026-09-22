@@ -100,8 +100,9 @@ RUN if [ "$USE_CN_MIRROR" = "1" ]; then \
       pip install --no-cache-dir "uv==${UV_VERSION}"; \
     fi
 
-# Backend deps
-COPY README.md /README.md
+# Backend deps. Hatchling resolves backend/pyproject.toml's readme relative to
+# the runtime WORKDIR, so it must be available as /app/README.md during uv sync.
+COPY README.md /app/README.md
 COPY backend/pyproject.toml backend/uv.lock* ./
 # uv 原生支持同时挂多个 index(主源 + 备用源),会自动在两源中查找,
 # 比逐个重试更稳健 —— 任一源缺包时另一源补位。

@@ -15,6 +15,12 @@ def test_container_dependency_install_is_lockfile_strict() -> None:
     assert 'uv==${UV_VERSION}' in dockerfile
 
 
+def test_backend_package_readme_is_copied_into_its_build_working_directory() -> None:
+    dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
+
+    assert "COPY README.md /app/README.md" in dockerfile
+
+
 def test_compose_healthcheck_uses_readiness_endpoint() -> None:
     compose = (PROJECT_ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
