@@ -10,7 +10,7 @@ import json
 import logging
 import os
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import polars as pl
@@ -209,6 +209,90 @@ def _merge_share_history(*frames: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def _daily_share_coverage_start(data_dir: Path) -> date | None:
+    """Return the earliest local stock daily bar that needs historical capital."""
+    daily_dir = data_dir / "kline_daily"
+    if not daily_dir.exists() or not any(daily_dir.rglob("*.parquet")):
+        return None
+    try:
+        from app.parquet import scan_daily_parquet
+
+        value = (
+            scan_daily_parquet(daily_dir / "**" / "*.parquet")
+            .select(pl.col("date").cast(pl.Date, strict=False).min().alias("start"))
+            .collect(engine="streaming")
+            .item(0, "start")
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("读取日K覆盖范围失败: %s", exc)
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    return value if isinstance(value, date) else None
+
+
+def _share_available_date_expr(frame: pl.DataFrame, column: str) -> pl.Expr:
+    dtype = frame.schema.get(column)
+    value = pl.col(column)
+    if dtype == pl.Utf8:
+        value = value.str.strip_chars()
+        return (
+            value.str.strptime(pl.Date, format="%Y-%m-%d", strict=False)
+            .fill_null(value.str.strptime(pl.Date, format="%Y%m%d", strict=False))
+        )
+    return value.cast(pl.Date, strict=False)
+
+
+def _limit_share_history_to_daily_coverage(
+    shares: pl.DataFrame,
+    coverage_start: date | None,
+) -> pl.DataFrame:
+    """Keep just the local daily-bar window plus its as-of predecessor.
+
+    TeaJoin's shares endpoint is daily and can return decades of records for a
+    single security. Retaining all of those rows is neither needed for the
+    locally available backtest horizon nor safe for a small production host.
+    The final record before the window preserves an as-of value for the first
+    local bar; every in-window record remains available without future leakage.
+    """
+    required = {"symbol", "period_end"}
+    if shares.is_empty() or not required <= set(shares.columns):
+        return shares
+
+    period_end = _share_available_date_expr(shares, "period_end")
+    available = period_end
+    if "announce_date" in shares.columns:
+        available = _share_available_date_expr(shares, "announce_date").fill_null(period_end)
+    normalized = (
+        shares
+        .with_columns(available.alias("_share_available_date"))
+        .filter(pl.col("symbol").is_not_null() & pl.col("_share_available_date").is_not_null())
+    )
+    if normalized.is_empty():
+        return normalized.drop("_share_available_date")
+
+    if coverage_start is None:
+        return (
+            normalized
+            .sort(["symbol", "_share_available_date", "period_end"])
+            .unique(subset=["symbol"], keep="last")
+            .drop("_share_available_date")
+        )
+
+    in_window = normalized.filter(pl.col("_share_available_date") >= pl.lit(coverage_start))
+    predecessor = (
+        normalized
+        .filter(pl.col("_share_available_date") < pl.lit(coverage_start))
+        .sort(["symbol", "_share_available_date", "period_end"])
+        .group_by("symbol", maintain_order=True)
+        .tail(1)
+    )
+    frames = [frame for frame in (predecessor, in_window) if not frame.is_empty()]
+    if not frames:
+        return normalized.head(0).drop("_share_available_date")
+    return pl.concat(frames, how="diagonal_relaxed").drop("_share_available_date")
+
+
 def _shares_from_custom_metrics(data_dir: Path, symbols: list[str]) -> pl.DataFrame:
     """Reuse TeaJoin daily_basic history already persisted as financial metrics.
 
@@ -249,10 +333,10 @@ def _share_history_rebuild_state_path(data_dir: Path) -> Path:
     return data_dir / "financials" / "shares" / "rebuild-state.json"
 
 
-def _read_share_history_rebuild_state(data_dir: Path) -> tuple[set[str], bool]:
+def _read_share_history_rebuild_state(data_dir: Path) -> tuple[set[str], bool, date | None]:
     path = _share_history_rebuild_state_path(data_dir)
     if not path.exists():
-        return set(), False
+        return set(), False, None
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
         completed = payload.get("completed_symbols")
@@ -263,7 +347,15 @@ def _read_share_history_rebuild_state(data_dir: Path) -> tuple[set[str], bool]:
     complete = payload.get("complete", False)
     if not isinstance(complete, bool):
         raise RuntimeError(f"invalid share history rebuild checkpoint: {path}")
-    return set(completed), complete
+    coverage_start = payload.get("coverage_start")
+    if coverage_start is None:
+        return set(completed), complete, None
+    if not isinstance(coverage_start, str):
+        raise RuntimeError(f"invalid share history rebuild checkpoint: {path}")
+    try:
+        return set(completed), complete, date.fromisoformat(coverage_start)
+    except ValueError as exc:
+        raise RuntimeError(f"invalid share history rebuild checkpoint: {path}") from exc
 
 
 def _write_share_history_rebuild_state(
@@ -271,13 +363,18 @@ def _write_share_history_rebuild_state(
     completed_symbols: set[str],
     *,
     complete: bool,
+    coverage_start: date,
 ) -> None:
     path = _share_history_rebuild_state_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
     temporary.write_text(
         json.dumps(
-            {"completed_symbols": sorted(completed_symbols), "complete": complete},
+            {
+                "completed_symbols": sorted(completed_symbols),
+                "complete": complete,
+                "coverage_start": coverage_start.isoformat(),
+            },
             ensure_ascii=False,
         ),
         encoding="utf-8",
@@ -311,7 +408,17 @@ def rebuild_share_history_batch(
         raise ValueError("batch_size must be at least 1")
 
     symbols = list(dict.fromkeys(_get_symbols(data_dir)))
-    completed, _ = _read_share_history_rebuild_state(data_dir)
+    coverage_start = _daily_share_coverage_start(data_dir)
+    if coverage_start is None:
+        raise RuntimeError("share history repair requires local daily bars")
+    completed, _, checkpoint_coverage_start = _read_share_history_rebuild_state(data_dir)
+    if checkpoint_coverage_start is not None and coverage_start < checkpoint_coverage_start:
+        logger.info(
+            "share history coverage extended backward from %s to %s; restarting repair",
+            checkpoint_coverage_start,
+            coverage_start,
+        )
+        completed = set()
     pending = [symbol for symbol in symbols if symbol not in completed]
     if not pending:
         return {
@@ -323,17 +430,27 @@ def rebuild_share_history_batch(
 
     batch = pending[:batch_size]
     incoming = _fetch_table("shares", batch, capset, latest_only=False)
+    incoming = _limit_share_history_to_daily_coverage(incoming, coverage_start)
     if incoming.is_empty():
         raise RuntimeError("share history batch returned no rows; checkpoint unchanged")
 
-    merged = _merge_share_history(get_financial_df(data_dir, "shares"), incoming)
+    existing = _limit_share_history_to_daily_coverage(
+        get_financial_df(data_dir, "shares"),
+        coverage_start,
+    )
+    merged = _merge_share_history(existing, incoming)
     rows = _write_table("shares", merged, data_dir)
     if rows <= 0:
         raise RuntimeError("share history batch was not written; checkpoint unchanged")
     _backfill_instruments_after_share_sync(data_dir, rows)
     completed.update(batch)
     remaining = len([symbol for symbol in symbols if symbol not in completed])
-    _write_share_history_rebuild_state(data_dir, completed, complete=remaining == 0)
+    _write_share_history_rebuild_state(
+        data_dir,
+        completed,
+        complete=remaining == 0,
+        coverage_start=coverage_start,
+    )
     return {
         "processed_symbols": len(batch),
         "remaining_symbols": remaining,
@@ -347,30 +464,37 @@ def _sync_shares_for_symbols(
     data_dir: Path,
     capset: CapabilitySet,
 ) -> int:
-    """首次拉全量股本历史，后续更新最新记录并补齐新增标的历史。"""
-    completed, repair_complete = _read_share_history_rebuild_state(data_dir)
+    """同步当前股本快照；历史回测窗口由可恢复维护任务补齐。"""
+    completed, repair_complete, _ = _read_share_history_rebuild_state(data_dir)
     if not repair_complete and completed and any(symbol not in completed for symbol in symbols):
         logger.info("sync_shares skipped while historical rebuild is in progress")
         return 0
-    derived = _shares_from_custom_metrics(data_dir, symbols)
-    existing = get_financial_df(data_dir, "shares")
+    coverage_start = _daily_share_coverage_start(data_dir)
+    derived = _limit_share_history_to_daily_coverage(
+        _shares_from_custom_metrics(data_dir, symbols),
+        coverage_start,
+    )
+    existing = _limit_share_history_to_daily_coverage(
+        get_financial_df(data_dir, "shares"),
+        coverage_start,
+    )
     if existing.is_empty() or not {"symbol", "period_end"} <= set(existing.columns):
-        rows = _sync_table("shares", symbols, data_dir, capset, latest_only=False)
-    else:
-        existing_symbols = set(existing["symbol"].drop_nulls().to_list())
-        missing_symbols = [symbol for symbol in symbols if symbol not in existing_symbols]
-        missing_history = (
-            _fetch_table("shares", missing_symbols, capset, latest_only=False)
-            if missing_symbols
-            else pl.DataFrame()
+        latest = derived if not derived.is_empty() else _fetch_table(
+            "shares", symbols, capset, latest_only=True,
         )
+        rows = _write_table(
+            "shares",
+            _limit_share_history_to_daily_coverage(latest, coverage_start),
+            data_dir,
+        )
+    else:
         if not derived.is_empty():
             logger.info("sync_shares merging %d TeaJoin daily_basic metric rows", len(derived))
             latest = derived
         else:
-            current_symbols = [symbol for symbol in symbols if symbol in existing_symbols]
-            latest = _fetch_table("shares", current_symbols, capset, latest_only=True)
-        merged = _merge_share_history(existing, missing_history, latest)
+            latest = _fetch_table("shares", symbols, capset, latest_only=True)
+            latest = _limit_share_history_to_daily_coverage(latest, coverage_start)
+        merged = _merge_share_history(existing, latest)
         rows = _write_table("shares", merged, data_dir)
     # Restore current capital in instruments after a durable shares update.
     _backfill_instruments_after_share_sync(data_dir, rows)

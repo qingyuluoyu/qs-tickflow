@@ -20,27 +20,38 @@ def _write_instruments(data_dir, symbols: list[str]) -> None:
     pl.DataFrame({"symbol": symbols}).write_parquet(path)
 
 
-def test_first_share_sync_fetches_complete_history(tmp_path, monkeypatch):
+def _write_daily_coverage(data_dir, symbol: str, *dates: str) -> None:
+    for ds in dates:
+        path = data_dir / "kline_daily" / f"date={ds}" / "part.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({
+            "symbol": [symbol],
+            "date": [date.fromisoformat(ds)],
+        }).write_parquet(path)
+
+
+def test_first_share_sync_fetches_current_snapshot_without_daily_coverage(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH"])
     calls: list[tuple[list[str], bool]] = []
 
     def fake_fetch(table, symbols, capset, latest_only=True):
         assert table == "shares"
         calls.append((symbols, latest_only))
+        assert latest_only is True
         return pl.DataFrame({
-            "symbol": ["600000.SH", "600000.SH"],
-            "period_end": ["2023-12-31", "2024-06-30"],
-            "float_shares": [10.0, 12.0],
+            "symbol": ["600000.SH"],
+            "period_end": ["2024-06-30"],
+            "float_shares": [12.0],
         })
 
     monkeypatch.setattr(financial_sync, "_fetch_table", fake_fetch)
 
     rows = financial_sync.sync_shares(tmp_path, CapabilitySet())
 
-    assert rows == 2
-    assert calls == [(["600000.SH"], False)]
+    assert rows == 1
+    assert calls == [(["600000.SH"], True)]
     stored = pl.read_parquet(tmp_path / "financials" / "shares" / "part.parquet")
-    assert stored["period_end"].to_list() == ["2023-12-31", "2024-06-30"]
+    assert stored["period_end"].to_list() == ["2024-06-30"]
 
 
 def test_custom_share_sync_merges_metric_snapshot_without_erasing_history(tmp_path, monkeypatch):
@@ -155,29 +166,26 @@ def test_incremental_share_sync_updates_existing_and_backfills_new_symbols(tmp_p
         calls.append((symbols, latest_only))
         if latest_only:
             return pl.DataFrame({
-                "symbol": ["600000.SH"],
-                "period_end": ["2024-06-30"],
-                "float_shares": [11.0],
+                "symbol": ["600000.SH", "000001.SZ"],
+                "period_end": ["2024-06-30", "2024-06-30"],
+                "float_shares": [11.0, 21.0],
             })
-        return pl.DataFrame({
-            "symbol": ["000001.SZ", "000001.SZ"],
-            "period_end": ["2023-12-31", "2024-06-30"],
-            "float_shares": [20.0, 21.0],
-        })
+        raise AssertionError("historical share sync must use the maintenance repair path")
 
     monkeypatch.setattr(financial_sync, "_fetch_table", fake_fetch)
 
     rows = financial_sync.sync_shares(tmp_path, CapabilitySet())
 
-    assert rows == 3
-    assert calls == [(["000001.SZ"], False), (["600000.SH"], True)]
+    assert rows == 2
+    assert calls == [(["600000.SH", "000001.SZ"], True)]
     stored = pl.read_parquet(path).sort(["symbol", "period_end"])
     assert stored.filter(pl.col("symbol") == "600000.SH")["float_shares"].to_list() == [11.0]
-    assert stored.filter(pl.col("symbol") == "000001.SZ")["float_shares"].to_list() == [20.0, 21.0]
+    assert stored.filter(pl.col("symbol") == "000001.SZ")["float_shares"].to_list() == [21.0]
 
 
 def test_rebuild_share_history_batch_merges_and_resumes(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH", "000001.SZ"])
+    _write_daily_coverage(tmp_path, "600000.SH", "2024-01-01")
     shares_path = tmp_path / "financials" / "shares" / "part.parquet"
     shares_path.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame({
@@ -229,18 +237,80 @@ def test_rebuild_share_history_batch_merges_and_resumes(tmp_path, monkeypatch):
     assert state == {
         "completed_symbols": ["000001.SZ", "600000.SH"],
         "complete": True,
+        "coverage_start": "2024-01-01",
     }
     assert pl.read_parquet(shares_path).sort(["symbol", "period_end"]).height == 3
 
 
 def test_rebuild_share_history_does_not_advance_after_empty_batch(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH"])
+    _write_daily_coverage(tmp_path, "600000.SH", "2024-01-01")
     monkeypatch.setattr(financial_sync, "_fetch_table", lambda *_args, **_kwargs: pl.DataFrame())
 
     with pytest.raises(RuntimeError, match="share history batch returned no rows"):
         financial_sync.rebuild_share_history_batch(tmp_path, CapabilitySet(), batch_size=1)
 
     assert not (tmp_path / "financials" / "shares" / "rebuild-state.json").exists()
+
+
+def test_rebuild_share_history_keeps_daily_coverage_and_one_prior_record(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["600000.SH"])
+    _write_daily_coverage(tmp_path, "600000.SH", "2026-08-11", "2026-08-12")
+    monkeypatch.setattr(
+        financial_sync,
+        "_fetch_table",
+        lambda *_args, **_kwargs: pl.DataFrame({
+            "symbol": ["600000.SH"] * 4,
+            "period_end": ["2025-01-01", "2026-08-10", "2026-08-11", "2026-08-12"],
+            "announce_date": ["2025-01-01", "2026-08-10", "2026-08-11", "2026-08-12"],
+            "float_shares": [10.0, 20.0, 30.0, 40.0],
+        }),
+    )
+
+    result = financial_sync.rebuild_share_history_batch(
+        tmp_path, CapabilitySet(), batch_size=1,
+    )
+
+    assert result["rows"] == 3
+    stored = pl.read_parquet(tmp_path / "financials" / "shares" / "part.parquet")
+    assert stored.sort("period_end")["period_end"].to_list() == [
+        "2026-08-10", "2026-08-11", "2026-08-12",
+    ]
+
+
+def test_rebuild_share_history_restarts_when_daily_coverage_moves_back(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["600000.SH"])
+    _write_daily_coverage(tmp_path, "600000.SH", "2026-08-10", "2026-08-11")
+    state = tmp_path / "financials" / "shares" / "rebuild-state.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(
+        json.dumps({
+            "completed_symbols": ["600000.SH"],
+            "complete": True,
+            "coverage_start": "2026-08-11",
+        }),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_fetch(_table, symbols, _capset, latest_only=True):
+        assert latest_only is False
+        calls.append(symbols)
+        return pl.DataFrame({
+            "symbol": symbols,
+            "period_end": ["2026-08-10"],
+            "announce_date": ["2026-08-10"],
+            "float_shares": [20.0],
+        })
+
+    monkeypatch.setattr(financial_sync, "_fetch_table", fake_fetch)
+
+    result = financial_sync.rebuild_share_history_batch(
+        tmp_path, CapabilitySet(), batch_size=1,
+    )
+
+    assert result["processed_symbols"] == 1
+    assert calls == [["600000.SH"]]
 
 
 def test_custom_financial_provider_receives_shares_contract(monkeypatch):
