@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -243,40 +245,135 @@ def _shares_from_custom_metrics(data_dir: Path, symbols: list[str]) -> pl.DataFr
     )
 
 
+def _share_history_rebuild_state_path(data_dir: Path) -> Path:
+    return data_dir / "financials" / "shares" / "rebuild-state.json"
+
+
+def _read_share_history_rebuild_state(data_dir: Path) -> tuple[set[str], bool]:
+    path = _share_history_rebuild_state_path(data_dir)
+    if not path.exists():
+        return set(), False
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        completed = payload.get("completed_symbols")
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"invalid share history rebuild checkpoint: {path}") from exc
+    if not isinstance(completed, list) or not all(isinstance(symbol, str) for symbol in completed):
+        raise RuntimeError(f"invalid share history rebuild checkpoint: {path}")
+    complete = payload.get("complete", False)
+    if not isinstance(complete, bool):
+        raise RuntimeError(f"invalid share history rebuild checkpoint: {path}")
+    return set(completed), complete
+
+
+def _write_share_history_rebuild_state(
+    data_dir: Path,
+    completed_symbols: set[str],
+    *,
+    complete: bool,
+) -> None:
+    path = _share_history_rebuild_state_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(
+        json.dumps(
+            {"completed_symbols": sorted(completed_symbols), "complete": complete},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    os.replace(temporary, path)
+
+
+def _backfill_instruments_after_share_sync(data_dir: Path, rows: int) -> None:
+    if rows <= 0:
+        return
+    try:
+        from app.services.instrument_sync import backfill_shares_from_financials
+        backfill_shares_from_financials(data_dir)
+    except Exception as e:
+        logger.warning("instruments shares backfill failed: %s", e)
+
+
+def rebuild_share_history_batch(
+    data_dir: Path,
+    capset: CapabilitySet,
+    *,
+    batch_size: int = 5,
+) -> dict[str, int | bool]:
+    """Merge one bounded batch of canonical historical share capital.
+
+    The checkpoint advances only after the batch has been merged into the
+    durable parquet. A disconnected terminal can resume without discarding
+    prior history or silently skipping an upstream failure.
+    """
+    if batch_size < 1:
+        raise ValueError("batch_size must be at least 1")
+
+    symbols = list(dict.fromkeys(_get_symbols(data_dir)))
+    completed, _ = _read_share_history_rebuild_state(data_dir)
+    pending = [symbol for symbol in symbols if symbol not in completed]
+    if not pending:
+        return {
+            "processed_symbols": 0,
+            "remaining_symbols": 0,
+            "complete": True,
+            "rows": get_financial_df(data_dir, "shares").height,
+        }
+
+    batch = pending[:batch_size]
+    incoming = _fetch_table("shares", batch, capset, latest_only=False)
+    if incoming.is_empty():
+        raise RuntimeError("share history batch returned no rows; checkpoint unchanged")
+
+    merged = _merge_share_history(get_financial_df(data_dir, "shares"), incoming)
+    rows = _write_table("shares", merged, data_dir)
+    if rows <= 0:
+        raise RuntimeError("share history batch was not written; checkpoint unchanged")
+    _backfill_instruments_after_share_sync(data_dir, rows)
+    completed.update(batch)
+    remaining = len([symbol for symbol in symbols if symbol not in completed])
+    _write_share_history_rebuild_state(data_dir, completed, complete=remaining == 0)
+    return {
+        "processed_symbols": len(batch),
+        "remaining_symbols": remaining,
+        "complete": remaining == 0,
+        "rows": rows,
+    }
+
+
 def _sync_shares_for_symbols(
     symbols: list[str],
     data_dir: Path,
     capset: CapabilitySet,
 ) -> int:
     """首次拉全量股本历史，后续更新最新记录并补齐新增标的历史。"""
+    completed, repair_complete = _read_share_history_rebuild_state(data_dir)
+    if not repair_complete and completed and any(symbol not in completed for symbol in symbols):
+        logger.info("sync_shares skipped while historical rebuild is in progress")
+        return 0
     derived = _shares_from_custom_metrics(data_dir, symbols)
-    if not derived.is_empty():
-        logger.info("sync_shares reusing %d TeaJoin daily_basic metric rows", len(derived))
-        rows = _write_table("shares", derived, data_dir)
+    existing = get_financial_df(data_dir, "shares")
+    if existing.is_empty() or not {"symbol", "period_end"} <= set(existing.columns):
+        rows = _sync_table("shares", symbols, data_dir, capset, latest_only=False)
     else:
-        existing = get_financial_df(data_dir, "shares")
-        if existing.is_empty() or not {"symbol", "period_end"} <= set(existing.columns):
-            rows = _sync_table("shares", symbols, data_dir, capset, latest_only=False)
+        existing_symbols = set(existing["symbol"].drop_nulls().to_list())
+        missing_symbols = [symbol for symbol in symbols if symbol not in existing_symbols]
+        missing_history = (
+            _fetch_table("shares", missing_symbols, capset, latest_only=False)
+            if missing_symbols
+            else pl.DataFrame()
+        )
+        if not derived.is_empty():
+            logger.info("sync_shares merging %d TeaJoin daily_basic metric rows", len(derived))
+            latest = derived
         else:
-            existing_symbols = set(existing["symbol"].drop_nulls().to_list())
-            missing_symbols = [symbol for symbol in symbols if symbol not in existing_symbols]
-            missing_history = (
-                _fetch_table("shares", missing_symbols, capset, latest_only=False)
-                if missing_symbols
-                else pl.DataFrame()
-            )
             current_symbols = [symbol for symbol in symbols if symbol in existing_symbols]
             latest = _fetch_table("shares", current_symbols, capset, latest_only=True)
-            merged = _merge_share_history(existing, missing_history, latest)
-            rows = _write_table("shares", merged, data_dir)
-    # 股本同步后回填 instruments 维表(自定义数据源的 instruments 不带股本,
-    # 缺股本会让回测 basic_filter 的市值下限过滤掉全部标的)
-    if rows > 0:
-        try:
-            from app.services.instrument_sync import backfill_shares_from_financials
-            backfill_shares_from_financials(data_dir)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("instruments shares backfill failed: %s", e)
+        merged = _merge_share_history(existing, missing_history, latest)
+        rows = _write_table("shares", merged, data_dir)
+    # Restore current capital in instruments after a durable shares update.
+    _backfill_instruments_after_share_sync(data_dir, rows)
     return rows
 
 

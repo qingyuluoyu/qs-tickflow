@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from types import SimpleNamespace
 
@@ -8,8 +9,8 @@ import pytest
 
 from app.api import data as data_api
 from app.indicators import pipeline
-from app.share_capital import apply_historical_float_shares
 from app.services import financial_sync
+from app.share_capital import apply_historical_float_shares
 from app.tickflow.capabilities import CapabilitySet
 
 
@@ -42,30 +43,39 @@ def test_first_share_sync_fetches_complete_history(tmp_path, monkeypatch):
     assert stored["period_end"].to_list() == ["2023-12-31", "2024-06-30"]
 
 
-def test_custom_share_sync_derives_real_daily_basic_history_from_metrics(tmp_path, monkeypatch):
+def test_custom_share_sync_merges_metric_snapshot_without_erasing_history(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH"])
+    shares_path = tmp_path / "financials" / "shares" / "part.parquet"
+    shares_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({
+        "symbol": ["600000.SH"],
+        "period_end": ["2024-06-30"],
+        "announce_date": ["2024-07-01"],
+        "total_shares": [1_000_000.0],
+        "float_shares": [800_000.0],
+    }).write_parquet(shares_path)
     metrics_path = tmp_path / "financials" / "metrics" / "part.parquet"
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
     pl.DataFrame({
-        "symbol": ["600000.SH", "600000.SH"],
-        "trade_date": ["2026-08-12", "2026-08-13"],
-        "total_share": [100.0, 110.0],
-        "float_share": [80.0, 90.0],
+        "symbol": ["600000.SH"],
+        "trade_date": ["2026-08-13"],
+        "total_share": [110.0],
+        "float_share": [90.0],
     }).write_parquet(metrics_path)
     monkeypatch.setattr(financial_sync, "_financial_is_custom", lambda: True)
     monkeypatch.setattr(
         financial_sync,
         "_fetch_table",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("must reuse daily_basic metrics")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected full history request")),
     )
 
     rows = financial_sync.sync_shares(tmp_path, CapabilitySet())
 
     assert rows == 2
-    stored = pl.read_parquet(tmp_path / "financials" / "shares" / "part.parquet")
+    stored = pl.read_parquet(shares_path).sort("period_end")
     assert stored.to_dicts() == [
         {
-            "symbol": "600000.SH", "period_end": "2026-08-12", "announce_date": "2026-08-12",
+            "symbol": "600000.SH", "period_end": "2024-06-30", "announce_date": "2024-07-01",
             "total_shares": 1_000_000.0, "float_shares": 800_000.0,
         },
         {
@@ -166,6 +176,73 @@ def test_incremental_share_sync_updates_existing_and_backfills_new_symbols(tmp_p
     assert stored.filter(pl.col("symbol") == "000001.SZ")["float_shares"].to_list() == [20.0, 21.0]
 
 
+def test_rebuild_share_history_batch_merges_and_resumes(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["600000.SH", "000001.SZ"])
+    shares_path = tmp_path / "financials" / "shares" / "part.parquet"
+    shares_path.parent.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({
+        "symbol": ["600000.SH"],
+        "period_end": ["2024-06-30"],
+        "announce_date": ["2024-07-01"],
+        "total_shares": [100.0],
+        "float_shares": [80.0],
+    }).write_parquet(shares_path)
+    calls: list[list[str]] = []
+
+    def fake_fetch(table, symbols, capset, latest_only=True):
+        assert table == "shares"
+        assert latest_only is False
+        calls.append(symbols)
+        return pl.DataFrame({
+            "symbol": symbols,
+            "period_end": ["2023-12-31"],
+            "announce_date": ["2024-01-01"],
+            "total_shares": [90.0],
+            "float_shares": [70.0],
+        })
+
+    monkeypatch.setattr(financial_sync, "_fetch_table", fake_fetch)
+
+    first = financial_sync.rebuild_share_history_batch(
+        tmp_path, CapabilitySet(), batch_size=1,
+    )
+    second = financial_sync.rebuild_share_history_batch(
+        tmp_path, CapabilitySet(), batch_size=1,
+    )
+
+    assert first == {
+        "processed_symbols": 1,
+        "remaining_symbols": 1,
+        "complete": False,
+        "rows": 2,
+    }
+    assert second == {
+        "processed_symbols": 1,
+        "remaining_symbols": 0,
+        "complete": True,
+        "rows": 3,
+    }
+    assert calls == [["600000.SH"], ["000001.SZ"]]
+    state = json.loads(
+        (tmp_path / "financials" / "shares" / "rebuild-state.json").read_text(encoding="utf-8")
+    )
+    assert state == {
+        "completed_symbols": ["000001.SZ", "600000.SH"],
+        "complete": True,
+    }
+    assert pl.read_parquet(shares_path).sort(["symbol", "period_end"]).height == 3
+
+
+def test_rebuild_share_history_does_not_advance_after_empty_batch(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["600000.SH"])
+    monkeypatch.setattr(financial_sync, "_fetch_table", lambda *_args, **_kwargs: pl.DataFrame())
+
+    with pytest.raises(RuntimeError, match="share history batch returned no rows"):
+        financial_sync.rebuild_share_history_batch(tmp_path, CapabilitySet(), batch_size=1)
+
+    assert not (tmp_path / "financials" / "shares" / "rebuild-state.json").exists()
+
+
 def test_custom_financial_provider_receives_shares_contract(monkeypatch):
     received: list[tuple[str, list[str], bool]] = []
 
@@ -227,7 +304,7 @@ def test_historical_turnover_uses_only_available_share_capital(monkeypatch):
         historical_shares=shares,
     )
 
-    assert result["turnover_rate"].to_list() == pytest.approx([0.5, 0.5, 1.0, 2.0, 0.5])
+    assert result["turnover_rate"].to_list() == [None, None, 1.0, 2.0, 0.5]
 
 
 def test_historical_share_capital_accepts_teajoin_compact_dates():
@@ -248,7 +325,25 @@ def test_historical_share_capital_accepts_teajoin_compact_dates():
     assert result["float_shares"].to_list() == [80.0, 200.0]
 
 
-def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
+def test_current_day_uses_historical_share_capital_when_instrument_is_invalid():
+    rows = pl.DataFrame({
+        "symbol": ["600000.SH"],
+        "date": [date(2026, 8, 13)],
+        "float_shares": [0.0],
+    })
+    shares = pl.DataFrame({
+        "symbol": ["600000.SH"],
+        "period_end": ["20260812"],
+        "announce_date": ["20260812"],
+        "float_shares": [80.0],
+    })
+
+    result = apply_historical_float_shares(rows, shares, today=date(2026, 8, 13))
+
+    assert result["float_shares"].to_list() == [80.0]
+
+
+def test_historical_turnover_without_asof_share_capital_is_null(monkeypatch):
     monkeypatch.setattr(pipeline, "cn_today", lambda: date(2026, 7, 18))
     bars = pl.DataFrame({
         "symbol": ["600000.SH"],
@@ -266,7 +361,7 @@ def test_turnover_without_share_history_keeps_existing_behavior(monkeypatch):
         needed={"turnover_rate"},
     )
 
-    assert result["turnover_rate"][0] == pytest.approx(0.5)
+    assert result["turnover_rate"][0] is None
 
 
 def test_data_status_includes_share_history(tmp_path):

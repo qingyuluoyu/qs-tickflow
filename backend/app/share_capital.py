@@ -1,7 +1,4 @@
-"""历史股本解析。
-
-财务股本按公告日可用，历史缺失时回退 instruments 最新流通股本。
-"""
+"""历史股本解析。"""
 from __future__ import annotations
 
 from datetime import date
@@ -30,21 +27,30 @@ def apply_historical_float_shares(
     *,
     today: date,
 ) -> pl.DataFrame:
-    """为行情行解析有效流通股本。
+    """Resolve usable float shares without leaking current capital into history.
 
-    当日优先保留 rows.float_shares，无效（缺失或非正）时回退历史股本；
-    历史日期使用公告日不晚于交易日的最新股本，
-    找不到历史记录时继续使用 rows.float_shares。
+    The current day may use the instrument snapshot. Earlier bars use only a
+    share record announced on or before their trade date; unavailable history
+    stays null so turnover cannot look valid when it is not.
     """
     required = {"symbol", "date", "float_shares"}
+    if rows.is_empty() or not required <= set(rows.columns):
+        return rows
+
+    def current_day_only(frame: pl.DataFrame) -> pl.DataFrame:
+        return frame.with_columns(
+            pl.when(pl.col("date").cast(pl.Date, strict=False) == pl.lit(today))
+            .then(pl.col("float_shares"))
+            .otherwise(pl.lit(None).cast(pl.Float64))
+            .alias("float_shares")
+        )
+
     if (
-        rows.is_empty()
-        or not required <= set(rows.columns)
-        or shares is None
+        shares is None
         or shares.is_empty()
         or not {"symbol", "period_end", "float_shares"} <= set(shares.columns)
     ):
-        return rows
+        return current_day_only(rows)
 
     def as_date_expr(column: str) -> pl.Expr:
         dtype = shares.schema[column]
@@ -78,7 +84,7 @@ def apply_historical_float_shares(
         .sort(["symbol", "_share_available_date"])
     )
     if history.is_empty():
-        return rows
+        return current_day_only(rows)
 
     resolved = (
         rows
@@ -98,12 +104,15 @@ def apply_historical_float_shares(
         )
         .with_columns(
             pl.when(
-                (pl.col("_share_trade_date") == pl.lit(today))
-                & (pl.col("float_shares") > 0)
+                pl.col("_share_trade_date") == pl.lit(today)
             )
-            .then(pl.col("float_shares"))
+            .then(
+                pl.when(pl.col("float_shares") > 0)
+                .then(pl.col("float_shares"))
+                .otherwise(pl.col("_historical_float_shares"))
+            )
             .otherwise(
-                pl.coalesce("_historical_float_shares", "float_shares")
+                pl.col("_historical_float_shares")
             )
             .alias("float_shares")
         )
