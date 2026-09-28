@@ -48,6 +48,22 @@ def _get_symbols(data_dir: Path) -> list[str]:
         return []
 
 
+def share_history_rebuild_symbols(data_dir: Path) -> list[str]:
+    """Include stored daily securities even when absent from current instruments."""
+    from app.parquet import scan_daily_parquet
+
+    symbols = list(dict.fromkeys(_get_symbols(data_dir)))
+    daily_dir = data_dir / "kline_daily"
+    if not any(daily_dir.rglob("*.parquet")):
+        return symbols
+    daily_symbols = (
+        scan_daily_parquet(daily_dir / "**" / "*.parquet")
+        .select("symbol").drop_nulls().unique().sort("symbol")
+        .collect(engine="streaming")["symbol"].to_list()
+    )
+    return list(dict.fromkeys([*symbols, *daily_symbols]))
+
+
 def _financial_is_custom() -> bool:
     """当前财务数据源是否走 custom (用于绕过 TickFlow Expert 套餐门槛)。"""
     from app.services import preferences
@@ -413,7 +429,7 @@ def rebuild_share_history_batch(
     if batch_size < 1:
         raise ValueError("batch_size must be at least 1")
 
-    symbols = list(dict.fromkeys(_get_symbols(data_dir)))
+    symbols = share_history_rebuild_symbols(data_dir)
     coverage_start = _daily_share_coverage_start(data_dir)
     if coverage_start is None:
         raise RuntimeError("share history repair requires local daily bars")
@@ -439,6 +455,8 @@ def rebuild_share_history_batch(
     incoming = _limit_share_history_to_daily_coverage(incoming, coverage_start)
     if incoming.is_empty():
         raise RuntimeError("share history batch returned no rows; checkpoint unchanged")
+    if set(batch) - set(incoming["symbol"].drop_nulls().to_list()):
+        raise RuntimeError("share history batch missing requested symbols; checkpoint unchanged")
 
     existing = _limit_share_history_to_daily_coverage(
         get_financial_df(data_dir, "shares"),

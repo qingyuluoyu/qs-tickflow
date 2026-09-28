@@ -279,6 +279,41 @@ def test_rebuild_share_history_keeps_daily_coverage_and_one_prior_record(tmp_pat
     ]
 
 
+def test_rebuild_share_history_includes_daily_symbol_absent_from_instruments(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["600000.SH"])
+    _write_daily_coverage(tmp_path, "000001.SZ", "2026-08-11")
+    calls = []
+
+    def fetch(_table, symbols, _capset, **_kwargs):
+        calls.extend(symbols)
+        return pl.DataFrame({
+            "symbol": symbols,
+            "period_end": ["2026-08-11"] * len(symbols),
+            "announce_date": ["2026-08-11"] * len(symbols),
+            "float_shares": [100.0] * len(symbols),
+        })
+
+    monkeypatch.setattr(financial_sync, "_fetch_table", fetch)
+    result = financial_sync.rebuild_share_history_batch(tmp_path, CapabilitySet(), batch_size=5)
+
+    assert sorted(calls) == ["000001.SZ", "600000.SH"]
+    assert result["processed_symbols"] == 2
+    assert result["complete"] is True
+
+
+def test_rebuild_share_history_rejects_partial_symbol_response(tmp_path, monkeypatch):
+    _write_instruments(tmp_path, ["000001.SZ", "600000.SH"])
+    _write_daily_coverage(tmp_path, "000001.SZ", "2026-08-11")
+    monkeypatch.setattr(financial_sync, "_fetch_table", lambda *_a, **_kw: pl.DataFrame({
+        "symbol": ["000001.SZ"], "period_end": ["20260811"],
+        "announce_date": ["20260811"], "float_shares": [1e6],
+    }))
+    with pytest.raises(RuntimeError, match="missing requested symbols"):
+        financial_sync.rebuild_share_history_batch(tmp_path, CapabilitySet(), batch_size=2)
+    assert not (tmp_path / "financials/shares/rebuild-state.json").exists()
+    assert not (tmp_path / "financials/shares/part.parquet").exists()
+
+
 def test_rebuild_share_history_restarts_when_daily_coverage_moves_back(tmp_path, monkeypatch):
     _write_instruments(tmp_path, ["600000.SH"])
     _write_daily_coverage(tmp_path, "600000.SH", "2026-08-10", "2026-08-11")

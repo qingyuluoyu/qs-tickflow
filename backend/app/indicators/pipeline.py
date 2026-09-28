@@ -682,6 +682,8 @@ def compute_limit_signals(
             pl.col("as_of").cast(pl.Date, strict=False).alias("_instrument_as_of")
         )
     inst_subset = instruments.select(inst_cols).unique(subset=["symbol"])
+    if need_price_limits:
+        inst_subset = inst_subset.with_columns(pl.lit(True).alias("_instrument_known"))
 
     if need_price_limits and "name" in instruments.columns:
         st_flag = (
@@ -879,11 +881,19 @@ def compute_limit_signals(
         .alias("signal_broken_limit_up")
         )
 
+    # Missing instrument metadata is unknown, not a non-ST price-limit rule.
+    # Keep the as-of turnover independently, irrespective of batch neighbors.
+    df = df.with_columns([
+        pl.when(pl.col("_instrument_known").fill_null(False))
+        .then(pl.col(column)).otherwise(None).alias(column)
+        for column in want - {"turnover_rate"} if column in df.columns
+    ])
+
     # 清理临时列 + JOIN 引入的 instruments 列 (不存入 enriched)
     cleanup = ["_prev_raw_close", "_limit_pct",
                "_theoretical_limit_up", "_theoretical_limit_down",
                "_effective_limit_up", "_effective_limit_down",
-               "_grp_up", "_grp_down", "_instrument_as_of"]
+               "_grp_up", "_grp_down", "_instrument_as_of", "_instrument_known"]
     if "_is_st" in df.columns:
         cleanup.append("_is_st")
     # 清理 join 产生的重复列
@@ -914,6 +924,14 @@ def compute_all(
     df = compute_signals(df)
     if instruments is not None and not instruments.is_empty():
         df = compute_limit_signals(df, instruments, historical_shares=historical_shares)
+    elif historical_shares is not None and not historical_shares.is_empty():
+        # A stored security may be absent from the current instrument universe.
+        # Its historical capital suffices for turnover. Price-limit outputs
+        # remain null without instrument metadata, as in mixed batches.
+        empty_instruments = pl.DataFrame(schema={"symbol": pl.Utf8, "float_shares": pl.Float64})
+        df = compute_limit_signals(
+            df, empty_instruments, historical_shares=historical_shares,
+        )
 
     # 清理 NaN / Inf
     float_cols = [c for c in df.columns if df[c].dtype.is_float()]
