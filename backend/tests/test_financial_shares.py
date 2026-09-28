@@ -197,9 +197,10 @@ def test_rebuild_share_history_batch_merges_and_resumes(tmp_path, monkeypatch):
     }).write_parquet(shares_path)
     calls: list[list[str]] = []
 
-    def fake_fetch(table, symbols, capset, latest_only=True):
+    def fake_fetch(table, symbols, capset, latest_only=True, *, raise_on_error=False):
         assert table == "shares"
         assert latest_only is False
+        assert raise_on_error is True
         calls.append(symbols)
         return pl.DataFrame({
             "symbol": symbols,
@@ -293,8 +294,9 @@ def test_rebuild_share_history_restarts_when_daily_coverage_moves_back(tmp_path,
     )
     calls: list[list[str]] = []
 
-    def fake_fetch(_table, symbols, _capset, latest_only=True):
+    def fake_fetch(_table, symbols, _capset, latest_only=True, *, raise_on_error=False):
         assert latest_only is False
+        assert raise_on_error is True
         calls.append(symbols)
         return pl.DataFrame({
             "symbol": symbols,

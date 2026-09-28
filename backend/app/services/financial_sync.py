@@ -63,6 +63,8 @@ def _fetch_table(
     symbols: list[str],
     capset: CapabilitySet,
     latest_only: bool = True,
+    *,
+    raise_on_error: bool = False,
 ) -> pl.DataFrame:
     """通过当前财务数据源拉取一张标准化财务表。"""
     is_custom = _financial_is_custom()
@@ -87,7 +89,9 @@ def _fetch_table(
             df = provider.get_financials(table, symbols, latest_only=latest_only)
             logger.info("sync_%s custom provider returned: %d rows, columns: %s", table, len(df), df.columns if not df.is_empty() else "empty")
         except Exception as e:  # noqa: BLE001
-            logger.warning("sync_%s custom provider failed: %s", table, e)
+            logger.warning("sync_%s custom provider failed: %s", table, type(e).__name__)
+            if raise_on_error:
+                raise
             return pl.DataFrame()
         if df.is_empty() or "symbol" not in df.columns:
             return pl.DataFrame()
@@ -126,7 +130,9 @@ def _fetch_table(
                                 all_records.append(rec)
             logger.debug("sync_%s batch %d/%d: %d records", table, batch_num, total_batches, len(data) if isinstance(data, dict) else 0)
         except Exception as e:
-            logger.warning("sync_%s batch %d/%d failed: %s", table, batch_num, total_batches, e)
+            logger.warning("sync_%s batch %d/%d failed: %s", table, batch_num, total_batches, type(e).__name__)
+            if raise_on_error:
+                raise
 
     if not all_records:
         return pl.DataFrame()
@@ -429,7 +435,7 @@ def rebuild_share_history_batch(
         }
 
     batch = pending[:batch_size]
-    incoming = _fetch_table("shares", batch, capset, latest_only=False)
+    incoming = _fetch_table("shares", batch, capset, latest_only=False, raise_on_error=True)
     incoming = _limit_share_history_to_daily_coverage(incoming, coverage_start)
     if incoming.is_empty():
         raise RuntimeError("share history batch returned no rows; checkpoint unchanged")
